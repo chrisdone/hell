@@ -8,7 +8,7 @@ data Config = Config
   { configImports :: ![String] -- ^ Starting imports.
   , configWelcome :: String -- ^ A welcome string.
   , configPrompt  :: String -> FilePath -> Ghc String -- ^ An action to generate the prompt.
-  , configRun     :: Maybe (String -> FilePath -> IO String)
+  , configRun     :: Maybe String
     -- ^ Generate a string to run statements in, for custom shell
     -- monads. Takes a username, pwd and returns something like
     -- e.g. \"runMyShellMonad\".

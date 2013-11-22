@@ -17,6 +17,7 @@ import Control.Monad.Fix
 import Data.Default
 import Data.Dynamic
 import Data.List
+import Data.Maybe
 import System.Console.Haskeline
 import System.Console.Haskeline.IO
 import System.Directory
@@ -46,8 +47,7 @@ startHell Config{..} =
                   case mline of
                     Nothing -> loop
                     Just line ->
-                      do run <- maybe (return "") (\m -> io (m username pwd)) configRun
-                         result <- runStatement run line
+                      do result <- runStatement (fromMaybe "" configRun) line
                          unless (null result)
                                 (io (queryInput hd (outputStrLn result)))
                          loop))
