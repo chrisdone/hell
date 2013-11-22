@@ -120,6 +120,7 @@ instance Default Config where
              ,"Hell.Prelude"]
     , configWelcome = "Welcome to Hell!"
     , configPrompt = \username pwd -> return (username ++ ":" ++ pwd ++ "$ ")
+    , configRun = Nothing
     }
 ```
 
