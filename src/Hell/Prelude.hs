@@ -8,7 +8,7 @@ import Data.List
 import System.Directory
 import System.Exit
 import System.IO
-import System.Time
+import Data.Time.Clock (UTCTime)
 import System.Process
 
 -- | setCurrentDirectory
@@ -52,7 +52,7 @@ perms :: FilePath -> IO Permissions
 perms = getPermissions
 
 -- | getModificationTime
-modified :: FilePath -> IO ClockTime
+modified :: FilePath -> IO UTCTime
 modified = getModificationTime
 
 -- | removeDirectory

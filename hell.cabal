@@ -20,9 +20,9 @@ library
                      haskeline,
                      ghc,
                      ghc-paths,
-                     directory,
+                     directory >= 1.2.0.0,
                      data-default,
-                     old-time,
+                     time,
                      unix
   ghc-options:       -Wall -threaded
 
