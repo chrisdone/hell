@@ -9,7 +9,7 @@ import Hell
 -- | Main entry point.
 main :: IO ()
 main = startHell def { configRun = Just "(\\m -> do p <- getCurrentDirectory;\
-                                        \(v,p) <- shelly (do cd (fromText (T.pack p));\
+                                        \(v,p) <- shellyNoDir (do cd (fromText (T.pack p));\
                                         \v <- m;\
                                         \p <- pwd;\
                                         \return (v,p));\
