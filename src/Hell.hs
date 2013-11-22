@@ -26,6 +26,7 @@ import System.Posix.User
 import GHC
 import GHC.Paths
 import GhcMonad
+import DynFlags
 
 -- | Go to hell.
 startHell :: Config -> IO ()
@@ -33,7 +34,9 @@ startHell Config{..} =
   runGhc
     (Just libdir)
     (do dflags <- getSessionDynFlags
-        void (setSessionDynFlags dflags)
+        void (setSessionDynFlags
+                (setFlags [Opt_ImplicitPrelude, Opt_OverloadedStrings]
+                          dflags))
         setImports configImports
         hd <- io (initializeInput defaultSettings)
         home <- io getHomeDirectory
@@ -94,3 +97,7 @@ runExpression stmt' = do
 -- | Short-hand utility.
 io :: IO a -> Ghc a
 io = liftIO
+
+-- | Set the given flags.
+setFlags :: [ExtensionFlag] -> DynFlags -> DynFlags
+setFlags xs dflags = foldl xopt_set dflags xs

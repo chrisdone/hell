@@ -128,9 +128,15 @@ instance Default Config where
 
 Most shell libraries require running their own monad that runs ontop
 of IO. For that, you can specify the `configRun` field to the
-configuration. There's an example for the
-[shellish](http://hackage.haskell.org/package/shellish) package
-[here](https://github.com/chrisdone/hell/blob/master/src/main/Shellish.hs).
+configuration.
+
+* There's an example for the
+  [shelly](http://hackage.haskell.org/package/shelly) package
+  [here](https://github.com/chrisdone/hell/blob/master/src/main/Shelly.hs).
+
+* There's an example for the
+  [shellish](http://hackage.haskell.org/package/shellish) package
+  [here](https://github.com/chrisdone/hell/blob/master/src/main/Shellish.hs).
 
 ## Why “Hell”? Surely a Haskell shell would be heaven!
 
