@@ -5,9 +5,13 @@ import GhcMonad
 
 -- | Shell config.
 data Config = Config
-  { configImports :: ![String]
-  , configWelcome :: String
-  , configPrompt  :: String -> FilePath -> Ghc String
+  { configImports :: ![String] -- ^ Starting imports.
+  , configWelcome :: String -- ^ A welcome string.
+  , configPrompt  :: String -> FilePath -> Ghc String -- ^ An action to generate the prompt.
+  , configRun     :: Maybe (String -> FilePath -> IO String)
+    -- ^ Generate a string to run statements in, for custom shell
+    -- monads. Takes a username, pwd and returns something like
+    -- e.g. \"runMyShellMonad\".
   }
 
 instance Default Config where
@@ -26,4 +30,5 @@ instance Default Config where
              ,"Hell.Prelude"]
     , configWelcome = "Welcome to Hell!"
     , configPrompt = \username pwd -> return (username ++ ":" ++ pwd ++ "$ ")
+    , configRun = Nothing
     }

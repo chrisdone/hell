@@ -46,7 +46,8 @@ startHell Config{..} =
                   case mline of
                     Nothing -> loop
                     Just line ->
-                      do result <- runStatement line
+                      do run <- maybe (return "") (\m -> io (m username pwd)) configRun
+                         result <- runStatement run line
                          unless (null result)
                                 (io (queryInput hd (outputStrLn result)))
                          loop))
@@ -63,8 +64,8 @@ setImports =
   mapM (fmap IIDecl . parseImportDecl) >=> setContext
 
 -- | Run the given statement.
-runStatement :: String -> Ghc String
-runStatement stmt' = do
+runStatement :: String -> String -> Ghc String
+runStatement run stmt' = do
   result <- gcatch (fmap Right (dynCompileExpr stmt))
                    (\(e::SomeException) -> return (Left e))
   case result of
@@ -73,7 +74,7 @@ runStatement stmt' = do
       gcatch (fmap ignoreUnit (io (fromDyn compiled (return "Bad compile."))))
              (\(e::SomeException) -> return (show e))
 
-  where stmt = "(" ++ stmt' ++ ") >>= return . show :: IO String"
+  where stmt = "(" ++ run ++ "(" ++ stmt' ++ ")) >>= return . show :: IO String"
         ignoreUnit "()" = ""
         ignoreUnit x = x
 
