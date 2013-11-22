@@ -1,5 +1,5 @@
 name:                hell
-version:             0.0.0
+version:             0.0.1
 synopsis:            hell
 description:         hell
 license:             BSD3
@@ -22,8 +22,13 @@ library
                      ghc-paths,
                      directory,
                      data-default,
-                     old-time,
                      unix
+  if impl(ghc >= 7.6)
+    build-depends:   time
+  else
+    cpp-options:     -DUSE_OLD_TIME
+    build-depends:   old-time
+
   ghc-options:       -Wall -threaded
 
 executable hell
