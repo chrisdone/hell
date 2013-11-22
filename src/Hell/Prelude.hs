@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -- | A base set of functions for the shell.
 
 module Hell.Prelude where
@@ -8,7 +9,11 @@ import Data.List
 import System.Directory
 import System.Exit
 import System.IO
+#ifdef USE_OLD_TIME
 import System.Time
+#else
+import Data.Time.Clock
+#endif
 import System.Process
 
 -- | setCurrentDirectory
@@ -52,7 +57,11 @@ perms :: FilePath -> IO Permissions
 perms = getPermissions
 
 -- | getModificationTime
+#ifdef USE_OLD_TIME
 modified :: FilePath -> IO ClockTime
+#else
+modified :: FilePath -> IO UTCTime
+#endif
 modified = getModificationTime
 
 -- | removeDirectory
