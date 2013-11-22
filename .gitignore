@@ -1,0 +1,8 @@
+*.o
+*.hi
+*~
+dist/
+cabal-dev/
+TAGS
+tags
+*.tag
