@@ -12,7 +12,7 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 library
-  exposed-modules:   Hell, Hell.Types, Hell.Prelude
+  exposed-modules:   Hell, Hell.Types, Hell.Prelude, Hell.Win32
   hs-source-dirs:    src/
   build-depends:     base > 4 && <5,
                      process,
@@ -21,32 +21,26 @@ library
                      ghc,
                      ghc-paths,
                      directory,
-                     data-default,
-                     unix
+                     data-default
+  if !os(windows)
+    build-depends:   unix
+  else
+    build-depends:   Win32
+                                      
   if impl(ghc >= 7.6)
     build-depends:   time
   else
     cpp-options:     -DUSE_OLD_TIME
     build-depends:   old-time
 
+  if os(windows)
+    cpp-options:     -DWINDOWS
+    extra-libraries: advapi32
+    extra-lib-dirs:  c:/Windows/System32
   ghc-options:       -Wall -threaded
 
 executable hell
   main-is:           Main.hs
-  hs-source-dirs:    src/main
-  build-depends:     base > 4 && <5,
-                     hell
-  ghc-options:       -Wall -threaded
-
-executable hell-shellish
-  main-is:           Shellish.hs
-  hs-source-dirs:    src/main
-  build-depends:     base > 4 && <5,
-                     hell
-  ghc-options:       -Wall -threaded
-
-executable hell-shelly
-  main-is:           Shelly.hs
   hs-source-dirs:    src/main
   build-depends:     base > 4 && <5,
                      hell

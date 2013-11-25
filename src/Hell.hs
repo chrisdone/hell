@@ -1,5 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE CPP #-}
+
 
 -- | The Hell shell.
 
@@ -21,7 +23,12 @@ import Data.Maybe
 import System.Console.Haskeline
 import System.Console.Haskeline.IO
 import System.Directory
+
+#ifndef WINDOWS
 import System.Posix.User
+#else
+import Hell.Win32
+#endif
 
 import GHC
 import GHC.Paths
@@ -40,7 +47,7 @@ startHell Config{..} =
         setImports configImports
         hd <- io (initializeInput defaultSettings)
         home <- io getHomeDirectory
-        username <- io getEffectiveUserName
+        username <- effectiveUserName
         unless (null configWelcome)
                (io (queryInput hd (outputStrLn configWelcome)))
         fix (\loop ->
@@ -93,6 +100,9 @@ runExpression stmt' = do
              (\(e::SomeException) -> return (show e))
 
   where stmt = "return (show (" ++ stmt' ++ ")) :: IO String"
+
+effectiveUserName :: Ghc String
+effectiveUserName = io getEffectiveUserName
 
 -- | Short-hand utility.
 io :: IO a -> Ghc a
