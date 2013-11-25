@@ -12,7 +12,7 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 library
-  exposed-modules:   Hell, Hell.Types, Hell.Prelude, Hell.Win32
+  exposed-modules:   Hell, Hell.Types, Hell.Prelude
   hs-source-dirs:    src/
   build-depends:     base > 4 && <5,
                      process,
@@ -34,6 +34,7 @@ library
     build-depends:   old-time
 
   if os(windows)
+    exposed-modules: Hell.Win32
     cpp-options:     -DWINDOWS
     extra-libraries: advapi32
     extra-lib-dirs:  c:/Windows/System32
