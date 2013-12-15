@@ -1,0 +1,1 @@
+:set -DUSE_OLD_TIME -imain -isrc -isrc/main -package ghc
