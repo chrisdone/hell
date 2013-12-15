@@ -21,12 +21,14 @@ library
                      ghc,
                      ghc-paths,
                      directory,
-                     data-default
+                     data-default,
+                     pdfinfo,
+                     text
   if !os(windows)
     build-depends:   unix
   else
     build-depends:   Win32
-                                      
+
   if impl(ghc >= 7.6)
     build-depends:   time
   else
