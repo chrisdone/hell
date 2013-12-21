@@ -138,7 +138,7 @@ ls = run "ls" ""
 
 -- | killall <name>
 killall :: Text -> IO ()
-killall x = sh ("killall" <> x)
+killall x = sh ("killall " <> x)
 
 -- | top
 top :: IO ()
