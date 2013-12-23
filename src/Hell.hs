@@ -64,8 +64,8 @@ repl =
      loop config state
 
 -- | Do the get-line-and-looping.
-loop :: Config -> HellState -> Hell b
-loop config state = do
+loop :: Config -> HellState -> Hell ()
+loop config state =
   fix (\again ->
          do (mline,history) <- getLineAndHistory config state
             case mline of
@@ -78,6 +78,7 @@ loop config state = do
                           (haskeline (outputStrLn result))
                    io (writeHistory (configHistory config) history)
                    again)
+
   where run = fromMaybe "" (configRun config)
 
 -- | Get a new line and return it with a new history.
@@ -88,6 +89,7 @@ getLineAndHistory config state =
      haskeline (do line <- getInputLine prompt
                    history <- getHistory
                    return (line,history))
+
   where prompter = configPrompt config
         home = stateHome state
 
