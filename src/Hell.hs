@@ -171,8 +171,15 @@ completeFilesAndFunctions funcs (leftReversed,right) = do
 
           where newrep = (if isPrefixOf "\"" rep then rep else "\"" <> rep) <> "\""
 
-        funcResults = []
+        funcResults = mapMaybe (completeFunc (reverse leftReversed)) funcs
         funcCandidate = ""
+
+-- | Complete a function name.
+completeFunc :: String -> String -> Maybe Completion
+completeFunc left func =
+  if isPrefixOf left func
+     then Just (Completion func func True)
+     else Nothing
 
 -- | Run a GHC action in Hell.
 ghc :: Ghc a -> Hell a
