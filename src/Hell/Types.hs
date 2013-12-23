@@ -25,10 +25,11 @@ data Config = Config
 
 -- | State of the shell.
 data HellState = HellState
-  { stateConfig   :: !Config
-  , stateHistory  :: !(IORef History)
-  , stateUsername :: !String
-  , stateHome     :: !FilePath
+  { stateConfig    :: !Config
+  , stateHistory   :: !(IORef History)
+  , stateUsername  :: !String
+  , stateHome      :: !FilePath
+  , stateFunctions :: ![String]
   }
 
 -- | Hell monad, containing user information and things like that.

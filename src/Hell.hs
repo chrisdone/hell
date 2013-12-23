@@ -13,6 +13,7 @@ module Hell
 
 import Hell.Types
 
+import Control.Applicative
 import Control.Exception
 import Control.Monad.Reader
 import Control.Monad.Trans
@@ -21,6 +22,7 @@ import Data.Dynamic
 import Data.IORef
 import Data.List
 import Data.Maybe
+import Data.Monoid
 import System.Console.Haskeline
 import System.Console.Haskeline.History
 import System.Directory
@@ -32,9 +34,10 @@ import System.Posix.User
 import Hell.Win32
 #endif
 
+import DynFlags
 import GHC hiding (History)
 import GHC.Paths hiding (ghc)
-import DynFlags
+import Name
 
 -- | Go to hell.
 startHell :: Config -> IO ()
@@ -51,8 +54,10 @@ startHell unreadyConfig =
            setImports (configImports config)
            historyRef <- io (readHistory (configHistory config) >>= newIORef)
            username <- io getEffectiveUserName
+           candidates <- fmap (map (occNameString . nameOccName))
+                              getNamesInScope
            runReaderT (runHell repl)
-                      (HellState config historyRef username home))
+                      (HellState config historyRef username home candidates))
 
 -- | Read-eval-print loop.
 repl :: Hell ()
@@ -96,7 +101,7 @@ getLineAndHistory config state =
 -- | Transform ~/foo to /home/chris/foo.
 reifyHome :: FilePath -> String -> FilePath
 reifyHome home fp
-  | isPrefixOf "~/" fp = (home </> drop 2 fp)
+  | isPrefixOf "~/" fp = home </> drop 2 fp
   | otherwise = fp
 
 -- | Strip and replace /home/chris/blah with ~/blah.
@@ -147,9 +152,24 @@ haskeline :: InputT IO a -> Hell a
 haskeline m =
   do historyRef <- asks stateHistory
      history <- io (readIORef historyRef)
-     io (runInputT defaultSettings
+     state <- ask
+     io (runInputT (settings state)
                    (do putHistory history
                        m))
+
+  where settings state =
+          setComplete (completeFilesAndFunctions (stateFunctions state))
+                      defaultSettings
+
+-- | Complete file names or functions in scope.
+completeFilesAndFunctions :: [String] -> (String,String) -> IO (String,[Completion])
+completeFilesAndFunctions funcs (leftReversed,right) = do
+  (fileCandidate,fileResults) <- completeFilename (leftReversed,right)
+  return (fileCandidate <|> funcCandidate,map speech fileResults <> funcResults)
+
+  where speech (Completion rep d fin) = Completion ("\"" <> rep <> "\"") d fin
+        funcResults = []
+        funcCandidate = ""
 
 -- | Run a GHC action in Hell.
 ghc :: Ghc a -> Hell a
