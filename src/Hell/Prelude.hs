@@ -12,6 +12,8 @@
 
 module Hell.Prelude
   (cd
+  ,rm
+  ,rmdir
   ,pwd
   ,home
   ,tmp
@@ -79,6 +81,14 @@ deriving instance Typeable PDFInfoError
 -- | setCurrentDirectory
 cd :: FilePath -> IO ()
 cd = setCurrentDirectory
+
+-- | setCurrentDirectory
+rm :: FilePath -> IO ()
+rm = removeFile
+
+-- | setCurrentDirectory
+rmdir :: FilePath -> IO ()
+rmdir = removeDirectory
 
 -- | getCurrentDirectory
 pwd :: IO FilePath
