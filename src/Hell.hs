@@ -1,3 +1,5 @@
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -11,33 +13,34 @@ module Hell
   ,startHell)
   where
 
-import Hell.Types
+import           Hell.Types
 
-import Control.Applicative
-import Control.Exception
-import Control.Monad.Reader
-import Control.Monad.Trans
-import Data.Default
-import Data.Dynamic
-import Data.IORef
-import Data.List
-import Data.Maybe
-import Data.Monoid
-import System.Console.Haskeline
-import System.Console.Haskeline.History
-import System.Directory
-import System.FilePath
+import           Control.Applicative
+import           Control.Exception
+import           Control.Monad.Reader
+import           Control.Monad.Trans
+import           Data.Default
+import           Data.Dynamic
+import           Data.IORef
+import           Data.List
+import           Data.Maybe
+import           Data.Monoid
+import qualified Data.Text as T
+import           System.Console.Haskeline
+import           System.Console.Haskeline.History
+import           System.Directory
+import           System.FilePath
 
 #ifndef WINDOWS
-import System.Posix.User
+import           System.Posix.User
 #else
-import Hell.Win32
+import           Hell.Win32
 #endif
 
-import DynFlags
-import GHC hiding (History)
-import GHC.Paths hiding (ghc)
-import Name
+import           DynFlags
+import           GHC hiding (History)
+import           GHC.Paths hiding (ghc)
+import           Name
 
 -- | Go to hell.
 startHell :: Config -> IO ()
@@ -167,12 +170,13 @@ completeFilesAndFunctions funcs (leftReversed,right) = do
   (fileCandidate,fileResults) <- completeFilename (leftReversed,right)
   return (fileCandidate <|> funcCandidate,map speech fileResults <> funcResults)
 
-  where speech (Completion rep d fin) = Completion newrep d fin
+  where speech (Completion (normalize -> rep) d fin) = Completion newrep d fin
 
           where newrep = (if isPrefixOf "\"" rep then rep else "\"" <> rep) <> "\""
 
         funcResults = mapMaybe (completeFunc (reverse leftReversed)) funcs
         funcCandidate = ""
+        normalize = T.unpack . T.replace "\\ " " " . T.pack
 
 -- | Complete a function name.
 completeFunc :: String -> String -> Maybe Completion
