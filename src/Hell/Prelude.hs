@@ -251,7 +251,7 @@ sh x = do
 -- | Run this stuff.
 run :: Text -> Text -> IO ()
 run name arg = do
-  exitcode <- system (T.unpack name ++ (if T.null arg then "" else " " ++ show (T.unpack arg)))
+  exitcode <- system (T.unpack name ++ " " ++ T.unpack arg)
   case exitcode of
     ExitSuccess -> return ()
     _           -> throw exitcode
