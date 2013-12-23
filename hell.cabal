@@ -23,7 +23,9 @@ library
                      directory,
                      data-default,
                      pdfinfo,
-                     text
+                     text,
+                     filepath,
+                     mtl
   if !os(windows)
     build-depends:   unix
   else
