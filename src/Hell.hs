@@ -167,7 +167,10 @@ completeFilesAndFunctions funcs (leftReversed,right) = do
   (fileCandidate,fileResults) <- completeFilename (leftReversed,right)
   return (fileCandidate <|> funcCandidate,map speech fileResults <> funcResults)
 
-  where speech (Completion rep d fin) = Completion ("\"" <> rep <> "\"") d fin
+  where speech (Completion rep d fin) = Completion newrep d fin
+
+          where newrep = (if isPrefixOf "\"" rep then rep else "\"" <> rep) <> "\""
+
         funcResults = []
         funcCandidate = ""
 
