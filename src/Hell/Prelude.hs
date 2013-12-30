@@ -13,6 +13,9 @@
 module Hell.Prelude
   (cd
   ,rm
+  ,cp
+  ,mv
+  ,mkdir
   ,rmdir
   ,pwd
   ,home
@@ -66,6 +69,7 @@ import           System.IO
 import           System.Process
 import           Text.PDF.Info
 
+
 #ifdef USE_OLD_TIME
 import           System.Time
 #else
@@ -82,12 +86,27 @@ deriving instance Typeable PDFInfoError
 cd :: FilePath -> IO ()
 cd = setCurrentDirectory
 
--- | setCurrentDirectory
+-- | removeFile
 rm :: FilePath -> IO ()
 rm = removeFile
 
--- | setCurrentDirectory
-rmdir :: FilePath -> IO ()
+-- | renameFileOrDirectory
+mv :: FilePath -> FilePath -> IO ()
+mv old new = do
+	isFile <- doesFileExist old
+	let f = if isFile then renameFile else renameDirectory
+	f old new
+
+-- | copyFile
+cp :: FilePath -> FilePath -> IO()
+cp = copyFile
+
+-- | createDirectory
+mkdir :: FilePath -> IO()
+mkdir = createDirectory
+
+-- | removeDirectory
+rmdir :: FilePath -> IO()
 rmdir = removeDirectory
 
 -- | getCurrentDirectory
@@ -148,7 +167,7 @@ ls = run "ls" ""
 
 -- | killall <name>
 killall :: Text -> IO ()
-killall x = sh ("killall " <> x)
+killall x = sh ("killall" <> x)
 
 -- | top
 top :: IO ()
@@ -251,7 +270,7 @@ sh x = do
 -- | Run this stuff.
 run :: Text -> Text -> IO ()
 run name arg = do
-  exitcode <- system (T.unpack name ++ " " ++ T.unpack arg)
+  exitcode <- system (T.unpack name ++ (if T.null arg then "" else " " ++ show (T.unpack arg)))
   case exitcode of
     ExitSuccess -> return ()
     _           -> throw exitcode
