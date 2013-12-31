@@ -15,8 +15,7 @@ module Hell
 
 import           Hell.Types
 
-import           Control.Applicative
-import           Control.Exception
+import           Control.Applicative 
 import           Control.Monad.Reader
 import           Control.Monad.Trans
 import           Data.Default
@@ -30,6 +29,7 @@ import           System.Console.Haskeline
 import           System.Console.Haskeline.History
 import           System.Directory
 import           System.FilePath
+
 
 #ifndef WINDOWS
 import           System.Posix.User
@@ -68,29 +68,34 @@ repl =
   do state <- ask
      config <- asks stateConfig
      welcome <- asks (configWelcome . stateConfig)
-     unless (null welcome) (haskeline (outputStrLn welcome))
+     unless (null welcome) (haskeline (outputStrLn welcome ) >> return ())
      loop config state
+
 
 -- | Do the get-line-and-looping.
 loop :: Config -> HellState -> Hell ()
 loop config state =
-  fix (\again ->
-         do (mline,history) <- getLineAndHistory config state
-            case mline of
-              Nothing -> again
-              Just line ->
-                do historyRef <- asks stateHistory
-                   io (writeIORef historyRef history)
-                   result <- ghc (runStatement run line)
-                   unless (null result)
-                          (haskeline (outputStrLn result))
-                   io (writeHistory (configHistory config) history)
-                   again)
+  fix (\again -> do
+	 res <- getLineAndHistory config state
+	 case res of 
+		Nothing -> again
+		Just (mline , history) -> 
+			 do 
+			    case mline of
+			      Nothing -> return () 
+			      Just line ->
+				do historyRef <- asks stateHistory
+				   io (writeIORef historyRef history)
+				   result <- ghc (runStatement run line)
+				   unless (null result) 
+					  (haskeline (outputStrLn result) >> return ())
+				   io (writeHistory (configHistory config) history)
+				   again)
 
   where run = fromMaybe "" (configRun config)
 
 -- | Get a new line and return it with a new history.
-getLineAndHistory :: Config -> HellState -> Hell (Maybe String, History)
+getLineAndHistory :: Config -> HellState -> Hell (Maybe (Maybe String, History))
 getLineAndHistory config state =
   do pwd <- io getCurrentDirectory
      prompt <- prompter (stateUsername state) (stripHome home pwd)
@@ -149,20 +154,23 @@ runExpression stmt' = do
 -- | Short-hand utility.
 io :: MonadIO m => IO a -> m a
 io = Control.Monad.Trans.liftIO
-
+ 
 -- | Run a Haskeline action in Hell.
-haskeline :: InputT IO a -> Hell a
+haskeline :: InputT IO a -> Hell (Maybe a)
 haskeline m =
   do historyRef <- asks stateHistory
      history <- io (readIORef historyRef)
      state <- ask
-     io (runInputT (settings state)
+     io (runInputT (settings state) $
+                   withInterrupt $ 
                    (do putHistory history
-                       m))
+                       line))
 
-  where settings state =
-          setComplete (completeFilesAndFunctions (stateFunctions state))
-                      defaultSettings
+  where settings state = setComplete (completeFilesAndFunctions (stateFunctions state))
+                         defaultSettings
+        line =  
+                handle (\Interrupt -> return Nothing) (m >>= \res -> return (Just res))
+
 
 -- | Complete file names or functions in scope.
 completeFilesAndFunctions :: [String] -> (String,String) -> IO (String,[Completion])
