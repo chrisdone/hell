@@ -53,7 +53,7 @@ instance Default Config where
              ,"System.Process"
              ,"System.Environment"
              ,"Hell.Prelude"]
-    , configWelcome = "Welcome to Hell!"
+    , configWelcome = "Abandon all hope, ye who enter here!"
     , configPrompt = \username pwd -> return (username ++ ":" ++ pwd ++ "$ ")
     , configRun = Nothing
     , configHistory = "~/.hell-history"
