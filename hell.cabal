@@ -12,9 +12,10 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 library
-  exposed-modules:   Hell, Hell.Types, Hell.Prelude
+  exposed-modules:   Hell, Hell.Types, Hell.Unix
   hs-source-dirs:    src/
-  build-depends:     base > 4 && <5,
+  build-depends:     transformers >= 0.3.0.0,
+                     base > 4 && <5,
                      process,
                      bytestring,
                      haskeline,
@@ -47,6 +48,7 @@ library
 executable hell
   main-is:           Main.hs
   hs-source-dirs:    src/main
-  build-depends:     base > 4 && <5,
+  build-depends:     transformers >= 0.3.0.0,
+                     base > 4 && <5,
                      hell
   ghc-options:       -Wall -threaded

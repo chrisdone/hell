@@ -44,15 +44,15 @@ instance Default Config where
     { configImports =
         map ("import "++)
             ["Prelude"
-             ,"GHC.Types"
-             ,"System.IO"
-             ,"Data.List"
-             ,"Control.Monad"
-             ,"Control.Monad.Fix"
-             ,"System.Directory"
-             ,"System.Process"
-             ,"System.Environment"
-             ,"Hell.Prelude"]
+            ,"GHC.Types"
+            ,"System.IO"
+            ,"Data.List"
+            ,"Control.Monad"
+            ,"Control.Monad.Fix"
+            ,"System.Directory"
+            ,"System.Process"
+            ,"System.Environment"
+            ,"Hell.Unix"]
     , configWelcome = "Welcome to Hell!"
     , configPrompt = \username pwd -> return (username ++ ":" ++ pwd ++ "$ ")
     , configRun = Nothing
