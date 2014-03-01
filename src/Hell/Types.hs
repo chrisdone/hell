@@ -54,8 +54,7 @@ instance Default Config where
             ,"System.Environment"
             ,"Hell.Unix"
             ,"Control.Monad.IO.Class"
-            ,"GHC.IO"
-            ,""]
+            ,"GHC.IO"]
     , configWelcome = "Welcome to Hell!"
     , configPrompt = \username pwd -> return (username ++ ":" ++ pwd ++ "$ ")
     , configRun = Nothing

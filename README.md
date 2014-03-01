@@ -11,55 +11,60 @@ this up in a few hours, it's only a couple hundred lines of code.
 
 ## What's it like?
 
-It looks something like this:
+It looks like this:
 
-    $ hell
     Welcome to Hell!
     chris:~/$ ls
+    .
+    ..
+    Backups
     Books
     Desktop
     Documents
     Downloads
     Dropbox
     Emacs
+    Hackerspace
+    Mail
     Music
+    Org
+    Papers
     Pictures
     Projects
-    Videos
+    Public
 
-Some basics are defined.
+It has some UNIX basics:
 
-    chris:~/$ cd "Emacs/"
-    chris:~/Emacs$ ls
+    chris:~/$ cd "Projects/hell/"
+    chris:~/Projects/hell$ ls
+    .
+    ..
+    LICENSE
     README.md
-    main.el
-    me
-    ot
-    chris:~/Emacs$ cd "m
-    main.el  me
-    chris:~/Emacs$ cd "me/"
-
-Note the completion on both `Emacs/` and `m`. The prompt is pure
-Haskell code, though, so you can write:
-
-    chris:~/Emacs/me$ ls'
-    ["bug","erc-images.el","qq.elc","selenium.el"]
-    chris:~/Emacs/me$ fmap (filter (isInfixOf ".")) ls'
-    ["erc-images.el","qq.elc","selenium.el"]
-    chris:~/Emacs/me$ fmap (filter (isInfixOf ".elc")) ls'
-    ["qq.elc"]
-
-Or run other shell programs, like GHCi:
-
-    chris:~/$ run "ghci"
-    GHCi, version 7.4.2.9: http://www.haskell.org/ghc/  :? for help
-    Loading package ghc-prim ... linking ... done.
-    Loading package integer-gmp ... linking ... done.
-    Loading package base ... linking ... done.
-    Prelude> :q
-    Leaving GHCi.
-    ExitSuccess
+    TAGS
+    dist
+    hell.cabal
+    src
+    chris:~/Projects/hell$ ls A
+    .ghci
+    .git
+    .gitignore
+    LICENSE
+    README.md
+    TAGS
+    dist
+    hell.cabal
+    src
+    chris:~/Projects/hell$ ls R
+    /home/chris/Projects/hell/LICENSE
+    /home/chris/Projects/hell/README.md
+    /home/chris/Projects/hell/TAGS
+    /home/chris/Projects/hell/dist
+    …
+    chris:~/Projects/hell$ cd
     chris:~/$
+
+Functions like `cd` and `ls` are overloaded.
 
 ## How does it work?
 
@@ -72,7 +77,7 @@ It tries to run the line as an `IO a` statement, if that's the wrong
 type, it evaluates it as an expression, printing the result with
 `print`.
 
-The functions like `cd`, `ls`, etc. are defined in `Hell.Prelude`
+The functions like `cd`, `ls`, etc. are defined in `Hell.Unix`
 which is imported in the default configuration (this is
 configurable). There wasn't much thinking gone into these, I'm still
 feeling my way around what I would prefer.
@@ -117,7 +122,7 @@ instance Default Config where
              ,"System.Directory"
              ,"System.Process"
              ,"System.Environment"
-             ,"Hell.Prelude"]
+             ,"Hell.Unix"]
     , configWelcome = "Welcome to Hell!"
     , configPrompt = \username pwd -> return (username ++ ":" ++ pwd ++ "$ ")
     , configRun = Nothing
