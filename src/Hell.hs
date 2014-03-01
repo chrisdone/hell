@@ -82,7 +82,6 @@ loop config state =
                           (haskeline (outputStrLn result))
                    io (writeHistory (configHistory config) history)
                    again)
-
   where run = fromMaybe "" (configRun config)
 
 -- | Get a new line and return it with a new history.
@@ -93,7 +92,6 @@ getLineAndHistory config state =
      haskeline (do line <- getInputLine prompt
                    history <- getHistory
                    return (line,history))
-
   where prompter = configPrompt config
         home = stateHome state
 
@@ -159,7 +157,6 @@ haskeline m =
      io (runInputT (settings state)
                    (do putHistory history
                        m))
-
   where settings state =
           setComplete (completeFilesAndFunctions (stateFunctions state))
                       defaultSettings
@@ -169,11 +166,8 @@ completeFilesAndFunctions :: [String] -> (String,String) -> IO (String,[Completi
 completeFilesAndFunctions funcs (leftReversed,right) = do
   (fileCandidate,fileResults) <- completeFilename (leftReversed,right)
   return (fileCandidate <|> funcCandidate,map speech fileResults <> funcResults)
-
   where speech (Completion (normalize -> rep) d fin) = Completion newrep d fin
-
           where newrep = (if isPrefixOf "\"" rep then rep else "\"" <> rep) <> "\""
-
         funcResults = mapMaybe (completeFunc (reverse leftReversed)) funcs
         funcCandidate = ""
         normalize = T.unpack . T.replace "\\ " " " . T.pack
