@@ -17,10 +17,10 @@ import Data.List
 import System.Directory
 import System.FilePath
 
--- | R parameter.
+-- | R parameter (e.g. recursive).
 data R = R
 
--- | A parameter.
+-- | A parameter (e.g. all).
 data A = A
 
 -- | List directory contents.
@@ -38,6 +38,10 @@ instance Ls (A -> IO String) where
 -- | Print the given directory recursively.
 instance Ls (R -> FilePath -> IO String) where
   ls R x = recursiveList False x
+
+-- | Print the given directory recursively.
+instance Ls (A -> R -> IO String) where
+  ls _ _ = getCurrentDirectory >>= ls A R
 
 -- | Print the given directory recursively.
 instance Ls (A -> R -> FilePath -> IO String) where
