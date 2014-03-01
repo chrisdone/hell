@@ -30,12 +30,7 @@ import           System.Console.Haskeline
 import           System.Console.Haskeline.History
 import           System.Directory
 import           System.FilePath
-
-#ifndef WINDOWS
 import           System.Posix.User
-#else
-import           Hell.Win32
-#endif
 
 import           DynFlags
 import           GHC hiding (History)

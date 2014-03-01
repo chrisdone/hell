@@ -26,23 +26,14 @@ library
                      pdfinfo,
                      text,
                      filepath,
-                     mtl
-  if !os(windows)
-    build-depends:   unix
-  else
-    build-depends:   Win32
+                     mtl,
+                     unix
 
   if impl(ghc >= 7.6)
     build-depends:   time
   else
     cpp-options:     -DUSE_OLD_TIME
     build-depends:   old-time
-
-  if os(windows)
-    exposed-modules: Hell.Win32
-    cpp-options:     -DWINDOWS
-    extra-libraries: advapi32
-    extra-lib-dirs:  c:/Windows/System32
   ghc-options:       -Wall -threaded
 
 executable hell
