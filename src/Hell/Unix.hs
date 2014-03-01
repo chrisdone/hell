@@ -7,6 +7,7 @@ module Hell.Unix where
 import Control.Monad
 import Data.List
 import System.Directory
+import System.FilePath
 
 -- | R parameter.
 data R = R
@@ -24,7 +25,7 @@ instance Ls (R -> IO String) where
 instance Ls (R -> FilePath -> IO String) where
   ls R x =
     do xs <- ls x
-       forM_ (filter (not . all (=='.')) xs)
+       forM_ (map (x </>) (filter (not . isPrefixOf ".") xs))
              (\x ->
                 do putStrLn x
                    isDir <- doesDirectoryExist x
@@ -36,7 +37,8 @@ instance Ls (R -> FilePath -> IO String) where
 -- | Get directory contents.
 instance Ls (FilePath -> IO [FilePath]) where
   ls x =
-    fmap sort (getDirectoryContents x)
+    fmap (sort . filter (\x -> not (isPrefixOf "." x) || all (=='.') x))
+         (getDirectoryContents x)
 
 -- | Get current directory contents.
 instance Ls (IO [FilePath]) where
