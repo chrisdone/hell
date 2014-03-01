@@ -33,6 +33,7 @@ import           System.FilePath
 import           System.Posix.User
 
 import           DynFlags
+import           Exception (ExceptionMonad)
 import           GHC hiding (History)
 import           GHC.Paths hiding (ghc)
 import           Name
@@ -132,17 +133,22 @@ runExpression stmt' =
   do result <- gcatch (fmap Right (dynCompileExpr stmt))
                       (\(e::SomeException) -> return (Left e))
      case result of
-       Left err -> printType stmt'
+       Left{} -> printType stmt'
        Right compiled ->
          gcatch (io (fromDyn compiled (return "Bad compile.")))
                 (\(e::SomeException) -> return (show e))
   where stmt = "return (show (" ++ stmt' ++ ")) :: IO String"
 
 -- | Print the type of the expression.
+printType :: GhcMonad m => String -> m String
 printType stmt =
-  do ty <- exprType stmt
-     d <- getDynFlags
-     return (showppr d ty)
+  do result <- gtry (exprType stmt)
+     case result of
+       Left err ->
+         return (show err)
+       Right ty ->
+         do d <- getDynFlags
+            return (showppr d ty)
 
 -- | Short-hand utility.
 io :: MonadIO m => IO a -> m a
@@ -191,3 +197,10 @@ setFlags xs dflags = foldl xopt_set dflags xs
 -- Show but Outputable instead.
 showppr :: Outputable a => DynFlags -> a -> String
 showppr d = showSDoc d . ppr
+
+-- | Try the thing or return the exception.
+gtry :: (Functor m, ExceptionMonad m) => m a -> m (Either SomeException a)
+gtry m =
+  gcatch (fmap Right m)
+         (\(e::SomeException) ->
+            return (Left e))
