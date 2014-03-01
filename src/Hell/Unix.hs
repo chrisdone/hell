@@ -114,7 +114,7 @@ getEntries everything x =
   fmap (sort .
         filter (if everything
                    then \x -> not (all (=='.') x)
-                   else \x -> not (isPrefixOf "." x) || all (=='.') x))
+                   else \x -> not (isPrefixOf "." x)))
        (getDirectoryContents x)
 
 -- | Recursive list.
@@ -122,9 +122,7 @@ recursiveList :: Bool -> FilePath -> IO String
 recursiveList everything x =
   do xs <- ls x
      forM_ (map (x </>)
-                (if everything
-                    then xs
-                    else filter (not . isPrefixOf ".") xs))
+                (filter (not . isPrefixOf ".") xs))
            (\x ->
               do putStrLn x
                  isDir <- doesDirectoryExist x

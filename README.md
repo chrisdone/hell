@@ -15,8 +15,6 @@ It looks like this:
 
     Welcome to Hell!
     chris:~/$ ls
-    .
-    ..
     Backups
     Books
     Desktop
