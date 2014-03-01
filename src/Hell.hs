@@ -41,6 +41,7 @@ import           DynFlags
 import           GHC hiding (History)
 import           GHC.Paths hiding (ghc)
 import           Name
+import           Outputable (Outputable(..),showSDoc)
 
 -- | Go to hell.
 startHell :: Config -> IO ()
@@ -120,31 +121,35 @@ setImports =
 
 -- | Run the given statement.
 runStatement :: String -> String -> Ghc String
-runStatement run stmt' = do
-  result <- gcatch (fmap Right (dynCompileExpr stmt))
-                   (\(e::SomeException) -> return (Left e))
-  case result of
-    Left{} -> runExpression stmt'
-    Right compiled ->
-      gcatch (fmap ignoreUnit (io (fromDyn compiled (return "Bad compile."))))
-             (\(e::SomeException) -> return (show e))
-
+runStatement run stmt' =
+  do result <- gcatch (fmap Right (dynCompileExpr stmt))
+                      (\(e::SomeException) -> return (Left e))
+     case result of
+       Left{} -> runExpression stmt'
+       Right compiled ->
+         gcatch (fmap ignoreUnit (io (fromDyn compiled (return "Bad compile."))))
+                (\(e::SomeException) -> return (show e))
   where stmt = "(" ++ run ++ "(" ++ stmt' ++ ")) >>= return . show :: IO String"
         ignoreUnit "()" = ""
         ignoreUnit x = x
 
 -- | Compile the given expression and evaluate it.
 runExpression :: String -> Ghc String
-runExpression stmt' = do
-  result <- gcatch (fmap Right (dynCompileExpr stmt))
-                   (\(e::SomeException) -> return (Left e))
-  case result of
-    Left err -> return (show err)
-    Right compiled ->
-      gcatch (io (fromDyn compiled (return "Bad compile.")))
-             (\(e::SomeException) -> return (show e))
-
+runExpression stmt' =
+  do result <- gcatch (fmap Right (dynCompileExpr stmt))
+                      (\(e::SomeException) -> return (Left e))
+     case result of
+       Left err -> printType stmt'
+       Right compiled ->
+         gcatch (io (fromDyn compiled (return "Bad compile.")))
+                (\(e::SomeException) -> return (show e))
   where stmt = "return (show (" ++ stmt' ++ ")) :: IO String"
+
+-- | Print the type of the expression.
+printType stmt =
+  do ty <- exprType stmt
+     d <- getDynFlags
+     return (showppr d ty)
 
 -- | Short-hand utility.
 io :: MonadIO m => IO a -> m a
@@ -192,3 +197,8 @@ ghc m = Hell (ReaderT (const m))
 -- | Set the given flags.
 setFlags :: [ExtensionFlag] -> DynFlags -> DynFlags
 setFlags xs dflags = foldl xopt_set dflags xs
+
+-- | Something like Show but for things which annoyingly do not have
+-- Show but Outputable instead.
+showppr :: Outputable a => DynFlags -> a -> String
+showppr d = showSDoc d . ppr
