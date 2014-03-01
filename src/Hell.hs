@@ -49,7 +49,7 @@ startHell unreadyConfig =
        (Just libdir)
        (do dflags <- getSessionDynFlags
            void (setSessionDynFlags
-                   (setFlags [Opt_ImplicitPrelude, Opt_OverloadedStrings]
+                   (setFlags [Opt_ImplicitPrelude]
                              dflags))
            setImports (configImports config)
            historyRef <- io (readHistory (configHistory config) >>= newIORef)
@@ -119,11 +119,27 @@ runStatement run stmt' =
   do result <- gcatch (fmap Right (dynCompileExpr stmt))
                       (\(e::SomeException) -> return (Left e))
      case result of
-       Left{} -> runExpression stmt'
+       Left err ->
+         runStringStmt run stmt'
        Right compiled ->
          gcatch (fmap ignoreUnit (io (fromDyn compiled (return "Bad compile."))))
                 (\(e::SomeException) -> return (show e))
   where stmt = "(" ++ run ++ "(" ++ stmt' ++ ")) >>= return . show :: IO String"
+        ignoreUnit "()" = ""
+        ignoreUnit x = x
+
+-- | Run an String-returning statement.
+runStringStmt :: String -> String -> Ghc String
+runStringStmt run stmt' =
+  do result <- gcatch (fmap Right (dynCompileExpr stmt))
+                      (\(e::SomeException) -> return (Left e))
+     case result of
+       Left err ->
+         runExpression stmt'
+       Right compiled ->
+         gcatch (fmap ignoreUnit (io (fromDyn compiled (return "Bad compile."))))
+                (\(e::SomeException) -> return (show e))
+  where stmt = "(" ++ run ++ "(" ++ stmt' ++ ")) :: IO String"
         ignoreUnit "()" = ""
         ignoreUnit x = x
 
@@ -133,7 +149,8 @@ runExpression stmt' =
   do result <- gcatch (fmap Right (dynCompileExpr stmt))
                       (\(e::SomeException) -> return (Left e))
      case result of
-       Left{} -> printType stmt'
+       Left err ->
+         printType stmt'
        Right compiled ->
          gcatch (io (fromDyn compiled (return "Bad compile.")))
                 (\(e::SomeException) -> return (show e))
