@@ -14,7 +14,8 @@ cabal-version:       >=1.8
 library
   exposed-modules:   Hell, Hell.Types, Hell.Unix
   hs-source-dirs:    src/
-  build-depends:     transformers >= 0.3.0.0,
+  build-depends:     utf8-string >= 0.3.7,
+                     transformers >= 0.3.0.0,
                      base > 4 && <5,
                      process,
                      bytestring,
@@ -27,7 +28,8 @@ library
                      text,
                      filepath,
                      mtl,
-                     unix
+                     unix,
+                     monad-extras
 
   if impl(ghc >= 7.6)
     build-depends:   time
@@ -39,7 +41,8 @@ library
 executable hell
   main-is:           Main.hs
   hs-source-dirs:    src/main
-  build-depends:     transformers >= 0.3.0.0,
+  build-depends:     utf8-string >= 0.3.7,
+                     transformers >= 0.3.0.0,
                      base > 4 && <5,
                      hell
   ghc-options:       -Wall -threaded

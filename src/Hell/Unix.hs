@@ -9,13 +9,22 @@ module Hell.Unix
   ,Cd(..)
   ,Rm(..)
   ,pwd
-  ,rmdir)
+  ,rmdir
+  ,disown
+  ,exec)
   where
 
+import Codec.Binary.UTF8.String
+import Control.Exception
 import Control.Monad
 import Data.List
 import System.Directory
+import System.Exit
 import System.FilePath
+import System.IO
+import System.Posix.IO
+import System.Posix.Process (executeFile, forkProcess)
+import System.Process
 
 -- | R parameter (e.g. recursive).
 data R = R
@@ -130,3 +139,28 @@ recursiveList everything x =
                       (do "" <- ls R x
                           return ()))
      return ""
+
+-- | Launch an external application through the system shell and
+-- return a @Handle@ to its standard input.
+disown :: String -> IO Handle
+disown x =
+  do (rd, wr) <- createPipe
+     setFdOption wr CloseOnExec True
+     h <- fdToHandle wr
+     hSetBuffering h LineBuffering
+     _ <- forkProcess
+            (do _ <- dupTo rd stdInput
+                executeFile "/bin/sh"
+                            False
+                            ["-c",encodeString x]
+                            Nothing)
+     closeFd rd
+     return h
+
+-- | Execute the shell command.
+exec :: String -> IO ()
+exec x =
+  do code <- system x
+     case code of
+       ExitSuccess -> return ()
+       ExitFailure e -> throw code
