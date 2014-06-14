@@ -78,12 +78,9 @@ loop config state =
               Just line ->
                 do historyRef <- asks stateHistory
                    io (writeIORef historyRef history)
-                   result <- ghc (runStatement run line)
-                   unless (null result)
-                          (haskeline (outputStrLn result))
+                   result <- ghc (runProducer line)
                    io (writeHistory (configHistory config) history)
                    again)
-  where run = fromMaybe "" (configRun config)
 
 -- | Get a new line and return it with a new history.
 getLineAndHistory :: Config -> HellState -> Hell (Maybe String, History)
@@ -113,59 +110,42 @@ setImports :: [String] -> Ghc ()
 setImports =
   mapM (fmap IIDecl . parseImportDecl) >=> setContext
 
--- | Run the given statement.
-runStatement :: String -> String -> Ghc String
-runStatement run stmt' =
-  do result <- gcatch (fmap Right (dynCompileExpr stmt))
+-- | Compile the given expression and evaluate it.
+runProducer :: String -> Ghc ()
+runProducer stmt =
+  do result <- gcatch (fmap Right (dynCompileExpr expr))
                       (\(e::SomeException) -> return (Left e))
      case result of
        Left err ->
-         runStringStmt run stmt'
+         runComplete stmt
        Right compiled ->
-         gcatch (fmap ignoreUnit (io (fromDyn compiled (return "Bad compile."))))
-                (\(e::SomeException) -> return (show e))
-  where stmt = "(" ++ run ++ "(" ++ stmt' ++ ")) >>= return . show :: IO String"
-        ignoreUnit "()" = ""
-        ignoreUnit x = x
-
--- | Run an String-returning statement.
-runStringStmt :: String -> String -> Ghc String
-runStringStmt run stmt' =
-  do result <- gcatch (fmap Right (dynCompileExpr stmt))
-                      (\(e::SomeException) -> return (Left e))
-     case result of
-       Left err ->
-         runExpression stmt'
-       Right compiled ->
-         gcatch (fmap ignoreUnit (io (fromDyn compiled (return "Bad compile."))))
-                (\(e::SomeException) -> return (show e))
-  where stmt = "(" ++ run ++ "(" ++ stmt' ++ ")) :: IO String"
-        ignoreUnit "()" = ""
-        ignoreUnit x = x
+         gcatch (io (fromDyn compiled (putStrLn "Bad compile.")))
+                (\(e::SomeException) -> liftIO (putStrLn (show e)))
+  where expr = "runResourceT (sourceList [] $= " ++ stmt ++ " $$ sinkHandle stdout) :: IO ()"
 
 -- | Compile the given expression and evaluate it.
-runExpression :: String -> Ghc String
-runExpression stmt' =
-  do result <- gcatch (fmap Right (dynCompileExpr stmt))
+runComplete :: String -> Ghc ()
+runComplete stmt =
+  do result <- gcatch (fmap Right (dynCompileExpr expr))
                       (\(e::SomeException) -> return (Left e))
      case result of
        Left err ->
-         printType stmt'
+         printType stmt
        Right compiled ->
-         gcatch (io (fromDyn compiled (return "Bad compile.")))
-                (\(e::SomeException) -> return (show e))
-  where stmt = "return (show (" ++ stmt' ++ ")) :: IO String"
+         gcatch (io (fromDyn compiled (putStrLn "Bad compile.")))
+                (\(e::SomeException) -> liftIO (putStrLn (show e)))
+  where expr = "runResourceT (sourceList [] $= " ++ stmt ++ ") :: IO ()"
 
 -- | Print the type of the expression.
-printType :: GhcMonad m => String -> m String
+printType :: String -> Ghc ()
 printType stmt =
   do result <- gtry (exprType stmt)
      case result of
        Left err ->
-         return (show err)
+         io (putStrLn (show err))
        Right ty ->
          do d <- getDynFlags
-            return (showppr d ty)
+            io (putStrLn (showppr d ty))
 
 -- | Short-hand utility.
 io :: MonadIO m => IO a -> m a
