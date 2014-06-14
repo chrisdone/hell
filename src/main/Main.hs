@@ -2,7 +2,7 @@
 
 module Main where
 
-import Hell
+import Hell.Shell
 
 -- | Main entry point.
 main :: IO ()

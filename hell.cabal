@@ -12,9 +12,10 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 library
-  exposed-modules:   Hell, Hell.Types, Hell.Unix
+  exposed-modules:   Hell.Shell, Hell.Types, Hell.Unix
   hs-source-dirs:    src/
-  build-depends:     utf8-string >= 0.3.7,
+  build-depends:     process-extras >= 0.2.0,
+                     utf8-string >= 0.3.7,
                      transformers >= 0.3.0.0,
                      base > 4 && <5,
                      process,
@@ -41,7 +42,8 @@ library
 executable hell
   main-is:           Main.hs
   hs-source-dirs:    src/main
-  build-depends:     utf8-string >= 0.3.7,
+  build-depends:     process-extras >= 0.2.0,
+                     utf8-string >= 0.3.7,
                      transformers >= 0.3.0.0,
                      base > 4 && <5,
                      hell

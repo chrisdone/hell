@@ -7,7 +7,7 @@
 
 -- | The Hell shell.
 
-module Hell
+module Hell.Shell
   (module Hell.Types
   ,module Data.Default
   ,startHell)

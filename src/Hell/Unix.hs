@@ -11,20 +11,26 @@ module Hell.Unix
   ,pwd
   ,rmdir
   ,disown
-  ,exec)
+  ,exec
+  ,Run(..))
   where
 
-import Codec.Binary.UTF8.String
-import Control.Exception
-import Control.Monad
-import Data.List
-import System.Directory
-import System.Exit
-import System.FilePath
-import System.IO
-import System.Posix.IO
-import System.Posix.Process (executeFile, forkProcess)
-import System.Process
+import           Codec.Binary.UTF8.String
+import           Control.Exception
+import           Control.Monad
+import           Data.ByteString (ByteString)
+import           Data.List
+import           Data.Monoid
+import           Data.Text (Text)
+import           System.Directory
+import           System.Exit
+import           System.FilePath
+import           System.IO
+import           System.Posix.IO
+import           System.Posix.Process (executeFile, forkProcess)
+import           System.Process
+import qualified System.Process.ByteString as B
+import qualified System.Process.Text as T
 
 -- | R parameter (e.g. recursive).
 data R = R
@@ -164,3 +170,72 @@ exec x =
      case code of
        ExitSuccess -> return ()
        ExitFailure e -> throw code
+
+-- | An exceedingly overloaded "run the program" interface.
+class Run a where
+  run :: FilePath -- ^ Path of the executable to run. Must be in PATH.
+      -> a
+
+instance Run (IO ()) where
+  run p = exec p
+
+instance Run (String -> IO ()) where
+  run p sin = void (readProcess p [] sin)
+
+instance Run ([String] -> IO ()) where
+  run p args = void (readProcess p args "")
+
+instance Run ([String] -> String -> IO ()) where
+  run p args sin = void (readProcess p args sin)
+
+instance Run (IO String) where
+  run p = readProcess p [] ""
+
+instance Run ([String] -> IO String) where
+  run p args = readProcess p args ""
+
+instance Run (String -> IO String) where
+  run p sin = readProcess p [] sin
+
+instance Run ([String] -> String -> IO String) where
+  run p args sin = readProcess p args sin
+
+instance Run (IO Text) where
+  run p = readProcessText p [] mempty
+
+instance Run ([String] -> IO Text) where
+  run p args = readProcessText p args mempty
+
+instance Run (Text -> IO Text) where
+  run p sin = readProcessText p [] sin
+
+instance Run ([String] -> Text -> IO Text) where
+  run p args sin = readProcessText p args sin
+
+instance Run (IO ByteString) where
+  run p = readProcessBytes p [] mempty
+
+instance Run ([String] -> IO ByteString) where
+  run p args = readProcessBytes p args mempty
+
+instance Run (ByteString -> IO ByteString) where
+  run p sin = readProcessBytes p [] sin
+
+instance Run ([String] -> ByteString -> IO ByteString) where
+  run p args sin = readProcessBytes p args sin
+
+-- | Read a process as a strict Text.
+readProcessText :: FilePath -> [String] -> Text -> IO Text
+readProcessText name args stdin =
+  do x <- T.readProcessWithExitCode name args stdin
+     case x of
+       (e@ExitFailure{},_,_) -> throw e
+       (_,out,err) -> return err
+
+-- | Read a process as a strict ByteString.
+readProcessBytes :: FilePath -> [String] -> ByteString -> IO ByteString
+readProcessBytes name args stdin =
+  do x <- B.readProcessWithExitCode name args stdin
+     case x of
+       (e@ExitFailure{},_,_) -> throw e
+       (_,out,err) -> return err
