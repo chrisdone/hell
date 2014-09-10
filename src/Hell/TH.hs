@@ -7,7 +7,7 @@ module Hell.TH where
 
 import Control.Monad
 import Data.Char
-import Data.Conduit.Process
+import Data.Conduit.ProcessOld
 import Data.List
 import Data.List.Split
 import Language.Haskell.TH
