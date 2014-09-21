@@ -1,8 +1,10 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS -fno-warn-orphans #-}
 
 module Hell.Types where
 
+import Control.Applicative
 import Control.Monad.Reader
 
 import Data.Default
@@ -29,23 +31,35 @@ data HellState = HellState
   }
 
 -- | Hell monad, containing user information and things like that.
-newtype Hell a = Hell { runHell :: ReaderT HellState Ghc a }
-  deriving (Monad
-           ,MonadIO
-           ,Functor
-           ,MonadReader HellState)
+newtype Hell a =
+  Hell {runHell :: ReaderT HellState Ghc a}
+  deriving (Applicative,Monad,MonadIO,Functor,MonadReader HellState)
 
 instance Default Config where
-  def = Config
-    { configImports =
-        map ("import "++)
-            ["Hell"]
-    , configWelcome = "Welcome to Hell!"
-    , configPrompt = \username pwd -> return (username ++ ":" ++ pwd ++ "$ ")
-    , configHistory = "~/.hell-history"
-    }
+  def =
+    Config {configImports =
+              ["import Prelude"
+              ,"import Data.List"
+              ,"import Data.Ord"
+              ,"import Data.Conduit.Shell"
+              ,"import System.Directory"
+              ,"import Data.Conduit"
+              ,"import qualified Data.Conduit.List as CL"
+              ,"import Data.Bifunctor"
+              ,"import qualified Data.Conduit.Binary as CB"
+              ,"import qualified Data.ByteString.Char8 as S8"
+              ,"import Control.Monad"
+              ,"import Data.Function"]
+           ,configWelcome = "Welcome to Hell!"
+           ,configPrompt =
+              \username pwd ->
+                return (username ++ ":" ++ pwd ++ "$ ")
+           ,configHistory = "~/.hell-history"}
 
 -- | Hopefully this shouldn't be a problem because while this is a
 -- library it has a very narrow use-case.
+
+#if __GLASGOW_HASKELL__ == 706
 instance MonadIO Ghc where
   liftIO = GhcMonad.liftIO
+#endif

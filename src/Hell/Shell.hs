@@ -26,18 +26,17 @@ import           Data.List
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text as T
-import           System.Console.Haskeline
-import           System.Console.Haskeline.History
-import           System.Directory
-import           System.FilePath
-import           System.Posix.User
-
 import           DynFlags
 import           Exception (ExceptionMonad)
 import           GHC hiding (History)
 import           GHC.Paths hiding (ghc)
 import           Name
 import           Outputable (Outputable(..),showSDoc)
+import           System.Console.Haskeline
+import           System.Console.Haskeline.History
+import           System.Directory
+import           System.FilePath
+import           System.Posix.User
 
 -- | Go to hell.
 startHell :: Config -> IO ()
@@ -78,7 +77,7 @@ loop config state =
               Just line ->
                 do historyRef <- asks stateHistory
                    io (writeIORef historyRef history)
-                   result <- ghc (runProducer line)
+                   _ <- ghc (runLine line)
                    io (writeHistory (configHistory config) history)
                    again)
 
@@ -111,41 +110,75 @@ setImports =
   mapM (fmap IIDecl . parseImportDecl) >=> setContext
 
 -- | Compile the given expression and evaluate it.
-runProducer :: String -> Ghc ()
-runProducer stmt =
-  do result <- gcatch (fmap Right (dynCompileExpr expr))
-                      (\(e::SomeException) -> return (Left e))
-     case result of
-       Left err ->
-         runComplete stmt
-       Right compiled ->
-         gcatch (io (fromDyn compiled (putStrLn "Bad compile.")))
-                (\(e::SomeException) -> liftIO (putStrLn (show e)))
-  where expr = "runResourceT (sourceList [] $= " ++ stmt ++ " $$ sinkHandle stdout) :: IO ()"
-
--- | Compile the given expression and evaluate it.
-runComplete :: String -> Ghc ()
-runComplete stmt =
-  do result <- gcatch (fmap Right (dynCompileExpr expr))
-                      (\(e::SomeException) -> return (Left e))
-     case result of
-       Left err ->
-         printType stmt
-       Right compiled ->
-         gcatch (io (fromDyn compiled (putStrLn "Bad compile.")))
-                (\(e::SomeException) -> liftIO (putStrLn (show e)))
-  where expr = "runResourceT (sourceList [] $= " ++ stmt ++ ") :: IO ()"
-
--- | Print the type of the expression.
-printType :: String -> Ghc ()
-printType stmt =
-  do result <- gtry (exprType stmt)
-     case result of
-       Left err ->
-         io (putStrLn (show err))
+runLine :: String -> Ghc ()
+runLine expr =
+  do mtyp <- gtry (exprType expr)
+     d <- getDynFlags
+     case mtyp of
+       Left err -> io (putStrLn (show err))
        Right ty ->
-         do d <- getDynFlags
-            io (putStrLn (showppr d ty))
+         do let tyStr = showppr d ty
+            if isPrefixOf "GHC.Types.IO " tyStr
+               then runPrintableIO tyStr expr
+               else if isInfixOf "Conduit" tyStr
+                       then runConduit tyStr expr
+                       else runExpr tyStr expr
+
+-- | Compile the given IO statement and run it as IO, printing the
+-- result.
+runConduit :: String -> String -> Ghc ()
+runConduit typ expr =
+  do result <- gcatch (fmap Right (dynCompileExpr e))
+                      (\(e::SomeException) -> return (Left e))
+     case result of
+       Left {} ->
+         liftIO (putStrLn typ)
+       Right compiled ->
+         gcatch (io (fromDyn compiled (putStrLn "Bad compile.")))
+                (\(e::SomeException) -> liftIO (print e))
+  where e = "Data.Conduit.Shell.run (" ++  expr ++ ") :: IO ()"
+
+-- | Compile the given IO statement and run it as IO, printing the
+-- result.
+runPrintableIO :: String -> String -> Ghc ()
+runPrintableIO ty expr =
+  do result <- gcatch (fmap Right (dynCompileExpr e))
+                      (\(e::SomeException) -> return (Left e))
+     case result of
+       Left {} ->
+         runIO ty expr
+       Right compiled ->
+         gcatch (io (fromDyn compiled (putStrLn "Bad compile.")))
+                (\(e::SomeException) -> liftIO (print e))
+  where e = "(" ++  expr ++ ") >>= Prelude.print"
+
+-- | Compile the given IO statement and run it as IO. No result
+-- printed.
+runIO :: String -> String -> Ghc ()
+runIO typ expr =
+  do result <- gcatch (fmap Right (dynCompileExpr e))
+                      (\(e::SomeException) -> return (Left e))
+     case result of
+       Left {} ->
+         liftIO (putStrLn typ)
+       Right compiled ->
+         gcatch (io (fromDyn compiled (putStrLn "Bad compile.")))
+                (\(e::SomeException) -> liftIO (print e))
+  where e = "(" ++  expr ++ ") >> return ()"
+
+-- | Compile the given expression and print it.
+runExpr :: String -> String -> Ghc ()
+runExpr ty expr =
+  do result <- gcatch (fmap Right (dynCompileExpr e))
+                      (\(e::SomeException) -> return (Left e))
+     case result of
+       Left {} ->
+         liftIO (putStrLn ty)
+       Right compiled ->
+         do liftIO (putStrLn ty)
+            gcatch (io (fromDyn compiled (putStrLn "Bad compile.")))
+                   (\(e::SomeException) -> liftIO (print e))
+  where e = "Prelude.print (" ++ expr ++ ")"
 
 -- | Short-hand utility.
 io :: MonadIO m => IO a -> m a

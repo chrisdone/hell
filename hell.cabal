@@ -1,7 +1,7 @@
 name:                hell
-version:             0.0.1
-synopsis:            hell
-description:         hell
+version:             1.0
+synopsis:            A Haskell shell based on shell-conduit
+description:         A Haskell shell based on shell-conduit
 license:             BSD3
 license-file:        LICENSE
 author:              Chris Done
@@ -12,16 +12,12 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 library
-  exposed-modules:   Hell.Shell, Hell.Types, Hell, Hell.Bin
+  exposed-modules:   Hell.Shell, Hell.Types
   hs-source-dirs:    src/
   build-depends:     split >= 0.2.2,
                      template-haskell,
                      resourcet >= 1.1.2.2,
-                     conduit >= 1.1.2.1,
-                     conduit-extra >= 1.1.0.3,
-                     process-conduit >= 1.1.0.0,
                      process-extras >= 0.2.0,
-                     utf8-string >= 0.3.7,
                      transformers >= 0.3.0.0,
                      base > 4 && <5,
                      process,
@@ -36,7 +32,10 @@ library
                      filepath,
                      mtl,
                      unix,
-                     monad-extras
+                     monad-extras,
+                     shell-conduit,
+                     conduit >= 1.1.2.1,
+                     conduit-extra >= 1.1.0.3
 
   if impl(ghc >= 7.6)
     build-depends:   time
