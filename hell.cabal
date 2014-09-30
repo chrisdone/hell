@@ -12,7 +12,7 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 library
-  exposed-modules:   Hell.Shell, Hell.Types
+  exposed-modules:   Hell.Shell, Hell.Types, Hell
   hs-source-dirs:    src/
   build-depends:     split >= 0.2.2,
                      template-haskell,

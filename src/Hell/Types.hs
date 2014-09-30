@@ -33,7 +33,7 @@ data HellState = HellState
 -- | Hell monad, containing user information and things like that.
 newtype Hell a =
   Hell {runHell :: ReaderT HellState Ghc a}
-  deriving (Applicative,Monad,MonadIO,Functor,MonadReader HellState)
+  deriving (Monad,MonadIO,Functor,MonadReader HellState)
 
 instance Default Config where
   def =
@@ -49,7 +49,8 @@ instance Default Config where
               ,"import qualified Data.Conduit.Binary as CB"
               ,"import qualified Data.ByteString.Char8 as S8"
               ,"import Control.Monad"
-              ,"import Data.Function"]
+              ,"import Data.Function"
+              ,"import Hell"]
            ,configWelcome = "Welcome to Hell!"
            ,configPrompt =
               \username pwd ->
