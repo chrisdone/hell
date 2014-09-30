@@ -150,7 +150,8 @@ runPrintableIO ty expr =
        Right compiled ->
          gcatch (io (fromDyn compiled (putStrLn "Bad compile.")))
                 (\(e::SomeException) -> liftIO (print e))
-  where e = "(" ++  expr ++ ") >>= Prelude.print"
+  where e | ty == "GHC.Types.IO ()" = expr
+          | otherwise = "(" ++  expr ++ ") >>= Prelude.print"
 
 -- | Compile the given IO statement and run it as IO. No result
 -- printed.
