@@ -1,5 +1,5 @@
 name:                hell
-version:             1.0
+version:             2.0
 synopsis:            A Haskell shell based on shell-conduit
 description:         A Haskell shell based on shell-conduit
 license:             BSD3
@@ -42,7 +42,7 @@ library
   else
     cpp-options:     -DUSE_OLD_TIME
     build-depends:   old-time
-  ghc-options:       -Wall -threaded
+  ghc-options:       -Wall -threaded -O2
 
 executable hell
   main-is:           Main.hs
@@ -51,4 +51,4 @@ executable hell
                      transformers >= 0.3.0.0,
                      base > 4 && <5,
                      hell
-  ghc-options:       -Wall -threaded
+  ghc-options:       -Wall -threaded -o2
