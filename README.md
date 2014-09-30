@@ -15,7 +15,7 @@ It looks like this:
 
     Welcome to Hell!
     chris:~/$ ls
-    Backups  Desktop    Downloads  Emacs  Mail  Pictures  Renoise  Samples	VirtualBox VMs
+    Backups  Desktop    Downloads  Emacs  Mail  Pictures  Renoise  Samples
     Books	 Documents  Dropbox    Flash  Org   Projects  Repos    Scripts
 
 It has some UNIX basics:
@@ -24,7 +24,7 @@ It has some UNIX basics:
     chris:~/Projects/hell$ ls
     dist  examples	hell.cabal  LICENSE  README.md	src  TAGS
     chris:~/Projects/hell$ ls "-a"
-    .  ..  dist  examples  .ghci  .git  .gitignore	hell.cabal LICENSE  README.md	src  TAGS
+    .  ..  dist  examples  .ghci  .git  .gitignore	hell.cabal LICENSE  README.md
 
 All functions are based on
 [shell-conduit](https://github.com/chrisdone/shell-conduit) and are
