@@ -1,4 +1,6 @@
-# Hell: A Haskell shell
+# hell [![Hackage](https://img.shields.io/hackage/v/hell.svg?style=flat)](https://hackage.haskell.org/package/hell)
+
+A Haskell shell.
 
 Here lies a prototype/experiment for the following question:
 [can the normal Haskell REPL make a passable shell if it has file
