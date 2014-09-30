@@ -70,7 +70,7 @@ displays the type:
 The commands of GHCi like `:t` and `:k` are not supported at this
 time. Top-level bindings are not yet supported either.
 
-It supports completion of function names, binaries and file names:
+It supports completion of function names and binaries:
 
     chris:~/$ get
     getChar                    getfacl                    getZipSink
@@ -84,6 +84,15 @@ It supports completion of function names, binaries and file names:
     getconf                    getty                      getTemporaryDirectory
     geteltorito                getweb                     getUserDocumentsDirectory
     getent                     getZipConduit
+
+and filenames:
+
+    chris:~/Pictures$ ls "Screenshot from 2014-0
+    Screenshot from 2014-08-13 22:05:10.png  Screenshot from 2014-09-09 14:55:46.png
+    Screenshot from 2014-09-15 17:09:26.png  Screenshot from 2014-08-11 11:39:00.png
+    Screenshot from 2014-09-13 19:03:34.png  Screenshot from 2014-09-12 12:26:51.png
+    Screenshot from 2014-08-13 12:57:14.png  Screenshot from 2014-09-15 17:03:34.png
+    Screenshot from 2014-08-15 18:19:03.png  Screenshot from 2014-08-28 16:50:04.png
 
 ## Why “Hell”? Surely a Haskell shell would be heaven!
 
