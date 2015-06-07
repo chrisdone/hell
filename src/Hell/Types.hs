@@ -41,7 +41,7 @@ instance Default Config where
               ["import Prelude"
               ,"import Data.List"
               ,"import Data.Ord"
-              ,"import Data.Conduit.Shell"
+              ,"import Data.Conduit.Shell hiding (cd)"
               ,"import System.Directory"
               ,"import Data.Conduit"
               ,"import qualified Data.Conduit.List as CL"
