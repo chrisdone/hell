@@ -33,7 +33,7 @@ data HellState = HellState
 -- | Hell monad, containing user information and things like that.
 newtype Hell a =
   Hell {runHell :: ReaderT HellState Ghc a}
-  deriving (Monad,MonadIO,Functor,MonadReader HellState)
+  deriving (Functor,Applicative,Monad,MonadIO,MonadReader HellState)
 
 instance Default Config where
   def =

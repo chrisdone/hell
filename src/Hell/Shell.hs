@@ -31,7 +31,7 @@ import           Exception (ExceptionMonad)
 import           GHC hiding (History)
 import           GHC.Paths hiding (ghc)
 import           Name
-import           Outputable (Outputable(..),showSDoc)
+import           Outputable (Outputable(..),showSDocForUser,alwaysQualify)
 import           System.Console.Haskeline
 import           System.Console.Haskeline.History
 import           System.Directory
@@ -227,7 +227,7 @@ setFlags xs dflags = foldl xopt_set dflags xs
 -- | Something like Show but for things which annoyingly do not have
 -- Show but Outputable instead.
 showppr :: Outputable a => DynFlags -> a -> String
-showppr d = showSDoc d . ppr
+showppr d = showSDocForUser d alwaysQualify . ppr
 
 -- | Try the thing or return the exception.
 gtry :: (Functor m, ExceptionMonad m) => m a -> m (Either SomeException a)
