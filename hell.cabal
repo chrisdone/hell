@@ -1,5 +1,5 @@
 name:                hell
-version:             2.1
+version:             2.2
 synopsis:            A Haskell shell based on shell-conduit
 description:         A Haskell shell based on shell-conduit
 license:             BSD3
