@@ -1,6 +1,6 @@
 -- original from <https://www.cs.ox.ac.uk/projects/gip/school/tc.hs> but URLs don't last long in academia
 --
-{-# LANGUAGE ExistentialQuantification,GADTs #-}
+{-# LANGUAGE ExistentialQuantification,GADTs,LambdaCase #-}
 
 -- This typechecker, written by Stephanie Weirich at Dagstuhl (Sept 04)
 -- demonstrates that it's possible to write functions of type
@@ -23,8 +23,8 @@ data UTerm = UVar String
        | UConBool Bool
        | UIf UTerm UTerm UTerm
        | UPure UTerm
-       | UJoin UTerm
-       | UMap UTerm UTerm
+       | UPrim Prim
+       | UBind UTerm UTerm
 
 data UType =
    UBool
@@ -44,8 +44,7 @@ data Term g t where
   ConBool :: Bool -> Term g Bool
   If :: Term g Bool -> Term g a -> Term g a -> Term g a
   Pure :: Term g a -> Term g (IO a)
-  Join :: Term g (IO (IO a)) -> Term g (IO a)
-  Map :: Term g (s -> t) -> Term g (IO s) -> Term g (IO t)
+  Bind :: Term g (IO a) -> Term g (a -> IO b) -> Term g (IO b)
 
 data Var g t where
   ZVar :: Var (h,t) t
@@ -94,16 +93,12 @@ tc (UConBool b) env
 tc (UPure a) env
   = case tc a env of
      Typed a_ty' a' -> Typed (Io a_ty') (Pure a')
-tc (UJoin ma) env =
-  case tc ma env of
-    Typed (Io peeled_ty@(Io a_ty)) io_io_a ->
-      Typed peeled_ty (Join io_io_a)
-tc (UMap e1 e2) env
-  = case tc e1 env of { Typed (Arr bndr_ty body_ty) e1' ->
-    case tc e2 env of { Typed (Io arg_ty) e2' ->
+tc (UBind e1 e2) env
+  = case tc e2 env of { Typed (Arr bndr_ty (Io body_ty)) e1' ->
+    case tc e1 env of { Typed (Io arg_ty) e2' ->
     case cmpTy arg_ty bndr_ty of
     Nothing -> error "Type error"
-    Just Equal -> Typed (Io body_ty) (Map e1' e2') }}
+    Just Equal -> Typed (Io body_ty) (Bind e2' e1') }}
 tc (ULam s ty body) env
   = case tcType ty of { ExType bndr_ty' ->
     case tc body (Cons s bndr_ty' env) of { Typed body_ty' body' ->
@@ -126,12 +121,34 @@ tc (UIf e1 e2 e3) env
 showType :: Ty a -> String
 showType Bool = "Bool"
 showType (Arr t1 t2) = "(" ++ showType t1 ++ ") -> (" ++ showType t2 ++ ")"
+showType (Io a) = "(IO " ++ showType a ++ ")"
 
 uNot = ULam "x" UBool (UIf (UVar "x") (UConBool False) (UConBool True))
 
 test :: UTerm
-test = UApp uNot (UConBool True)
+test = UBind (UPure (UConBool True)) (ULam "x" UBool (UPure (UApp uNot (UVar "x"))))
 
-main = putStrLn (case tc test Nil of
-            Typed ty _ -> showType ty
+check :: UTerm -> TyEnv () -> Typed (Term ())
+check = tc
+
+main =  (case check test Nil of
+            Typed t ex ->
+              case t of
+                Io Bool -> do
+                  bool <- eval () ex
+                  print bool
+                _ -> pure ()
         )
+
+eval :: env -> Term env t -> t
+eval env (Var v) = lookp v env
+eval _   (ConBool c) = c
+eval env (If cond true false) = if eval env cond then eval env true else eval env false
+eval env (Lam _ e) = \x -> eval (env, x) e
+eval env (App e1 e2) = (eval env e1) (eval env e2)
+eval env (Pure e1) = pure (eval env e1)
+eval env (Bind m f) = eval env m >>= eval env f
+
+lookp :: Var env t -> env -> t
+lookp ZVar (_,x)        = x
+lookp (SVar v) (env, x) = lookp v env
