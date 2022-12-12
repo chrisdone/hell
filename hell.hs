@@ -8,6 +8,9 @@
 module Main where
 
 import Data.Functor.Identity
+import qualified Language.Haskell.Exts as HSE
+import System.Environment
+import Data.List
 import System.Directory
 
 --------------------------------------------------------------------------------
@@ -17,33 +20,37 @@ data UTerm
   = UVar String
   | ULam String UType UTerm
   | UApp UTerm UTerm
-  | UConBool Bool
-  | UConString String
   | UIf UTerm UTerm UTerm
   | UPure UTerm
-  | UPrim Prim
   | UBind UTerm UTerm
+  | UPrim Prim
 
 --------------------------------------------------------------------------------
 -- Untyped type
 
 data UType
-  = UBool
-  | UArr UType UType
+  = UArr UType UType
+  | UBool
   | UIo UType
   | UString
 
 --------------------------------------------------------------------------------
 -- Primitive functions
 
-data Prim = DoesFileExist | WriteFile
+data Prim
+  = DoesFileExist
+  | WriteFile
+  | PString String
+  | PBool Bool
 
 tcPrim :: Prim -> Typed (Term g)
-tcPrim DoesFileExist = Typed (Arr String (Io Bool)) (Prim1 doesFileExist)
+tcPrim (PString string) = Typed String (Prim string)
+tcPrim (PBool bool) = Typed Bool (Prim bool)
+tcPrim DoesFileExist = Typed (Arr String (Io Bool)) (Prim doesFileExist)
 tcPrim WriteFile =
   Typed
     (Arr String (Arr String (Io Bool)))
-    (Prim2 (\fp str -> True <$ writeFile fp str))
+    (Prim (\fp str -> True <$ writeFile fp str))
 
 --------------------------------------------------------------------------------
 -- Typed type
@@ -63,16 +70,17 @@ showType (Io a) = "(IO " ++ showType a ++ ")"
 -- Typed AST
 
 data Term g t where
+  -- Basic simply-typed lambda calculus
   Var :: Var g t -> Term g t
   Lam :: Ty a -> Term (g, a) b -> Term g (a -> b)
   App :: Term g (s -> t) -> Term g s -> Term g t
-  ConBool :: Bool -> Term g Bool
-  ConString :: String -> Term g String
+  -- Conditionals
   If :: Term g Bool -> Term g a -> Term g a -> Term g a
+  -- Monad support
   Pure :: Term g a -> Term g (IO a)
   Bind :: Term g (IO a) -> Term g (a -> IO b) -> Term g (IO b)
-  Prim1 :: (a -> b) -> Term g (a -> b)
-  Prim2 :: (a -> b -> c) -> Term g (a -> b -> c)
+  -- Primitives that can be used directly
+  Prim :: a -> Term g a
 
 data Var g t where
   ZVar :: Var (h, t) t
@@ -129,13 +137,12 @@ cmpTy (Arr a1 a2) (Arr b1 b2) =
 --------------------------------------------------------------------------------
 -- Type checker
 
+check :: UTerm -> TyEnv () -> Typed (Term ())
+check = tc
+
 tc :: UTerm -> TyEnv g -> Typed (Term g)
 tc (UVar v) env = case lookupVar v env of
   Typed ty v -> Typed ty (Var v)
-tc (UConBool b) env =
-  Typed Bool (ConBool b)
-tc (UConString b) env =
-  Typed String (ConString b)
 tc (UPrim prim) env =
   tcPrim prim
 tc (UPure a) env =
@@ -181,26 +188,21 @@ tc (UIf e1 e2 e3) env =
 
 eval :: env -> Term env t -> t
 eval env (Var v) = lookp v env
-eval _ (ConBool c) = c
-eval _ (ConString c) = c
 eval env (If cond true false) = if eval env cond then eval env true else eval env false
 eval env (Lam _ e) = \x -> eval (env, x) e
 eval env (App e1 e2) = (eval env e1) (eval env e2)
 eval env (Pure e1) = pure (eval env e1)
 eval env (Bind m f) = eval env m >>= eval env f
-eval _ (Prim1 a) = a
-eval _ (Prim2 a) = a
+eval _ (Prim a) = a
 
 lookp :: Var env t -> env -> t
 lookp ZVar (_, x) = x
 lookp (SVar v) (env, x) = lookp v env
 
 --------------------------------------------------------------------------------
--- Top-level example
+-- Top-level entry point
 
-check :: UTerm -> TyEnv () -> Typed (Term ())
-check = tc
-
+main :: IO ()
 main =
   ( case check test Nil of
       Typed t ex ->
@@ -211,25 +213,52 @@ main =
           _ -> pure ()
   )
 
-uNot = ULam "x" UBool (UIf (UVar "x") (UConBool False) (UConBool True))
-
 test :: UTerm
 test =
   UBind
-    (UApp (UPrim DoesFileExist) (UConString "heller.hs"))
+    (UApp (UPrim DoesFileExist) (UPrim (PString "heller.hs")))
     ( ULam
         "x"
         UBool
         ( UIf
             (UVar "x")
-            (UPure (UConString "File exists!"))
+            (UPure (UPrim (PString "File exists!")))
             ( UBind
-                (UApp (UApp (UPrim WriteFile) (UConString "heller.hs")) (UConString "output here!"))
+                (UApp (UApp (UPrim WriteFile) (UPrim $ PString "heller.hs")) (UPrim $ PString "output here!"))
                 ( ULam
                     "_"
                     UBool
-                    (UPure (UConString "Wrote heller.hs"))
+                    (UPure (UPrim $ PString "Wrote heller.hs"))
                 )
             )
         )
     )
+
+-- main :: IO ()
+-- main = do
+--   (filePath:_) <- getArgs
+--   string <- readFile filePath
+--   case HSE.parseModule string >>= parseModule of
+--     HSE.ParseOk binds ->
+--       case lookup "main" binds of
+--         Nothing -> error "No main declaration!"
+--         Just expr -> Hell.reify $ Hell.eval expr
+
+-- parseModule :: Show a => HSE.Module a -> HSE.ParseResult [(String, Term () (IO ()))]
+-- parseModule (HSE.Module _ Nothing [] [] decls) =
+--   traverse parseDecl decls
+--   where parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
+--           do e <- parseE exp'
+--              pure (string, e)
+--         parseE (HSE.Var _ (HSE.UnQual _ (HSE.Ident _ string))) =
+--           pure $ Hell.prim string
+--         parseE (HSE.App _ f x) = do
+--           Hell.A <$> parseE f <*> parseE x
+--         parseE (HSE.Lit _ (HSE.String _ string _original)) =
+--           pure $ Hell.T string
+--         parseE (HSE.Do _ stmts) = do
+--           stmts' <- traverse parseStmt stmts
+--           pure $ foldr (\m f -> Hell.A (Hell.A then' m) f) (Hell.reflect (pure () :: IO ())) stmts'
+--         parseE (HSE.List _ xs) = Hell.reflect <$> traverse parseE xs
+--         parseE expr' = error $ "Can't parse " ++ show expr'
+--         parseStmt (HSE.Qualifier _ e) = parseE e
