@@ -29,10 +29,11 @@ data UTerm = UVar String
        | UPrim Prim
        | UBind UTerm UTerm
 
-data Prim = DoesFileExist
+data Prim = DoesFileExist | WriteFile
 
 tcPrim :: Prim -> Typed (Term g)
-tcPrim DoesFileExist = Typed (Arr String (Io Bool)) (PrimIO doesFileExist)
+tcPrim DoesFileExist = Typed (Arr String (Io Bool)) (Prim1 doesFileExist)
+tcPrim WriteFile = Typed (Arr String (Arr String (Io Bool))) (Prim2 (\fp str -> True <$ writeFile fp str))
 
 data UType =
    UBool
@@ -56,7 +57,8 @@ data Term g t where
   If :: Term g Bool -> Term g a -> Term g a -> Term g a
   Pure :: Term g a -> Term g (IO a)
   Bind :: Term g (IO a) -> Term g (a -> IO b) -> Term g (IO b)
-  PrimIO :: (a -> IO b) -> Term g (a -> IO b)
+  Prim1 :: (a -> b) -> Term g (a -> b)
+  Prim2 :: (a -> b -> c) -> Term g (a -> b -> c)
 
 data Var g t where
   ZVar :: Var (h,t) t
@@ -150,7 +152,12 @@ test :: UTerm
 test =
   UBind
    (UApp (UPrim DoesFileExist) (UConString "heller.hs"))
-   (ULam "x" UBool (UPure (UIf (UVar "x") (UConString "File exists!") (UConString "File does not exist!"))))
+   (ULam "x" UBool
+     (UIf (UVar "x")
+          (UPure (UConString "File exists!"))
+          (UBind (UApp (UApp (UPrim WriteFile) (UConString "heller.hs")) (UConString "output here!"))
+                 (ULam "_" UBool
+                     (UPure (UConString "Wrote heller.hs"))))))
 
 check :: UTerm -> TyEnv () -> Typed (Term ())
 check = tc
@@ -173,7 +180,8 @@ eval env (Lam _ e) = \x -> eval (env, x) e
 eval env (App e1 e2) = (eval env e1) (eval env e2)
 eval env (Pure e1) = pure (eval env e1)
 eval env (Bind m f) = eval env m >>= eval env f
-eval _   (PrimIO a) = a
+eval _   (Prim1 a) = a
+eval _   (Prim2 a) = a
 
 lookp :: Var env t -> env -> t
 lookp ZVar (_,x)        = x
