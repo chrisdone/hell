@@ -24,6 +24,7 @@ data UTerm = UVar String
        | UIf UTerm UTerm UTerm
        | UPure UTerm
        | UJoin UTerm
+       | UMap UTerm UTerm
 
 data UType =
    UBool
@@ -44,6 +45,7 @@ data Term g t where
   If :: Term g Bool -> Term g a -> Term g a -> Term g a
   Pure :: Term g a -> Term g (IO a)
   Join :: Term g (IO (IO a)) -> Term g (IO a)
+  Map :: Term g (s -> t) -> Term g (IO s) -> Term g (IO t)
 
 data Var g t where
   ZVar :: Var (h,t) t
@@ -96,6 +98,12 @@ tc (UJoin ma) env =
   case tc ma env of
     Typed (Io peeled_ty@(Io a_ty)) io_io_a ->
       Typed peeled_ty (Join io_io_a)
+tc (UMap e1 e2) env
+  = case tc e1 env of { Typed (Arr bndr_ty body_ty) e1' ->
+    case tc e2 env of { Typed (Io arg_ty) e2' ->
+    case cmpTy arg_ty bndr_ty of
+    Nothing -> error "Type error"
+    Just Equal -> Typed (Io body_ty) (Map e1' e2') }}
 tc (ULam s ty body) env
   = case tcType ty of { ExType bndr_ty' ->
     case tc body (Cons s bndr_ty' env) of { Typed body_ty' body' ->
