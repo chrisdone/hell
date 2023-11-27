@@ -32,7 +32,7 @@ import Test.Hspec
 
 data UTerm
   = UVar String
-  | ULam String (forall (a::Type). TypeRep a) UTerm
+  | ULam String SomeTRep UTerm
   | UApp UTerm UTerm
   | UForall SomeTRep Forall
   | ULit (forall g. Typed (Term g))
@@ -83,7 +83,7 @@ lookupVar v (Cons s ty e)
 tc :: UTerm -> TyEnv g -> Typed (Term g)
 tc (UVar v) env = case lookupVar v env of
   Typed ty v -> Typed ty (Var v)
-tc (ULam s bndr_ty' body) env =
+tc (ULam s (SomeTRep bndr_ty') body) env =
       case tc body (Cons s bndr_ty' env) of
         Typed body_ty' body' ->
           Typed
@@ -132,7 +132,8 @@ check = tc
 --------------------------------------------------------------------------------
 -- Desugar expressions
 
-data DesugarError = InvalidVariable | UnknownType String deriving (Show, Eq)
+data DesugarError = InvalidVariable | UnknownType String | BadParameterSyntax String
+  deriving (Show, Eq)
 
 desguarExp :: Map String UTerm -> HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
 desguarExp globals = go where
@@ -144,6 +145,10 @@ desguarExp globals = go where
       HSE.Int _ int _ -> pure $ lit int
     HSE.App _ f x -> UApp <$> go f <*> go x
     HSE.InfixApp _ x (HSE.QVarOp l f) y -> UApp <$> (UApp <$> go (HSE.Var l f) <*> go x) <*> go y
+    HSE.Lambda _ pats e -> do
+      args <- traverse desugarArg pats
+      e' <- go e
+      pure $ foldr (\(name,ty) inner -> ULam name ty inner)  e' args
     HSE.Var _ qname ->
       case qname of
         HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
@@ -157,6 +162,11 @@ desguarExp globals = go where
           | Just uterm <- Map.lookup string supportedLits ->
             pure uterm
         _ -> Left InvalidVariable
+
+desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (String, SomeTRep)
+desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) = fmap (i,) (desugarType typ)
+desugarArg (HSE.PParen _ p) = desugarArg p
+desugarArg p = Left $ BadParameterSyntax $ show p
 
 --------------------------------------------------------------------------------
 -- Desugar types
@@ -283,7 +293,7 @@ main :: IO ()
 main = do
   (filePath:_) <- getArgs
   string <- readFile filePath
-  case HSE.parseModule string >>= parseModule of
+  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures] } string >>= parseModule of
     HSE.ParseOk binds
       | anyCycles binds -> error "Cyclic bindings are not supported!"
       | otherwise ->

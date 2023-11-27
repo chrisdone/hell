@@ -7,5 +7,5 @@ main = Main.foo
 
 bar =
   Text.putStrLn "Hello," >>
-  Text.putStrLn " World!"
+  Text.putStrLn ((\(x :: Text) -> x) " World!")
 ```
