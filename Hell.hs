@@ -9,11 +9,13 @@
 -- * Dropped UType in favor of TypeRep
 
 import qualified Data.Graph as Graph
+import qualified Data.Map as Map
 import qualified Data.Generics.Schemes as SYB
 import qualified Type.Reflection
 import qualified Data.Maybe as Maybe
 import qualified Language.Haskell.Exts as HSE
 
+import Data.Map (Map)
 import Data.Constraint
 import GHC.Types
 import Type.Reflection (TypeRep, typeRepKind)
@@ -212,8 +214,8 @@ desugarType = go where
   go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTRep
   go = \case
     HSE.TyParen _ x -> go x
-    HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ "Bool")) -> pure $ SomeTRep $ Type.Reflection.typeRep @Bool
-    HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ "Int")) -> pure $ SomeTRep $ Type.Reflection.typeRep @Int
+    HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ name))
+      | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
     HSE.TyFun l a b -> do
       SomeTRep aRep <- go a
       SomeTRep bRep <- go b
@@ -284,3 +286,12 @@ spec = do
   anyCyclesSpec
   freeVariablesSpec
   desugarTypeSpec
+
+--------------------------------------------------------------------------------
+-- Supported type constructors
+
+supportedTypeConstructors :: Map String SomeTRep
+supportedTypeConstructors = Map.fromList [
+  ("Bool", SomeTRep $ Type.Reflection.typeRep @Bool),
+  ("Int", SomeTRep $ Type.Reflection.typeRep @Int)
+  ]
