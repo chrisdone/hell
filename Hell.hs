@@ -53,6 +53,9 @@ data Typed (thing :: Type -> Type) = forall ty. Typed (TypeRep (ty :: Type)) (th
 -- Type checker helpers
 
 data SomeTRep = forall (a :: Type). SomeTRep (TypeRep a)
+deriving instance Show SomeTRep
+instance Eq SomeTRep where
+  SomeTRep x == SomeTRep y = Type.Reflection.SomeTypeRep x == Type.Reflection.SomeTypeRep y
 
 -- The type environment and lookup
 data TyEnv g where
@@ -192,7 +195,7 @@ show_ =
 --------------------------------------------------------------------------------
 -- Desugar
 
-data DesugarError = InvalidVariable | UnknownType String
+data DesugarError = InvalidVariable | UnknownType String deriving (Show, Eq)
 
 desguarExp :: HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
 desguarExp = go where
@@ -208,6 +211,7 @@ desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTRep
 desugarType = go where
   go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTRep
   go = \case
+    HSE.TyParen _ x -> go x
     HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ "Bool")) -> pure $ SomeTRep $ Type.Reflection.typeRep @Bool
     HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ "Int")) -> pure $ SomeTRep $ Type.Reflection.typeRep @Int
     HSE.TyFun l a b -> do
@@ -215,6 +219,16 @@ desugarType = go where
       SomeTRep bRep <- go b
       pure $ SomeTRep (Type.Reflection.Fun aRep bRep)
     t -> Left $ UnknownType $ HSE.prettyPrint t
+
+desugarTypeSpec :: Spec
+desugarTypeSpec = do
+  it "desugarType" $ do
+    shouldBe (try "Bool") (Right (SomeTRep $ Type.Reflection.typeRep @Bool))
+    shouldBe (try "Int") (Right (SomeTRep $ Type.Reflection.typeRep @Int))
+    shouldBe (try "Bool -> Int") (Right (SomeTRep $ Type.Reflection.typeRep @(Bool -> Int)))
+  where try e = case fmap desugarType $ HSE.parseType e of
+           HSE.ParseOk r -> r
+           _ -> error "Parse failed."
 
 --------------------------------------------------------------------------------
 -- Occurs check
@@ -269,3 +283,4 @@ spec :: Spec
 spec = do
   anyCyclesSpec
   freeVariablesSpec
+  desugarTypeSpec
