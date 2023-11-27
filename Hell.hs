@@ -143,6 +143,7 @@ desguarExp globals = go where
       HSE.String _ string _ -> pure $ lit $ Text.pack string
       HSE.Int _ int _ -> pure $ lit int
     HSE.App _ f x -> UApp <$> go f <*> go x
+    HSE.InfixApp _ x (HSE.QVarOp l f) y -> UApp <$> (UApp <$> go (HSE.Var l f) <*> go x) <*> go y
     HSE.Var _ qname ->
       case qname of
         HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
@@ -151,6 +152,9 @@ desguarExp globals = go where
             pure uterm
         HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
           | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
+            pure uterm
+        HSE.UnQual _ (HSE.Symbol _ string)
+          | Just uterm <- Map.lookup string supportedLits ->
             pure uterm
         _ -> Left InvalidVariable
 
@@ -268,7 +272,8 @@ supportedTypeConstructors = Map.fromList [
 supportedLits :: Map String UTerm
 supportedLits = Map.fromList [
    ("Text.putStrLn", lit Text.putStrLn),
-   ("Text.getLine", lit Text.getLine)
+   ("Text.getLine", lit Text.getLine),
+   (">>", lit ((Prelude.>>) :: IO () -> IO () -> IO ()))
   ]
 
 ------------------------------------------------------------------------------

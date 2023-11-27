@@ -5,5 +5,7 @@ foo = Main.bar
 
 main = Main.foo
 
-bar = Text.putStrLn "Hello, World!"
+bar =
+  Text.putStrLn "Hello," >>
+  Text.putStrLn " World!"
 ```
