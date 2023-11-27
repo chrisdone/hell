@@ -8,6 +8,7 @@
 -- * Type-class dictionary passing added
 -- * Dropped UType in favor of TypeRep
 
+import qualified Data.Graph as Graph
 import qualified Data.Generics.Schemes as SYB
 import qualified Type.Reflection
 import qualified Data.Maybe as Maybe
@@ -223,13 +224,41 @@ show_ =
 --         parseStmt (HSE.Qualifier _ e) = parseE e
 
 --------------------------------------------------------------------------------
+-- Occurs check
+
+anyCycles :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Bool
+anyCycles =
+  any isCycle .
+  Graph.stronglyConnComp .
+  map \(name, e) -> (name, name, freeVariables e)
+  where
+    isCycle = \case
+      Graph.CyclicSCC{} -> True
+      _ -> False
+
+anyCyclesSpec :: Spec
+anyCyclesSpec = do
+ it "anyCycles" do
+   shouldBe (try [("foo","\\z -> x * Z.y"), ("bar","\\z -> bar * Z.y")]) True
+   shouldBe (try [("foo","\\z -> x * Z.y"), ("bar","\\z -> mu * Z.y")]) False
+
+  where
+   try named =
+    case traverse (\(n, e) -> (n, ) <$> HSE.parseExp e) named of
+      HSE.ParseOk decls -> anyCycles decls
+      _ -> error "Parse failed."
+
+--------------------------------------------------------------------------------
 -- Get free variables of an HSE expression
 
 freeVariables :: HSE.Exp HSE.SrcSpanInfo -> [String]
-freeVariables = Maybe.mapMaybe unpack . SYB.listify (const True :: HSE.QName HSE.SrcSpanInfo -> Bool) where
-  unpack = \case
-    HSE.UnQual _ (HSE.Ident _ name) -> pure name
-    _ -> Nothing
+freeVariables =
+  Maybe.mapMaybe unpack .
+  SYB.listify (const True :: HSE.QName HSE.SrcSpanInfo -> Bool)
+  where
+    unpack = \case
+      HSE.UnQual _ (HSE.Ident _ name) -> pure name
+      _ -> Nothing
 
 freeVariablesSpec :: Spec
 freeVariablesSpec = do
