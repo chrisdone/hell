@@ -15,7 +15,12 @@ import qualified Type.Reflection
 import qualified Data.Maybe as Maybe
 import qualified Language.Haskell.Exts as HSE
 
+import qualified Data.ByteString as ByteString
+import qualified Data.Text as Text
+import qualified Data.Text.IO as Text
+
 import Data.Map (Map)
+import Data.Text (Text)
 import Data.Constraint
 import GHC.Types
 import Type.Reflection (TypeRep, typeRepKind)
@@ -195,7 +200,7 @@ show_ =
           (Lit (\Dict -> show))
 
 --------------------------------------------------------------------------------
--- Desugar
+-- Desugar expressions
 
 data DesugarError = InvalidVariable | UnknownType String deriving (Show, Eq)
 
@@ -203,11 +208,21 @@ desguarExp :: HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
 desguarExp = go where
   go = \case
     HSE.Paren _ x -> go x
+    HSE.Lit _ lit' -> case lit' of
+      HSE.Char _ char _ -> pure $ lit char
+      HSE.String _ string _ -> pure $ lit string
+      HSE.Int _ int _ -> pure $ lit int
     HSE.App _ f x -> UApp <$> go f <*> go x
     HSE.Var _ qname ->
       case qname of
         HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
+        HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
+          | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
+            pure uterm
         _ -> Left InvalidVariable
+
+--------------------------------------------------------------------------------
+-- Desugar types
 
 desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTRep
 desugarType = go where
@@ -293,5 +308,16 @@ spec = do
 supportedTypeConstructors :: Map String SomeTRep
 supportedTypeConstructors = Map.fromList [
   ("Bool", SomeTRep $ Type.Reflection.typeRep @Bool),
-  ("Int", SomeTRep $ Type.Reflection.typeRep @Int)
+  ("Int", SomeTRep $ Type.Reflection.typeRep @Int),
+  ("Char", SomeTRep $ Type.Reflection.typeRep @Char),
+  ("Text", SomeTRep $ Type.Reflection.typeRep @Text)
+  ]
+
+--------------------------------------------------------------------------------
+-- Support primitives
+
+supportedLits :: Map String UTerm
+supportedLits = Map.fromList [
+   ("Text.putStrLn", lit Text.putStrLn),
+   ("Text.getLine", lit Text.getLine)
   ]
