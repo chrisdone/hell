@@ -226,8 +226,16 @@ show_ =
 --------------------------------------------------------------------------------
 -- Desugar
 
-desguarExp :: HSE.Exp HSE.SrcSpanInfo -> UTerm
-desguarExp = undefined
+data DesugarError = InvalidVariable
+
+desguarExp :: HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
+desguarExp = go where
+  go = \case
+    HSE.App _ f x -> UApp <$> go f <*> go x
+    HSE.Var _ qname ->
+      case qname of
+        HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
+        _ -> Left InvalidVariable
 
 --------------------------------------------------------------------------------
 -- Occurs check
