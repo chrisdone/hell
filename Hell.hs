@@ -240,7 +240,9 @@ anyCyclesSpec :: Spec
 anyCyclesSpec = do
  it "anyCycles" do
    shouldBe (try [("foo","\\z -> x * Z.y"), ("bar","\\z -> bar * Z.y")]) True
+   shouldBe (try [("foo","\\z -> bar * Z.y"), ("bar","\\z -> foo * Z.y")]) True
    shouldBe (try [("foo","\\z -> x * Z.y"), ("bar","\\z -> mu * Z.y")]) False
+   shouldBe (try [("foo","\\z -> x * Z.y"), ("bar","\\z -> foo * Z.y")]) False
 
   where
    try named =
