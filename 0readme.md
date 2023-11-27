@@ -1,6 +1,6 @@
 Working example:
 
-```
+```haskell
 foo = Main.bar
 
 main = Main.foo
