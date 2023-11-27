@@ -224,6 +224,12 @@ show_ =
 --         parseStmt (HSE.Qualifier _ e) = parseE e
 
 --------------------------------------------------------------------------------
+-- Desugar
+
+desguarExp :: HSE.Exp HSE.SrcSpanInfo -> UTerm
+desguarExp = undefined
+
+--------------------------------------------------------------------------------
 -- Occurs check
 
 anyCycles :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Bool
@@ -239,10 +245,10 @@ anyCycles =
 anyCyclesSpec :: Spec
 anyCyclesSpec = do
  it "anyCycles" do
-   shouldBe (try [("foo","\\z -> x * Z.y"), ("bar","\\z -> bar * Z.y")]) True
-   shouldBe (try [("foo","\\z -> bar * Z.y"), ("bar","\\z -> foo * Z.y")]) True
-   shouldBe (try [("foo","\\z -> x * Z.y"), ("bar","\\z -> mu * Z.y")]) False
-   shouldBe (try [("foo","\\z -> x * Z.y"), ("bar","\\z -> foo * Z.y")]) False
+   shouldBe (try [("foo","\\z -> x * Z.y"), ("bar","\\z -> Main.bar * Z.y")]) True
+   shouldBe (try [("foo","\\z -> Main.bar * Z.y"), ("bar","\\z -> Main.foo * Z.y")]) True
+   shouldBe (try [("foo","\\z -> x * Z.y"), ("bar","\\z -> Main.mu * Z.y")]) False
+   shouldBe (try [("foo","\\z -> x * Z.y"), ("bar","\\z -> Main.foo * Z.y")]) False
 
   where
    try named =
@@ -259,12 +265,20 @@ freeVariables =
   SYB.listify (const True :: HSE.QName HSE.SrcSpanInfo -> Bool)
   where
     unpack = \case
-      HSE.UnQual _ (HSE.Ident _ name) -> pure name
+      HSE.Qual _ (HSE.ModuleName _ "Main") (HSE.Ident _ name) -> pure name
       _ -> Nothing
 
 freeVariablesSpec :: Spec
 freeVariablesSpec = do
- it "freeVariables" $ shouldBe (try "\\z -> x * Z.y") ["x"]
+ it "freeVariables" $ shouldBe (try "\\z -> Main.x * Z.y") ["x"]
   where try e = case fmap freeVariables $ HSE.parseExp e of
            HSE.ParseOk names -> names
            _ -> error "Parse failed."
+
+--------------------------------------------------------------------------------
+-- Test everything
+
+spec :: Spec
+spec = do
+  anyCyclesSpec
+  freeVariablesSpec
