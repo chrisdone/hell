@@ -14,11 +14,12 @@ import qualified Data.Generics.Schemes as SYB
 import qualified Type.Reflection
 import qualified Data.Maybe as Maybe
 import qualified Language.Haskell.Exts as HSE
-
 import qualified Data.ByteString as ByteString
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
 
+import Control.Monad.State
+import System.Environment
 import Data.Map (Map)
 import Data.Text (Text)
 import Data.Constraint
@@ -70,7 +71,7 @@ data TyEnv g where
   Cons :: String -> TypeRep (t :: Type) -> TyEnv h -> TyEnv (h, t)
 
 lookupVar :: String -> TyEnv g -> Typed (Var g)
-lookupVar _ Nil = error "Variable not found"
+lookupVar str Nil = error $ "Variable not found: " ++ str
 lookupVar v (Cons s ty e)
   | v == s = Typed ty ZVar
   | otherwise = case lookupVar v e of
@@ -94,7 +95,7 @@ tc (UApp e1 e2) env =
       case tc e2 env of
         Typed arg_ty e2' ->
           case Type.Reflection.eqTypeRep arg_ty bndr_ty of
-            Nothing -> error "Type error"
+            Nothing -> error $ "Type error: " ++ show arg_ty ++ " vs " ++ show bndr_ty
             Just (Type.Reflection.HRefl) ->
              let kind = typeRepKind body_ty
              in
@@ -128,94 +129,26 @@ lookp (SVar v) (env, x) = lookp v env
 check :: UTerm -> TyEnv () -> Typed (Term ())
 check = tc
 
-main2 :: IO ()
-main2 = do
-  let demo :: IO () =
-        case check id_test Nil of
-          Typed t ex ->
-            case Type.Reflection.eqTypeRep (typeRepKind t) (Type.Reflection.typeRep @Type) of
-              Just Type.Reflection.HRefl ->
-                case Type.Reflection.eqTypeRep t (Type.Reflection.typeRep @(Bool -> Bool)) of
-                  Just Type.Reflection.HRefl ->
-                    let bool :: Bool -> Bool = eval () ex
-                    in print (bool True)
-  demo
-  let demo2 :: IO () =
-        case check show_test Nil of
-          Typed t ex ->
-            case Type.Reflection.eqTypeRep (typeRepKind t) (Type.Reflection.typeRep @Type) of
-              Just Type.Reflection.HRefl ->
-                case Type.Reflection.eqTypeRep t (Type.Reflection.typeRep @(Dict (Show Bool) -> Bool -> String)) of
-                  Nothing -> error "Didn't match type Dict (Show Bool) -> Bool -> String"
-                  Just Type.Reflection.HRefl ->
-                    let bool :: Dict (Show Bool) -> Bool -> String = eval () ex
-                    in putStrLn (bool (Dict @(Show Bool)) True)
-  demo2
-  let demo2 :: IO () =
-        case check show_test2 Nil of
-          Typed t ex ->
-            case Type.Reflection.eqTypeRep (typeRepKind t) (Type.Reflection.typeRep @Type) of
-              Just Type.Reflection.HRefl ->
-                case Type.Reflection.eqTypeRep t (Type.Reflection.typeRep @(String)) of
-                  Nothing -> error "Didn't match type String"
-                  Just Type.Reflection.HRefl ->
-                    let string :: String = eval () ex
-                    in putStrLn string
-  demo2
-  let demo2 :: IO () =
-        case check show_test3 Nil of
-          Typed t ex ->
-            case Type.Reflection.eqTypeRep (typeRepKind t) (Type.Reflection.typeRep @Type) of
-              Just Type.Reflection.HRefl ->
-                case Type.Reflection.eqTypeRep t (Type.Reflection.typeRep @(String)) of
-                  Nothing -> error "Didn't match type String"
-                  Just Type.Reflection.HRefl ->
-                    let string :: String = eval () ex
-                    in putStrLn string
-  demo2
-
-
--- example code
-
-id_test :: UTerm
-id_test = UForall (SomeTRep (Type.Reflection.typeRep @Bool)) id_
-
-show_test :: UTerm
-show_test = UForall (SomeTRep $ Type.Reflection.typeRep @Bool) show_
-
-show_test2 :: UTerm
-show_test2 = UApp (UApp (UForall ( SomeTRep $ Type.Reflection.typeRep @Bool) show_) (lit (Dict @(Show Bool)))) (lit True)
-
-show_test3 :: UTerm
-show_test3 = UApp (UApp (UForall (SomeTRep $ Type.Reflection.typeRep @Int) show_) (lit (Dict @(Show Int)))) (lit @Int 3)
-
-id_ :: Forall
-id_ = Forall (\a -> Typed (Type.Reflection.Fun a a) (Lit id))
-
-show_ :: Forall
-show_ =
-  Forall $ \(a :: TypeRep a) ->
-    Type.Reflection.withTypeable a $
-    Typed (Type.Reflection.Fun (Type.Reflection.typeRep @(Dict (Show a))) (Type.Reflection.Fun a (Type.Reflection.typeRep @String)))
-          (Lit (\Dict -> show))
-
 --------------------------------------------------------------------------------
 -- Desugar expressions
 
 data DesugarError = InvalidVariable | UnknownType String deriving (Show, Eq)
 
-desguarExp :: HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
-desguarExp = go where
+desguarExp :: Map String UTerm -> HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
+desguarExp globals = go where
   go = \case
     HSE.Paren _ x -> go x
     HSE.Lit _ lit' -> case lit' of
       HSE.Char _ char _ -> pure $ lit char
-      HSE.String _ string _ -> pure $ lit string
+      HSE.String _ string _ -> pure $ lit $ Text.pack string
       HSE.Int _ int _ -> pure $ lit int
     HSE.App _ f x -> UApp <$> go f <*> go x
     HSE.Var _ qname ->
       case qname of
         HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
+        HSE.Qual _ (HSE.ModuleName _ "Main") (HSE.Ident _ string)
+          | Just uterm  <- Map.lookup string globals ->
+            pure uterm
         HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
           | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
             pure uterm
@@ -248,17 +181,33 @@ desugarTypeSpec = do
            _ -> error "Parse failed."
 
 --------------------------------------------------------------------------------
+-- Desugar all bindings
+
+desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Either DesugarError [(String, UTerm)]
+desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stronglyConnected where
+  go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String UTerm) (Either DesugarError) (String, UTerm)
+  go (name, expr) = do
+    globals <- get
+    uterm <- lift $ desguarExp globals expr
+    modify' $ Map.insert name uterm
+    pure (name, uterm)
+
+--------------------------------------------------------------------------------
 -- Occurs check
 
 anyCycles :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Bool
 anyCycles =
   any isCycle .
-  Graph.stronglyConnComp .
-  map \(name, e) -> (name, name, freeVariables e)
+  stronglyConnected
   where
     isCycle = \case
       Graph.CyclicSCC{} -> True
       _ -> False
+
+stronglyConnected :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> [Graph.SCC (String, HSE.Exp HSE.SrcSpanInfo)]
+stronglyConnected =
+  Graph.stronglyConnComp .
+  map \thing@(name, e) -> (thing, name, freeVariables e)
 
 anyCyclesSpec :: Spec
 anyCyclesSpec = do
@@ -321,3 +270,40 @@ supportedLits = Map.fromList [
    ("Text.putStrLn", lit Text.putStrLn),
    ("Text.getLine", lit Text.getLine)
   ]
+
+------------------------------------------------------------------------------
+-- Main entry point
+
+main :: IO ()
+main = do
+  (filePath:_) <- getArgs
+  string <- readFile filePath
+  case HSE.parseModule string >>= parseModule of
+    HSE.ParseOk binds
+      | anyCycles binds -> error "Cyclic bindings are not supported!"
+      | otherwise ->
+            case desugarAll binds of
+              Left err -> error $ "Error desugaring! " ++ show err
+              Right terms ->
+                case lookup "main" terms of
+                  Nothing -> error "No main declaration!"
+                  Just main' ->
+                    case check main' Nil of
+                       Typed t ex ->
+                         case Type.Reflection.eqTypeRep (typeRepKind t) (Type.Reflection.typeRep @Type) of
+                           Just Type.Reflection.HRefl ->
+                             case Type.Reflection.eqTypeRep t (Type.Reflection.typeRep @(IO ())) of
+                               Just Type.Reflection.HRefl ->
+                                 let action :: IO () = eval () ex
+                                 in action
+
+--------------------------------------------------------------------------------
+-- Get declarations from the module
+
+parseModule :: HSE.Module HSE.SrcSpanInfo -> HSE.ParseResult [(String, HSE.Exp HSE.SrcSpanInfo)]
+parseModule (HSE.Module _ Nothing [] [] decls) =
+  traverse parseDecl decls
+  where
+    parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
+          pure (string, exp')
+    parseDecl _ = error "Can't parse that!"
