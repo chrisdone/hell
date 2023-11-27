@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification, TypeApplications #-}
+{-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments #-}
 {-# LANGUAGE GADTs, PolyKinds #-}
 {-# LANGUAGE LambdaCase, ScopedTypeVariables, PatternSynonyms #-}
 
@@ -189,53 +189,32 @@ show_ =
     Typed (Type.Reflection.Fun (Type.Reflection.typeRep @(Dict (Show a))) (Type.Reflection.Fun a (Type.Reflection.typeRep @String)))
           (Lit (\Dict -> show))
 
-
---------------------------------------------------------------------------------
--- Main entry point
-
--- main :: IO ()
--- main = do
---   (filePath:_) <- getArgs
---   string <- readFile filePath
---   pure ()
---   case HSE.parseModule string >>= parseModule of
---     HSE.ParseOk binds ->
---       case lookup "main" binds of
---         Nothing -> error "No main declaration!"
---         Just expr -> eval expr
-
--- parseModule :: Show a => HSE.Module a -> HSE.ParseResult [(String, Term () (IO ()))]
--- parseModule (HSE.Module _ Nothing [] [] decls) =
---   traverse parseDecl decls
---   where parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
---           do e <- parseE exp'
---              pure (string, e)
---         parseE (HSE.Var _ (HSE.UnQual _ (HSE.Ident _ string))) =
---           pure $ Hell.prim string
---         parseE (HSE.App _ f x) = do
---           Hell.A <$> parseE f <*> parseE x
---         parseE (HSE.Lit _ (HSE.String _ string _original)) =
---           pure $ Hell.T string
---         parseE (HSE.Do _ stmts) = do
---           stmts' <- traverse parseStmt stmts
---           pure $ foldr (\m f -> Hell.A (Hell.A then' m) f) (Hell.reflect (pure () :: IO ())) stmts'
---         parseE (HSE.List _ xs) = Hell.reflect <$> traverse parseE xs
---         parseE expr' = error $ "Can't parse " ++ show expr'
---         parseStmt (HSE.Qualifier _ e) = parseE e
-
 --------------------------------------------------------------------------------
 -- Desugar
 
-data DesugarError = InvalidVariable
+data DesugarError = InvalidVariable | UnknownType String
 
 desguarExp :: HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
 desguarExp = go where
   go = \case
+    HSE.Paren _ x -> go x
     HSE.App _ f x -> UApp <$> go f <*> go x
     HSE.Var _ qname ->
       case qname of
         HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
         _ -> Left InvalidVariable
+
+desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTRep
+desugarType = go where
+  go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTRep
+  go = \case
+    HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ "Bool")) -> pure $ SomeTRep $ Type.Reflection.typeRep @Bool
+    HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ "Int")) -> pure $ SomeTRep $ Type.Reflection.typeRep @Int
+    HSE.TyFun l a b -> do
+      SomeTRep aRep <- go a
+      SomeTRep bRep <- go b
+      pure $ SomeTRep (Type.Reflection.Fun aRep bRep)
+    t -> Left $ UnknownType $ HSE.prettyPrint t
 
 --------------------------------------------------------------------------------
 -- Occurs check
