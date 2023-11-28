@@ -9,6 +9,7 @@
 -- * Dropped UType in favor of TypeRep
 
 import qualified Data.Graph as Graph
+import qualified Data.Bool as Bool
 import qualified Data.Map as Map
 import qualified Data.Generics.Schemes as SYB
 import qualified Type.Reflection as Type
@@ -195,6 +196,10 @@ desguarExp globals = go where
                  (s, rep) <- desugarArg pat
                  m <- go e
                  loop (f . (\f -> UBind m (ULam s rep f))) ss
+              HSE.LetStmt _ (HSE.BDecls _ [HSE.PatBind _ pat (HSE.UnGuardedRhs _ e) Nothing]) -> do
+                 (s, rep) <- desugarArg pat
+                 value <- go e
+                 loop (f . (\f -> UApp (ULam s rep f) value)) ss
               HSE.Qualifier _ e -> do
                 e' <- go e
                 loop (f . UApp (UApp then' e')) ss

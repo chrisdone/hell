@@ -9,7 +9,8 @@ bar = do
   x :: () <- Text.putStrLn "Hello, please enter your name"
   line :: Text <- Text.getLine
   Text.putStrLn "Hello, "
-  Text.putStrLn ((\(x :: Text) (y :: Int) -> x) line 5)
+  let msg :: Text = ((\(x :: Text) (y :: Int) -> x) line 5)
+  Text.putStrLn msg
 ```
 
 ```
