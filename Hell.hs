@@ -36,6 +36,7 @@ data UTerm
   | UApp UTerm UTerm
   | UForall SomeTRep Forall
   | ULit (forall g. Typed (Term g))
+  | UBind UTerm UTerm
 
 newtype Forall = Forall (forall (a :: Type) g. TypeRep a -> Typed (Term g))
 
@@ -109,6 +110,14 @@ tc (ULit lit) _env = lit
 -- Polytyped terms, must be, syntactically, fully-saturated
 tc (UForall (SomeTRep typeRep) (Forall f)) _env =
   f typeRep
+-- Bind needs special type-checker handling, because do-notation lacks
+-- the means to pass the types about >>=
+tc (UBind m f) env =
+  case tc m env of
+    Typed m_ty' m' ->
+       case tc f env of
+         Typed f_ty' f' ->
+           error "TODO: Implement me."
 
 --------------------------------------------------------------------------------
 -- Evaluator
