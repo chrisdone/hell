@@ -11,7 +11,7 @@
 import qualified Data.Graph as Graph
 import qualified Data.Map as Map
 import qualified Data.Generics.Schemes as SYB
-import qualified Type.Reflection
+import qualified Type.Reflection as Type
 import qualified Data.Maybe as Maybe
 import qualified Language.Haskell.Exts as HSE
 import qualified Data.ByteString as ByteString
@@ -24,7 +24,7 @@ import Data.Map (Map)
 import Data.Text (Text)
 import Data.Constraint
 import GHC.Types
-import Type.Reflection (TypeRep, typeRepKind)
+import Type.Reflection (TypeRep, typeRepKind, typeRep)
 import Test.Hspec
 
 --------------------------------------------------------------------------------
@@ -40,8 +40,8 @@ data UTerm
 
 newtype Forall = Forall (forall (a :: Type) g. TypeRep a -> Typed (Term g))
 
-lit :: Type.Reflection.Typeable a => a -> UTerm
-lit l = ULit (Typed (Type.Reflection.typeOf l) (Lit l))
+lit :: Type.Typeable a => a -> UTerm
+lit l = ULit (Typed (Type.typeOf l) (Lit l))
 
 --------------------------------------------------------------------------------
 -- Typed AST
@@ -64,7 +64,7 @@ data Typed (thing :: Type -> Type) = forall ty. Typed (TypeRep (ty :: Type)) (th
 data SomeTRep = forall (a :: Type). SomeTRep (TypeRep a)
 deriving instance Show SomeTRep
 instance Eq SomeTRep where
-  SomeTRep x == SomeTRep y = Type.Reflection.SomeTypeRep x == Type.Reflection.SomeTypeRep y
+  SomeTRep x == SomeTRep y = Type.SomeTypeRep x == Type.SomeTypeRep y
 
 -- The type environment and lookup
 data TyEnv g where
@@ -88,20 +88,20 @@ tc (ULam s (SomeTRep bndr_ty') body) env =
       case tc body (Cons s bndr_ty' env) of
         Typed body_ty' body' ->
           Typed
-            (Type.Reflection.Fun bndr_ty' body_ty')
+            (Type.Fun bndr_ty' body_ty')
             (Lam bndr_ty' body')
 tc (UApp e1 e2) env =
   case tc e1 env of
-    Typed (Type.Reflection.Fun bndr_ty body_ty) e1' ->
+    Typed (Type.Fun bndr_ty body_ty) e1' ->
       case tc e2 env of
         Typed arg_ty e2' ->
-          case Type.Reflection.eqTypeRep arg_ty bndr_ty of
+          case Type.eqTypeRep arg_ty bndr_ty of
             Nothing -> error $ "Type error: " ++ show arg_ty ++ " vs " ++ show bndr_ty
-            Just (Type.Reflection.HRefl) ->
+            Just (Type.HRefl) ->
              let kind = typeRepKind body_ty
              in
-             case Type.Reflection.eqTypeRep kind (Type.Reflection.typeRep @Type) of
-               Just Type.Reflection.HRefl
+             case Type.eqTypeRep kind (typeRep @Type) of
+               Just Type.HRefl
                  -> Typed body_ty
                      (App e1'
                           e2')
@@ -114,10 +114,25 @@ tc (UForall (SomeTRep typeRep) (Forall f)) _env =
 -- the means to pass the types about >>=
 tc (UBind m f) env =
   case tc m env of
-    Typed m_ty' m' ->
+    Typed m_ty' m'
+      | Just Type.HRefl <- Type.eqTypeRep (typeRepKind m_ty') (typeRep @Type) ->
        case tc f env of
-         Typed f_ty' f' ->
-           error "TODO: Implement me."
+         Typed f_ty' f'
+          | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f_ty') (typeRep @Type) ->
+           -- Happy path:
+           --
+           -- m_ty' == typeRep @(IO a)
+           -- f_ty' == typeRep @(a -> IO b)
+           -- final type is: IO b
+           case (m_ty', f_ty') of
+              (Type.App io1 a1, Type.Fun a2 final@(Type.App io2 (b :: TypeRep b)))
+                | Just Type.HRefl <- Type.eqTypeRep io1 (typeRep @IO),
+                  Just Type.HRefl <- Type.eqTypeRep io2 (typeRep @IO),
+                  Just Type.HRefl <- Type.eqTypeRep a1 a2,
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind a1) (typeRep @Type),
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind a2) (typeRep @Type),
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind b) (typeRep @Type) ->
+                  Typed final (App (App (Lit (>>=)) m') f')
 
 --------------------------------------------------------------------------------
 -- Evaluator
@@ -190,15 +205,15 @@ desugarType = go where
     HSE.TyFun l a b -> do
       SomeTRep aRep <- go a
       SomeTRep bRep <- go b
-      pure $ SomeTRep (Type.Reflection.Fun aRep bRep)
+      pure $ SomeTRep (Type.Fun aRep bRep)
     t -> Left $ UnknownType $ HSE.prettyPrint t
 
 desugarTypeSpec :: Spec
 desugarTypeSpec = do
   it "desugarType" $ do
-    shouldBe (try "Bool") (Right (SomeTRep $ Type.Reflection.typeRep @Bool))
-    shouldBe (try "Int") (Right (SomeTRep $ Type.Reflection.typeRep @Int))
-    shouldBe (try "Bool -> Int") (Right (SomeTRep $ Type.Reflection.typeRep @(Bool -> Int)))
+    shouldBe (try "Bool") (Right (SomeTRep $ typeRep @Bool))
+    shouldBe (try "Int") (Right (SomeTRep $ typeRep @Int))
+    shouldBe (try "Bool -> Int") (Right (SomeTRep $ typeRep @(Bool -> Int)))
   where try e = case fmap desugarType $ HSE.parseType e of
            HSE.ParseOk r -> r
            _ -> error "Parse failed."
@@ -279,10 +294,10 @@ spec = do
 
 supportedTypeConstructors :: Map String SomeTRep
 supportedTypeConstructors = Map.fromList [
-  ("Bool", SomeTRep $ Type.Reflection.typeRep @Bool),
-  ("Int", SomeTRep $ Type.Reflection.typeRep @Int),
-  ("Char", SomeTRep $ Type.Reflection.typeRep @Char),
-  ("Text", SomeTRep $ Type.Reflection.typeRep @Text)
+  ("Bool", SomeTRep $ typeRep @Bool),
+  ("Int", SomeTRep $ typeRep @Int),
+  ("Char", SomeTRep $ typeRep @Char),
+  ("Text", SomeTRep $ typeRep @Text)
   ]
 
 --------------------------------------------------------------------------------
@@ -314,10 +329,10 @@ main = do
                   Just main' ->
                     case check main' Nil of
                        Typed t ex ->
-                         case Type.Reflection.eqTypeRep (typeRepKind t) (Type.Reflection.typeRep @Type) of
-                           Just Type.Reflection.HRefl ->
-                             case Type.Reflection.eqTypeRep t (Type.Reflection.typeRep @(IO ())) of
-                               Just Type.Reflection.HRefl ->
+                         case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
+                           Just Type.HRefl ->
+                             case Type.eqTypeRep t (typeRep @(IO ())) of
+                               Just Type.HRefl ->
                                  let action :: IO () = eval () ex
                                  in action
 
