@@ -133,6 +133,7 @@ tc (UBind m f) env =
                   Just Type.HRefl <- Type.eqTypeRep (typeRepKind a2) (typeRep @Type),
                   Just Type.HRefl <- Type.eqTypeRep (typeRepKind b) (typeRep @Type) ->
                   Typed final (App (App (Lit (>>=)) m') f')
+              _ -> error "Bind in do-notation type mismatch."
 
 --------------------------------------------------------------------------------
 -- Evaluator
@@ -156,7 +157,7 @@ check = tc
 --------------------------------------------------------------------------------
 -- Desugar expressions
 
-data DesugarError = InvalidVariable | UnknownType String | BadParameterSyntax String
+data DesugarError = InvalidVariable | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String
   deriving (Show, Eq)
 
 desguarExp :: Map String UTerm -> HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
@@ -166,13 +167,13 @@ desguarExp globals = go where
     HSE.Lit _ lit' -> case lit' of
       HSE.Char _ char _ -> pure $ lit char
       HSE.String _ string _ -> pure $ lit $ Text.pack string
-      HSE.Int _ int _ -> pure $ lit int
+      HSE.Int _ int _ -> pure $ lit (fromIntegral int :: Int)
     HSE.App _ f x -> UApp <$> go f <*> go x
     HSE.InfixApp _ x (HSE.QVarOp l f) y -> UApp <$> (UApp <$> go (HSE.Var l f) <*> go x) <*> go y
     HSE.Lambda _ pats e -> do
       args <- traverse desugarArg pats
       e' <- go e
-      pure $ foldr (\(name,ty) inner -> ULam name ty inner)  e' args
+      pure $ foldr (\(name,ty) inner  -> ULam name ty inner)  e' args
     HSE.Var _ qname ->
       case qname of
         HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
@@ -186,6 +187,21 @@ desguarExp globals = go where
           | Just uterm <- Map.lookup string supportedLits ->
             pure uterm
         _ -> Left InvalidVariable
+    HSE.Do _ stmts -> do
+      let loop f [HSE.Qualifier _ e] = f <$> go e
+          loop f (s:ss) = do
+            case s of
+              HSE.Generator _ pat e -> do
+                 (s, rep) <- desugarArg pat
+                 m <- go e
+                 loop (f . (\f -> UBind m (ULam s rep f))) ss
+              HSE.Qualifier _ e -> do
+                e' <- go e
+                loop (f . UApp (UApp then' e')) ss
+          loop _ _ = error "Malformed do-notation!"
+      loop id stmts
+
+    e -> Left $ UnsupportedSyntax $ show e
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (String, SomeTRep)
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) = fmap (i,) (desugarType typ)
@@ -202,6 +218,7 @@ desugarType = go where
     HSE.TyParen _ x -> go x
     HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ name))
       | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
+    HSE.TyCon _ (HSE.Special _ HSE.UnitCon{}) -> pure $ SomeTRep $ typeRep @()
     HSE.TyFun l a b -> do
       SomeTRep aRep <- go a
       SomeTRep bRep <- go b
@@ -296,6 +313,7 @@ supportedTypeConstructors :: Map String SomeTRep
 supportedTypeConstructors = Map.fromList [
   ("Bool", SomeTRep $ typeRep @Bool),
   ("Int", SomeTRep $ typeRep @Int),
+  ("()", SomeTRep $ typeRep @()),
   ("Char", SomeTRep $ typeRep @Char),
   ("Text", SomeTRep $ typeRep @Text)
   ]
@@ -307,8 +325,11 @@ supportedLits :: Map String UTerm
 supportedLits = Map.fromList [
    ("Text.putStrLn", lit Text.putStrLn),
    ("Text.getLine", lit Text.getLine),
-   (">>", lit ((Prelude.>>) :: IO () -> IO () -> IO ()))
+   (">>", then')
   ]
+
+then' :: UTerm
+then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 ------------------------------------------------------------------------------
 -- Main entry point

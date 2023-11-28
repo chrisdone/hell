@@ -5,13 +5,17 @@ foo = Main.bar
 
 main = Main.foo
 
-bar =
-  Text.putStrLn "Hello," >>
-  Text.putStrLn ((\(x :: Text) -> x) " World!")
+bar = do
+  x :: () <- Text.putStrLn "Hello, please enter your name"
+  line :: Text <- Text.getLine
+  Text.putStrLn "Hello, "
+  Text.putStrLn ((\(x :: Text) (y :: Int) -> x) line 5)
 ```
 
 ```
-bash-3.2$ ./hell demo.hell
-Hello,
- World!
+$ ./hell foo.hell
+Hello, please enter your name
+Dabe
+Hello, 
+Dabe
 ```
