@@ -16,7 +16,7 @@ import qualified Type.Reflection as Type
 import qualified Data.Maybe as Maybe
 import qualified Language.Haskell.Exts as HSE
 import qualified Data.ByteString as ByteString
-import qualified Data.ByteString.Builder as ByteString
+import qualified Data.ByteString.Builder as ByteString hiding (writeFile)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
@@ -351,6 +351,9 @@ supportedLits = Map.fromList [
    ("IO.NoBuffering", lit IO.NoBuffering),
    ("IO.LineBuffering", lit IO.LineBuffering),
    ("IO.BlockBuffering", lit IO.BlockBuffering),
+   ("Text.writeFile", lit t_writeFile),
+   ("Text.readFile", lit t_readFile),
+   ("Text.appendFile", lit t_appendFile),
    (">>", then')
   ]
 
@@ -373,6 +376,15 @@ t_putStr = t_hPutStr IO.stdout
 
 t_getLine :: IO Text
 t_getLine = fmap Text.decodeUtf8 ByteString.getLine
+
+t_writeFile :: Text -> Text -> IO ()
+t_writeFile fp t = ByteString.writeFile (Text.unpack fp) (Text.encodeUtf8 t)
+
+t_appendFile :: Text -> Text -> IO ()
+t_appendFile fp t = ByteString.appendFile (Text.unpack fp) (Text.encodeUtf8 t)
+
+t_readFile :: Text -> IO Text
+t_readFile fp = fmap Text.decodeUtf8 (ByteString.readFile (Text.unpack fp))
 
 ------------------------------------------------------------------------------
 -- Main entry point

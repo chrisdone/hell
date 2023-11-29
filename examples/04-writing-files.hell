@@ -1,0 +1,6 @@
+main = do
+  let fp :: Text = "foo.txt"
+  Text.writeFile fp "Hello, "
+  Text.appendFile fp "World!"
+  text :: Text <- Text.readFile fp
+  Text.putStrLn text
