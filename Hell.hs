@@ -1,5 +1,5 @@
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments #-}
-{-# LANGUAGE GADTs, PolyKinds #-}
+{-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types #-}
 {-# LANGUAGE LambdaCase, ScopedTypeVariables, PatternSynonyms #-}
 
 -- * Original type checker code by Stephanie Weirich at Dagstuhl (Sept 04)

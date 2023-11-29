@@ -1,0 +1,28 @@
+name: brossa
+version: 0
+license: BSD3
+author: "Chris Done"
+copyright: "2023 Chris Done"
+
+dependencies:
+- base
+- haskell-src-exts
+- hspec
+- ghc-prim
+- containers
+- text
+- bytestring
+- async
+- mtl
+- directory
+- temporary
+- syb
+- constraints
+
+executables:
+  hell:
+    main: Hell.hs
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
