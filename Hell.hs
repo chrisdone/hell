@@ -332,6 +332,7 @@ supportedTypeConstructors = Map.fromList [
 supportedLits :: Map String UTerm
 supportedLits = Map.fromList [
    ("Text.putStrLn", lit t_putStrLn),
+   ("Text.hPutStr", lit t_hPutStr),
    ("Text.getLine", lit t_getLine),
    ("IO.hSetBuffering", lit IO.hSetBuffering),
    ("IO.stdout", lit IO.stdout),
@@ -350,6 +351,9 @@ then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 t_putStrLn :: Text -> IO ()
 t_putStrLn = ByteString.hPutBuilder IO.stdout . (<>"\n") . ByteString.byteString . Text.encodeUtf8
+
+t_hPutStr :: IO.Handle -> Text -> IO ()
+t_hPutStr h = ByteString.hPutBuilder h . ByteString.byteString . Text.encodeUtf8
 
 t_getLine :: IO Text
 t_getLine = fmap Text.decodeUtf8 ByteString.getLine
