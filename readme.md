@@ -3,6 +3,17 @@
 Hell is a statically-typed shell scripting language and
 implementation, which re-uses Haskell's standard library and runtime.
 
+<!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
+**Table of Contents**
+
+- [hell](#hell)
+    - [Running](#running)
+    - [Informal description](#informal-description)
+    - [More formal description](#more-formal-description)
+    - [Building](#building)
+
+<!-- markdown-toc end -->
+
 ## Running
 
 Presently the `hell` binary type-checks and interprets immediately a
