@@ -1,0 +1,9 @@
+main = do
+  IO.hSetBuffering IO.stdin IO.NoBuffering
+  IO.hSetBuffering IO.stdout IO.NoBuffering
+
+  Text.putStr "Please press any key ... "
+  chunk :: ByteString <- ByteString.hGet IO.stdin 1
+
+  IO.hSetBuffering IO.stdout IO.LineBuffering
+  Text.putStrLn "OK!"
