@@ -1,7 +1,6 @@
 # hell
 
-Hell is a statically-typed shell scripting language and
-implementation, which re-uses Haskell's standard library and runtime.
+Welcome to Hell :smiling_imp:
 
 <!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
 **Table of Contents**
@@ -10,6 +9,7 @@ implementation, which re-uses Haskell's standard library and runtime.
     - [Description](#description)
         - [Informal description](#informal-description)
         - [More formal description](#more-formal-description)
+        - [Design philosophy](#design-philosophy)
     - [Instructions](#instructions)
         - [Running](#running)
         - [Building](#building)
@@ -17,6 +17,9 @@ implementation, which re-uses Haskell's standard library and runtime.
 <!-- markdown-toc end -->
 
 ## Description
+
+Hell is an interpreted, statically-typed, shell scripting language
+based on Haskell.
 
 ### Informal description
 
@@ -38,6 +41,8 @@ The language is a simply-typed lambda calculus, plus some syntactic
 sugar and some primitives that can be polymorphic (but require
 immediately applied type applications). Recursion is not supported.
 
+Its syntax is a subset of Haskell.
+
 Polymorphic primitives such as `id` require passing the type of the
 argument as `id @Int 123`. You cannot define polymorphic lambdas of
 your own. It's not full System-F.
@@ -57,6 +62,26 @@ signature.
 ```haskell
 \(x :: Int) -> x
 ```
+
+Globals of any kind must be fully qualified (`Main.foo` and
+`Text.putstrLn`).
+
+### Design philosophy
+
+Turtle, Shelly, shell-conduit and Shh are "do shell scripting in
+Haskell", but lack something. GHC is a large dependency to require for
+running scripts, and the Haskell ecosystem is not capable of the
+stability required. Scripts written in them are brittle and clunky.
+
+My definition of a shell scripting language:
+
+* A small interpreted language capable of launching processes
+* No abstraction or re-use capabilities from other
+  files/modules/packages
+* Small, portable binary
+* Stable, does not change in backwards-incompatible ways
+
+Hell satisfies these criteria.
 
 ## Instructions
 
