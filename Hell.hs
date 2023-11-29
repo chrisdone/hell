@@ -1,6 +1,6 @@
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types #-}
-{-# LANGUAGE LambdaCase, ScopedTypeVariables, PatternSynonyms #-}
+{-# LANGUAGE LambdaCase, ScopedTypeVariables, PatternSynonyms, OverloadedStrings #-}
 
 -- * Original type checker code by Stephanie Weirich at Dagstuhl (Sept 04)
 -- * Modernized with Type.Reflection, also by Stephanie
@@ -16,8 +16,11 @@ import qualified Type.Reflection as Type
 import qualified Data.Maybe as Maybe
 import qualified Language.Haskell.Exts as HSE
 import qualified Data.ByteString as ByteString
+import qualified Data.ByteString.Builder as ByteString
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
+import qualified System.IO as IO
 
 import Control.Monad.State
 import System.Environment
@@ -328,13 +331,28 @@ supportedTypeConstructors = Map.fromList [
 
 supportedLits :: Map String UTerm
 supportedLits = Map.fromList [
-   ("Text.putStrLn", lit Text.putStrLn),
-   ("Text.getLine", lit Text.getLine),
+   ("Text.putStrLn", lit t_putStrLn),
+   ("Text.getLine", lit t_getLine),
+   ("IO.hSetBuffering", lit IO.hSetBuffering),
+   ("IO.stdout", lit IO.stdout),
+   ("IO.stderr", lit IO.stderr),
+   ("IO.stdin", lit IO.stdin),
    (">>", then')
   ]
 
 then' :: UTerm
 then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
+
+--------------------------------------------------------------------------------
+-- UTF-8 specific operations without all the environment gubbins
+--
+-- Much better than what Data.Text.IO provides
+
+t_putStrLn :: Text -> IO ()
+t_putStrLn = ByteString.hPutBuilder IO.stdout . (<>"\n") . ByteString.byteString . Text.encodeUtf8
+
+t_getLine :: IO Text
+t_getLine = fmap Text.decodeUtf8 ByteString.getLine
 
 ------------------------------------------------------------------------------
 -- Main entry point
