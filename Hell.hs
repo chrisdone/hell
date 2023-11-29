@@ -26,6 +26,7 @@ import Control.Monad.State
 import System.Environment
 import Data.Map (Map)
 import Data.Text (Text)
+import Data.ByteString (ByteString)
 import Data.Constraint
 import GHC.Types
 import Type.Reflection (TypeRep, typeRepKind, typeRep)
@@ -161,7 +162,7 @@ check = tc
 --------------------------------------------------------------------------------
 -- Desugar expressions
 
-data DesugarError = InvalidVariable | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String
+data DesugarError = InvalidConstructor String | InvalidVariable String | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String
   deriving (Show, Eq)
 
 desguarExp :: Map String UTerm -> HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
@@ -178,6 +179,12 @@ desguarExp globals = go where
       args <- traverse desugarArg pats
       e' <- go e
       pure $ foldr (\(name,ty) inner  -> ULam name ty inner)  e' args
+    HSE.Con _ qname ->
+      case qname of
+        HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
+          | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
+            pure uterm
+        _ -> Left $ InvalidConstructor $ show qname
     HSE.Var _ qname ->
       case qname of
         HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
@@ -190,7 +197,7 @@ desguarExp globals = go where
         HSE.UnQual _ (HSE.Symbol _ string)
           | Just uterm <- Map.lookup string supportedLits ->
             pure uterm
-        _ -> Left InvalidVariable
+        _ -> Left $ InvalidVariable $ show qname
     HSE.Do _ stmts -> do
       let loop f [HSE.Qualifier _ e] = f <$> go e
           loop f (s:ss) = do
@@ -323,7 +330,8 @@ supportedTypeConstructors = Map.fromList [
   ("Int", SomeTRep $ typeRep @Int),
   ("()", SomeTRep $ typeRep @()),
   ("Char", SomeTRep $ typeRep @Char),
-  ("Text", SomeTRep $ typeRep @Text)
+  ("Text", SomeTRep $ typeRep @Text),
+  ("ByteString", SomeTRep $ typeRep @ByteString)
   ]
 
 --------------------------------------------------------------------------------
@@ -333,11 +341,16 @@ supportedLits :: Map String UTerm
 supportedLits = Map.fromList [
    ("Text.putStrLn", lit t_putStrLn),
    ("Text.hPutStr", lit t_hPutStr),
+   ("Text.putStr", lit t_putStr),
    ("Text.getLine", lit t_getLine),
+   ("ByteString.hGet", lit ByteString.hGet),
    ("IO.hSetBuffering", lit IO.hSetBuffering),
    ("IO.stdout", lit IO.stdout),
    ("IO.stderr", lit IO.stderr),
    ("IO.stdin", lit IO.stdin),
+   ("IO.NoBuffering", lit IO.NoBuffering),
+   ("IO.LineBuffering", lit IO.LineBuffering),
+   ("IO.BlockBuffering", lit IO.BlockBuffering),
    (">>", then')
   ]
 
@@ -354,6 +367,9 @@ t_putStrLn = ByteString.hPutBuilder IO.stdout . (<>"\n") . ByteString.byteString
 
 t_hPutStr :: IO.Handle -> Text -> IO ()
 t_hPutStr h = ByteString.hPutBuilder h . ByteString.byteString . Text.encodeUtf8
+
+t_putStr :: Text -> IO ()
+t_putStr = t_hPutStr IO.stdout
 
 t_getLine :: IO Text
 t_getLine = fmap Text.decodeUtf8 ByteString.getLine
