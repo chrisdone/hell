@@ -7,25 +7,18 @@ implementation, which re-uses Haskell's standard library and runtime.
 **Table of Contents**
 
 - [hell](#hell)
-    - [Running](#running)
-    - [Informal description](#informal-description)
-    - [More formal description](#more-formal-description)
-    - [Building](#building)
+    - [Description](#description)
+        - [Informal description](#informal-description)
+        - [More formal description](#more-formal-description)
+    - [Instructions](#instructions)
+        - [Running](#running)
+        - [Building](#building)
 
 <!-- markdown-toc end -->
 
-## Running
+## Description
 
-Presently the `hell` binary type-checks and interprets immediately a
-program in `IO`.
-
-    $ hell examples/01-hello-world.hell
-    Hello, World!
-
-See https://github.com/chrisdone/hell/releases for a statically-linked
-amd64 Linux binary.
-
-## Informal description
+### Informal description
 
 See `examples/` for a list of example scripts.
 
@@ -39,12 +32,11 @@ main = do
   Text.putStrLn name
 ```
 
-## More formal description
+### More formal description
 
-The language is a DSL, it's the simply-typed lambda calculus, plus
-some syntactic sugar and some primitives that can be polymorphic (but
-require immediately applied type applications). Recursion is not
-supported.
+The language is a simply-typed lambda calculus, plus some syntactic
+sugar and some primitives that can be polymorphic (but require
+immediately applied type applications). Recursion is not supported.
 
 Polymorphic primitives such as `id` require passing the type of the
 argument as `id @Int 123`. You cannot define polymorphic lambdas of
@@ -66,7 +58,20 @@ signature.
 \(x :: Int) -> x
 ```
 
-## Building
+## Instructions
+
+### Running
+
+Presently the `hell` binary type-checks and interprets immediately a
+program in `IO`.
+
+    $ hell examples/01-hello-world.hell
+    Hello, World!
+
+See https://github.com/chrisdone/hell/releases for a statically-linked
+amd64 Linux binary.
+
+### Building
 
 Build statically for Linux in a musl distribution:
 
