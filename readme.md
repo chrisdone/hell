@@ -11,6 +11,9 @@ program in `IO`.
     $ hell examples/01-hello-world.hell
     Hello, World!
 
+See https://github.com/chrisdone/hell/releases for a statically-linked
+amd64 Linux binary.
+
 ## Informal description
 
 See `examples/` for a list of example scripts.
