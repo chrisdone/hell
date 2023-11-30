@@ -328,7 +328,6 @@ supportedTypeConstructors :: Map String SomeTRep
 supportedTypeConstructors = Map.fromList [
   ("Bool", SomeTRep $ typeRep @Bool),
   ("Int", SomeTRep $ typeRep @Int),
-  ("()", SomeTRep $ typeRep @()),
   ("Char", SomeTRep $ typeRep @Char),
   ("Text", SomeTRep $ typeRep @Text),
   ("ByteString", SomeTRep $ typeRep @ByteString)
@@ -339,21 +338,27 @@ supportedTypeConstructors = Map.fromList [
 
 supportedLits :: Map String UTerm
 supportedLits = Map.fromList [
+   -- Text I/O
    ("Text.putStrLn", lit t_putStrLn),
    ("Text.hPutStr", lit t_hPutStr),
    ("Text.putStr", lit t_putStr),
    ("Text.getLine", lit t_getLine),
-   ("ByteString.hGet", lit ByteString.hGet),
-   ("IO.hSetBuffering", lit IO.hSetBuffering),
-   ("IO.stdout", lit IO.stdout),
-   ("IO.stderr", lit IO.stderr),
-   ("IO.stdin", lit IO.stdin),
-   ("IO.NoBuffering", lit IO.NoBuffering),
-   ("IO.LineBuffering", lit IO.LineBuffering),
-   ("IO.BlockBuffering", lit IO.BlockBuffering),
    ("Text.writeFile", lit t_writeFile),
    ("Text.readFile", lit t_readFile),
    ("Text.appendFile", lit t_appendFile),
+   -- Bytes I/O
+   ("ByteString.hGet", lit ByteString.hGet),
+   -- Handles, buffering
+   ("IO.stdout", lit IO.stdout),
+   ("IO.stderr", lit IO.stderr),
+   ("IO.stdin", lit IO.stdin),
+   ("IO.hSetBuffering", lit IO.hSetBuffering),
+   ("IO.NoBuffering", lit IO.NoBuffering),
+   ("IO.LineBuffering", lit IO.LineBuffering),
+   ("IO.BlockBuffering", lit IO.BlockBuffering),
+   -- Get arguments
+   ("Env.getArgs", lit getArgs),
+   -- Misc
    (">>", then')
   ]
 
