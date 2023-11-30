@@ -1,0 +1,3 @@
+main = do
+  let xs :: [Text] = ["Hello, ", "World!"]
+  Text.putStrLn "OK!"

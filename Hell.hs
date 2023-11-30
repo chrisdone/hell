@@ -42,6 +42,8 @@ data UTerm
   | UForall SomeTRep Forall
   | ULit (forall g. Typed (Term g))
   | UBind UTerm UTerm
+  | UList [UTerm] (Maybe SomeTRep)
+  | UEmptyList SomeTRep
 
 newtype Forall = Forall (forall (a :: Type) g. TypeRep a -> Typed (Term g))
 
@@ -140,6 +142,22 @@ tc (UBind m f) env =
                   Typed final (App (App (Lit (>>=)) m') f')
               _ -> error "Bind in do-notation type mismatch."
 
+-- Lists
+-- 1. Empty list; we don't have anything to check, but we need a type.
+-- 2. Populated list, we don't need a type, and expect something immediately.
+tc (UList [] (Just (SomeTRep (t :: TypeRep t)))) env =
+  Typed (Type.App (typeRep @[]) t) (Lit ([] :: [t]))
+tc (UList [x] Nothing) env =
+  case tc x env of
+    Typed rep t' ->
+      Typed (Type.App (typeRep @[]) rep) (App (Lit (:[])) t')
+tc (UList (x:xs) Nothing) env =
+  case (tc x env, tc (UList xs Nothing) env) of
+    (Typed a_rep a, Typed as_rep as) ->
+      case Type.eqTypeRep (Type.App (typeRep @[]) a_rep) as_rep of
+        Just Type.HRefl ->
+          Typed as_rep (App (App (Lit (:)) a) as)
+
 --------------------------------------------------------------------------------
 -- Evaluator
 
@@ -169,6 +187,8 @@ desguarExp :: Map String UTerm -> HSE.Exp HSE.SrcSpanInfo -> Either DesugarError
 desguarExp globals = go where
   go = \case
     HSE.Paren _ x -> go x
+    HSE.List _ xs -> UList <$> traverse go xs <*> pure Nothing
+    HSE.App _ (HSE.List _ xs) (HSE.TypeApp _ ty) -> UList <$> traverse go xs <*> fmap Just (desugarType ty)
     HSE.Lit _ lit' -> case lit' of
       HSE.Char _ char _ -> pure $ lit char
       HSE.String _ string _ -> pure $ lit $ Text.pack string
@@ -363,6 +383,8 @@ supportedLits = Map.fromList [
    ("IO.BlockBuffering", lit IO.BlockBuffering),
    -- Get arguments
    ("Env.getArgs", lit getArgs),
+   -- -- Monadic actions
+   -- ("mapM_", lit (mapM_ :: IO a -> )
    -- Misc
    (">>", then')
   ]
