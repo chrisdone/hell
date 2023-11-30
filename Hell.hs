@@ -183,8 +183,8 @@ check = tc
 data DesugarError = InvalidConstructor String | InvalidVariable String | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String
   deriving (Show, Eq)
 
-desguarExp :: Map String UTerm -> HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
-desguarExp globals = go where
+desugarExp :: Map String UTerm -> HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
+desugarExp globals = go where
   go = \case
     HSE.Paren _ x -> go x
     HSE.List _ xs -> UList <$> traverse go xs <*> pure Nothing
@@ -193,6 +193,11 @@ desguarExp globals = go where
       HSE.Char _ char _ -> pure $ lit char
       HSE.String _ string _ -> pure $ lit $ Text.pack string
       HSE.Int _ int _ -> pure $ lit (fromIntegral int :: Int)
+    HSE.App _ (HSE.Var _ qname) (HSE.TypeApp _ ty) -> do
+      rep <- desugarType ty
+      desugarQName globals qname (Just rep)
+    HSE.Var _ qname ->
+      desugarQName globals qname Nothing
     HSE.App _ f x -> UApp <$> go f <*> go x
     HSE.InfixApp _ x (HSE.QVarOp l f) y -> UApp <$> (UApp <$> go (HSE.Var l f) <*> go x) <*> go y
     HSE.Lambda _ pats e -> do
@@ -205,19 +210,6 @@ desguarExp globals = go where
           | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
             pure uterm
         _ -> Left $ InvalidConstructor $ show qname
-    HSE.Var _ qname ->
-      case qname of
-        HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
-        HSE.Qual _ (HSE.ModuleName _ "Main") (HSE.Ident _ string)
-          | Just uterm  <- Map.lookup string globals ->
-            pure uterm
-        HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
-          | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
-            pure uterm
-        HSE.UnQual _ (HSE.Symbol _ string)
-          | Just uterm <- Map.lookup string supportedLits ->
-            pure uterm
-        _ -> Left $ InvalidVariable $ show qname
     HSE.Do _ stmts -> do
       let loop f [HSE.Qualifier _ e] = f <$> go e
           loop f (s:ss) = do
@@ -235,8 +227,31 @@ desguarExp globals = go where
                 loop (f . UApp (UApp then' e')) ss
           loop _ _ = error "Malformed do-notation!"
       loop id stmts
-
     e -> Left $ UnsupportedSyntax $ show e
+
+desugarQName :: Map String UTerm -> HSE.QName HSE.SrcSpanInfo -> Maybe SomeTRep -> Either DesugarError UTerm
+desugarQName globals qname Nothing =
+  case qname of
+    HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
+    HSE.Qual _ (HSE.ModuleName _ "Main") (HSE.Ident _ string)
+      | Just uterm  <- Map.lookup string globals ->
+        pure uterm
+    HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
+      | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
+        pure uterm
+    HSE.UnQual _ (HSE.Symbol _ string)
+      | Just uterm <- Map.lookup string supportedLits ->
+        pure uterm
+    _ -> Left $ InvalidVariable $ show qname
+desugarQName globals qname (Just trep) =
+  case qname of
+    HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
+      | Just forall <- Map.lookup (prefix ++ "." ++ string) polyLits ->
+        pure (UForall trep forall)
+    HSE.UnQual _ (HSE.Symbol _ string)
+      | Just forall <- Map.lookup string polyLits ->
+        pure (UForall trep forall)
+    _ -> Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (String, SomeTRep)
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) = fmap (i,) (desugarType typ)
@@ -283,7 +298,7 @@ desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stron
   go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String UTerm) (Either DesugarError) (String, UTerm)
   go (name, expr) = do
     globals <- get
-    uterm <- lift $ desguarExp globals expr
+    uterm <- lift $ desugarExp globals expr
     modify' $ Map.insert name uterm
     pure (name, uterm)
 
@@ -393,6 +408,14 @@ then' :: UTerm
 then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 --------------------------------------------------------------------------------
+-- Polymorphic primitives
+
+polyLits :: Map String Forall
+polyLits = Map.fromList [
+  ("Fun.id", Forall $ \a -> Typed (Type.Fun a a) (Lit id))
+ ]
+
+--------------------------------------------------------------------------------
 -- UTF-8 specific operations without all the environment gubbins
 --
 -- Much better than what Data.Text.IO provides
@@ -425,7 +448,8 @@ main :: IO ()
 main = do
   (filePath:_) <- getArgs
   string <- readFile filePath
-  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures] } string >>= parseModule of
+  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
+    HSE.ParseFailed _ e -> error $ e
     HSE.ParseOk binds
       | anyCycles binds -> error "Cyclic bindings are not supported!"
       | otherwise ->

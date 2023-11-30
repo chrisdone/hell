@@ -1,0 +1,3 @@
+main = do
+  let x :: Text = "Hello!"
+  Text.putStrLn (Fun.id @Text x)
