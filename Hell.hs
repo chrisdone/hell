@@ -234,6 +234,9 @@ desugarType = go where
     HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ name))
       | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
     HSE.TyCon _ (HSE.Special _ HSE.UnitCon{}) -> pure $ SomeTRep $ typeRep @()
+    HSE.TyList _ inner -> do
+      SomeTRep t <- go inner
+      pure $ SomeTRep $ Type.App (typeRep @[]) t
     HSE.TyFun l a b -> do
       SomeTRep aRep <- go a
       SomeTRep bRep <- go b
@@ -246,6 +249,8 @@ desugarTypeSpec = do
     shouldBe (try "Bool") (Right (SomeTRep $ typeRep @Bool))
     shouldBe (try "Int") (Right (SomeTRep $ typeRep @Int))
     shouldBe (try "Bool -> Int") (Right (SomeTRep $ typeRep @(Bool -> Int)))
+    shouldBe (try "()") (Right (SomeTRep $ typeRep @()))
+    shouldBe (try "[Int]") (Right (SomeTRep $ typeRep @[Int]))
   where try e = case fmap desugarType $ HSE.parseType e of
            HSE.ParseOk r -> r
            _ -> error "Parse failed."
