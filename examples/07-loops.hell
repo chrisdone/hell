@@ -1,0 +1,1 @@
+main = List.mapM_ @Text Text.putStrLn ["Hello, ", "World!"]

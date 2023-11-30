@@ -39,16 +39,21 @@ data UTerm
   = UVar String
   | ULam String SomeTRep UTerm
   | UApp UTerm UTerm
-  | UForall SomeTRep Forall
+  | UForall [SomeTRep] Forall
   | ULit (forall g. Typed (Term g))
   | UBind UTerm UTerm
   | UList [UTerm] (Maybe SomeTRep)
   | UEmptyList SomeTRep
 
-newtype Forall = Forall (forall (a :: Type) g. TypeRep a -> Typed (Term g))
+data Forall
+  = More (forall (a :: Type) g. TypeRep a -> Forall)
+  | Final (forall g. Typed (Term g))
 
 lit :: Type.Typeable a => a -> UTerm
 lit l = ULit (Typed (Type.typeOf l) (Lit l))
+
+typed :: Type.Typeable a => a -> Typed (Term g)
+typed l = Typed (Type.typeOf l) (Lit l)
 
 --------------------------------------------------------------------------------
 -- Typed AST
@@ -115,8 +120,13 @@ tc (UApp e1 e2) env =
 -- Mono-typed terms
 tc (ULit lit) _env = lit
 -- Polytyped terms, must be, syntactically, fully-saturated
-tc (UForall (SomeTRep typeRep) (Forall f)) _env =
-  f typeRep
+tc (UForall reps fall) _env = go reps fall where
+  go :: [SomeTRep] -> Forall -> Typed (Term g)
+  go [] (Final typed) = typed
+  go (SomeTRep rep:reps) (More f) = go reps (f rep)
+  go _ _ = error "forall type arguments mismatch."
+
+
 -- Bind needs special type-checker handling, because do-notation lacks
 -- the means to pass the types about >>=
 tc (UBind m f) env =
@@ -183,6 +193,12 @@ check = tc
 data DesugarError = InvalidConstructor String | InvalidVariable String | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String
   deriving (Show, Eq)
 
+nestedTyApps :: HSE.Exp HSE.SrcSpanInfo -> Maybe (HSE.QName HSE.SrcSpanInfo, [HSE.Type HSE.SrcSpanInfo])
+nestedTyApps = go [] where
+  go acc (HSE.App _ (HSE.Var _ qname) (HSE.TypeApp _ ty)) = pure (qname, ty:acc)
+  go acc (HSE.App _ e (HSE.TypeApp _ ty)) = go (ty:acc) e
+  go acc _ = Nothing
+
 desugarExp :: Map String UTerm -> HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
 desugarExp globals = go where
   go = \case
@@ -193,11 +209,11 @@ desugarExp globals = go where
       HSE.Char _ char _ -> pure $ lit char
       HSE.String _ string _ -> pure $ lit $ Text.pack string
       HSE.Int _ int _ -> pure $ lit (fromIntegral int :: Int)
-    HSE.App _ (HSE.Var _ qname) (HSE.TypeApp _ ty) -> do
-      rep <- desugarType ty
-      desugarQName globals qname (Just rep)
+    app@HSE.App{} | Just (qname, tys) <- nestedTyApps app -> do
+      reps <- traverse desugarType tys
+      desugarQName globals qname reps
     HSE.Var _ qname ->
-      desugarQName globals qname Nothing
+      desugarQName globals qname []
     HSE.App _ f x -> UApp <$> go f <*> go x
     HSE.InfixApp _ x (HSE.QVarOp l f) y -> UApp <$> (UApp <$> go (HSE.Var l f) <*> go x) <*> go y
     HSE.Lambda _ pats e -> do
@@ -229,8 +245,8 @@ desugarExp globals = go where
       loop id stmts
     e -> Left $ UnsupportedSyntax $ show e
 
-desugarQName :: Map String UTerm -> HSE.QName HSE.SrcSpanInfo -> Maybe SomeTRep -> Either DesugarError UTerm
-desugarQName globals qname Nothing =
+desugarQName :: Map String UTerm -> HSE.QName HSE.SrcSpanInfo -> [SomeTRep] -> Either DesugarError UTerm
+desugarQName globals qname [] =
   case qname of
     HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
     HSE.Qual _ (HSE.ModuleName _ "Main") (HSE.Ident _ string)
@@ -243,14 +259,14 @@ desugarQName globals qname Nothing =
       | Just uterm <- Map.lookup string supportedLits ->
         pure uterm
     _ -> Left $ InvalidVariable $ show qname
-desugarQName globals qname (Just trep) =
+desugarQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just forall <- Map.lookup (prefix ++ "." ++ string) polyLits ->
-        pure (UForall trep forall)
+        pure (UForall treps forall)
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just forall <- Map.lookup string polyLits ->
-        pure (UForall trep forall)
+        pure (UForall treps forall)
     _ -> Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (String, SomeTRep)
@@ -386,6 +402,10 @@ supportedLits = Map.fromList [
    ("Text.writeFile", lit t_writeFile),
    ("Text.readFile", lit t_readFile),
    ("Text.appendFile", lit t_appendFile),
+   -- Text operations
+   ("Text.length", lit Text.length),
+   -- Int operations
+   ("Int.show", lit (Text.pack . show @Int)),
    -- Bytes I/O
    ("ByteString.hGet", lit ByteString.hGet),
    -- Handles, buffering
@@ -412,7 +432,17 @@ then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 polyLits :: Map String Forall
 polyLits = Map.fromList [
-  ("Fun.id", Forall $ \a -> Typed (Type.Fun a a) (Lit id))
+  -- Data.Function
+  ("Fun.id", More \a -> Final (Typed (Type.Fun a a) (Lit id))),
+  -- Data.List
+  ("List.mapM_", More \(a :: TypeRep a) -> Final $
+      Type.withTypeable a $
+      typed (mapM_ :: (a -> IO ()) -> [a] -> IO ())
+  ) ,
+  ("List.map", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
+      Type.withTypeable a $ Type.withTypeable b $
+      typed (Prelude.map :: (a -> b) -> [a] -> [b])
+  )
  ]
 
 --------------------------------------------------------------------------------
