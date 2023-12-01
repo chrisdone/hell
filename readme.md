@@ -37,34 +37,24 @@ main = do
 
 ### More formal description
 
-The language is a simply-typed lambda calculus, plus some syntactic
-sugar and some primitives that can be polymorphic (but require
-immediately applied type applications). Recursion is not supported.
-
-Its syntax is a subset of Haskell.
-
-Polymorphic primitives such as `id` require passing the type of the
-argument as `id @Int 123`. You cannot define polymorphic lambdas of
-your own. It's not full System-F.
-
-It will support type-classes (for equality, dictionaries, etc), but
-the dictionaries must be explicitly supplied. You can't define
-classes, or data types, of your own.
-
-The types and functions available lean directly on the host language
-(Haskell) and are either directly lifted, or a simplified layer over
-the original things.
-
-There is (presently) no type inference. All parameters of lambdas, or
-do-notation let bindings, must have their type declared via a pattern
-signature.
-
-```haskell
-\(x :: Int) -> x
-```
-
-Globals of any kind must be fully qualified (`Main.foo` and
-`Text.putstrLn`).
+* The language is a simply-typed lambda calculus, with Haskell syntax.
+* Some primitives that can be polymorphic (but require immediately
+  applied type applications).
+* Polymorphic primitives such as `id` require passing the type of the
+  argument as `id @Int 123`. You cannot define polymorphic lambdas of
+  your own. It's not full System-F.
+* Recursion is not supported. Use `Fun.fix`.
+* It will support type-classes (for equality, dictionaries, etc), but
+  the dictionaries must be explicitly supplied. You can't define
+  classes, or data types, of your own.
+* The types and functions available lean directly on the host language
+  (Haskell) and are either directly lifted, or a simplified layer over
+  the original things.
+* There is presently no type inference (but I will add it). All
+  parameters of lambdas, or do-notation let bindings, must have their
+  type declared via a pattern signature: `\(x :: Int) -> x`
+* Globals of any kind must be fully qualified (`Main.foo` and
+  `Text.putstrLn`), including the current module.
 
 ### Design philosophy
 
