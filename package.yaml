@@ -18,6 +18,7 @@ dependencies:
 - temporary
 - syb
 - constraints
+- typed-process
 
 executables:
   hell:

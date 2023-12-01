@@ -31,4 +31,5 @@ executable hell
     , syb
     , temporary
     , text
+    , typed-process
   default-language: Haskell2010
