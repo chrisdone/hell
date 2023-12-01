@@ -422,8 +422,6 @@ supportedLits = Map.fromList [
    ("IO.BlockBuffering", lit IO.BlockBuffering),
    -- Get arguments
    ("Env.getArgs", lit getArgs),
-   -- -- Monadic actions
-   -- ("mapM_", lit (mapM_ :: IO a -> )
    -- Misc
    (">>", then')
   ]
