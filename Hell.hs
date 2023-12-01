@@ -11,6 +11,7 @@
 import qualified Data.Graph as Graph
 import qualified Data.Bool as Bool
 import qualified Data.Map as Map
+import qualified Data.Function as Fun
 import qualified Data.Generics.Schemes as SYB
 import qualified Type.Reflection as Type
 import qualified Data.Maybe as Maybe
@@ -437,6 +438,8 @@ polyLits :: Map String Forall
 polyLits = Map.fromList [
   -- Data.Function
   ("Fun.id", More \a -> Final (Typed (Type.Fun a a) (Lit id))),
+  ("Fun.fix", More \(a :: TypeRep a) -> Type.withTypeable a $
+      Final $ typed (Fun.fix :: (a -> a) -> a)),
   -- Data.List
   ("List.mapM_", More \(a :: TypeRep a) -> Final $
       Type.withTypeable a $
