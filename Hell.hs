@@ -292,7 +292,10 @@ desugarType = go where
       SomeTRep aRep <- go a
       SomeTRep bRep <- go b
       pure $ SomeTRep (Type.Fun aRep bRep)
-    t -> Left $ UnknownType $ HSE.prettyPrint t
+    HSE.TyApp l (HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ "IO"))) a -> do
+      SomeTRep aRep <- go a
+      pure $ SomeTRep (Type.App (typeRep @IO) aRep)
+    t -> Left $ UnknownType $ show t
 
 desugarTypeSpec :: Spec
 desugarTypeSpec = do
