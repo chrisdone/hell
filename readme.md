@@ -1,4 +1,4 @@
-# hell
+# hell (WIP)
 
 Welcome to Hell :smiling_imp:
 
@@ -20,6 +20,8 @@ Welcome to Hell :smiling_imp:
 
 Hell is an interpreted, statically-typed, shell scripting language
 based on Haskell.
+
+It's a WIP.
 
 ### Informal description
 
