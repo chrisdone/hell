@@ -1,0 +1,3 @@
+main = do
+  let demo :: (Int,Char) -> Char = \((x, y) :: (Int, Char)) -> y
+  Text.putStrLn "OK!"

@@ -38,13 +38,15 @@ import Test.Hspec
 
 data UTerm
   = UVar String
-  | ULam String SomeTRep UTerm
+  | ULam Binding SomeTRep UTerm
   | UApp UTerm UTerm
   | UForall [SomeTRep] Forall
   | ULit (forall g. Typed (Term g))
   | UBind UTerm UTerm
   | UList [UTerm] (Maybe SomeTRep)
   | UEmptyList SomeTRep
+
+data Binding = Singleton String | Tuple [String]
 
 data Forall
   = More (forall (a :: Type) g. TypeRep a -> Forall)
@@ -66,7 +68,7 @@ data Term g t where
   Lit :: a -> Term g a
 
 data Var g t where
-  ZVar :: Var (h, t) t
+  ZVar :: (t -> a) -> Var (h, t) a
   SVar :: Var h t -> Var (h, s) t
 
 data Typed (thing :: Type -> Type) = forall ty. Typed (TypeRep (ty :: Type)) (thing ty)
@@ -82,12 +84,28 @@ instance Eq SomeTRep where
 -- The type environment and lookup
 data TyEnv g where
   Nil :: TyEnv g
-  Cons :: String -> TypeRep (t :: Type) -> TyEnv h -> TyEnv (h, t)
+  Cons :: Binding -> TypeRep (t :: Type) -> TyEnv h -> TyEnv (h, t)
 
 lookupVar :: String -> TyEnv g -> Typed (Var g)
 lookupVar str Nil = error $ "Variable not found: " ++ str
-lookupVar v (Cons s ty e)
-  | v == s = Typed ty ZVar
+lookupVar v (Cons (Singleton s) ty e)
+  | v == s = Typed ty (ZVar id)
+  | otherwise = case lookupVar v e of
+      Typed ty v -> Typed ty (SVar v)
+lookupVar v (Cons (Tuple ss) ty e)
+  | Just i <- lookup v $ zip ss [0..] =
+    case ty of
+      Type.App (Type.App tup x) y
+       | Just Type.HRefl <- Type.eqTypeRep tup (typeRep @(,)) ->
+          case i of
+            0 -> Typed x $ ZVar \(a,_) -> a
+            1 -> Typed y $ ZVar \(_,b) -> b
+      Type.App (Type.App (Type.App tup x) y) z
+       | Just Type.HRefl <- Type.eqTypeRep tup (typeRep @(,,)) ->
+          case i of
+            0 -> Typed x $ ZVar \(a,_,_) -> a
+            1 -> Typed y $ ZVar \(_,b,_) -> b
+            2 -> Typed z $ ZVar \(_,_,c) -> c
   | otherwise = case lookupVar v e of
       Typed ty v -> Typed ty (SVar v)
 
@@ -179,7 +197,7 @@ eval env (App e1 e2) = (eval env e1) (eval env e2)
 eval _env (Lit a) = a
 
 lookp :: Var env t -> env -> t
-lookp ZVar (_, x) = x
+lookp (ZVar slot) (_, x) = slot x
 lookp (SVar v) (env, x) = lookp v env
 
 --------------------------------------------------------------------------------
@@ -270,10 +288,16 @@ desugarQName globals qname treps =
         pure (UForall treps forall)
     _ -> Left $ InvalidVariable $ show qname
 
-desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (String, SomeTRep)
-desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) = fmap (i,) (desugarType typ)
+desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, SomeTRep)
+desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) = fmap (Singleton i,) (desugarType typ)
+desugarArg (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
+  | Just idents <- traverse desugarIdent idents = fmap (Tuple idents,) (desugarType typ)
 desugarArg (HSE.PParen _ p) = desugarArg p
 desugarArg p = Left $ BadParameterSyntax $ show p
+
+desugarIdent :: HSE.Pat HSE.SrcSpanInfo -> Maybe String
+desugarIdent (HSE.PVar _ (HSE.Ident _ s)) = Just s
+desugarIdent _ = Nothing
 
 --------------------------------------------------------------------------------
 -- Desugar types
@@ -282,6 +306,15 @@ desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTRep
 desugarType = go where
   go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTRep
   go = \case
+    HSE.TyTuple _ HSE.Boxed types -> do
+      tys <- traverse go types
+      case tys of
+        [SomeTRep a,SomeTRep b] ->
+          pure $ SomeTRep (Type.App (Type.App (typeRep @(,)) a) b)
+        [SomeTRep a,SomeTRep b, SomeTRep c] ->
+          pure $ SomeTRep (Type.App (Type.App (Type.App (typeRep @(,,)) a) b) c)
+        [SomeTRep a,SomeTRep b, SomeTRep c, SomeTRep d] ->
+          pure $ SomeTRep (Type.App (Type.App (Type.App (Type.App (typeRep @(,,,)) a) b) c) d)
     HSE.TyParen _ x -> go x
     HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ name))
       | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
