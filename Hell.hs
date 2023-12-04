@@ -17,12 +17,14 @@ import qualified Type.Reflection as Type
 import qualified Data.Maybe as Maybe
 import qualified Language.Haskell.Exts as HSE
 import qualified Data.ByteString as ByteString
+import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Builder as ByteString hiding (writeFile)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
 import qualified System.IO as IO
 
+import System.Process.Typed
 import Control.Monad.State
 import System.Environment
 import Data.Map (Map)
@@ -422,7 +424,8 @@ supportedTypeConstructors = Map.fromList [
   ("Int", SomeTRep $ typeRep @Int),
   ("Char", SomeTRep $ typeRep @Char),
   ("Text", SomeTRep $ typeRep @Text),
-  ("ByteString", SomeTRep $ typeRep @ByteString)
+  ("ByteString", SomeTRep $ typeRep @ByteString),
+  ("ExitCode", SomeTRep $ typeRep @ExitCode)
   ]
 
 --------------------------------------------------------------------------------
@@ -438,12 +441,17 @@ supportedLits = Map.fromList [
    ("Text.writeFile", lit t_writeFile),
    ("Text.readFile", lit t_readFile),
    ("Text.appendFile", lit t_appendFile),
+   ("Text.readProcess", lit t_readProcess),
+   ("Text.readProcess_", lit t_readProcess_),
    -- Text operations
    ("Text.length", lit Text.length),
    -- Int operations
    ("Int.show", lit (Text.pack . show @Int)),
    -- Bytes I/O
    ("ByteString.hGet", lit ByteString.hGet),
+   ("ByteString.hPutStr", lit ByteString.hPutStr),
+   ("ByteString.readProcess", lit b_readProcess),
+   ("ByteString.readProcess_", lit b_readProcess_),
    -- Handles, buffering
    ("IO.stdout", lit IO.stdout),
    ("IO.stderr", lit IO.stderr),
@@ -454,6 +462,11 @@ supportedLits = Map.fromList [
    ("IO.BlockBuffering", lit IO.BlockBuffering),
    -- Get arguments
    ("Env.getArgs", lit getArgs),
+   -- Process
+   ("Proc.proc", lit $ \n xs -> proc (Text.unpack n) (map Text.unpack xs)),
+   ("Proc.runProcess", lit $ runProcess @IO @() @() @()),
+   ("Proc.runProcess_", lit $ runProcess_ @IO @() @() @()),
+
    -- Misc
    (">>", then')
   ]
@@ -486,6 +499,16 @@ polyLits = Map.fromList [
 --
 -- Much better than what Data.Text.IO provides
 
+t_readProcess :: ProcessConfig () () () -> IO (ExitCode, Text, Text)
+t_readProcess c = do
+  (code, out, err) <- b_readProcess c
+  pure (code, Text.decodeUtf8 out, Text.decodeUtf8 err)
+
+t_readProcess_ :: ProcessConfig () () () -> IO (Text, Text)
+t_readProcess_ c = do
+  (out, err) <- b_readProcess_ c
+  pure (Text.decodeUtf8 out, Text.decodeUtf8 err)
+
 t_putStrLn :: Text -> IO ()
 t_putStrLn = ByteString.hPutBuilder IO.stdout . (<>"\n") . ByteString.byteString . Text.encodeUtf8
 
@@ -506,6 +529,19 @@ t_appendFile fp t = ByteString.appendFile (Text.unpack fp) (Text.encodeUtf8 t)
 
 t_readFile :: Text -> IO Text
 t_readFile fp = fmap Text.decodeUtf8 (ByteString.readFile (Text.unpack fp))
+
+--------------------------------------------------------------------------------
+-- ByteString operations
+
+b_readProcess :: ProcessConfig () () () -> IO (ExitCode, ByteString, ByteString)
+b_readProcess c = do
+  (code, out, err) <- readProcess c
+  pure (code, L.toStrict out, L.toStrict err)
+
+b_readProcess_ :: ProcessConfig () () () -> IO (ByteString, ByteString)
+b_readProcess_ c = do
+  (out, err) <- readProcess_ c
+  pure (L.toStrict out, L.toStrict err)
 
 ------------------------------------------------------------------------------
 -- Main entry point

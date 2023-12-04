@@ -1,0 +1,13 @@
+main = do
+  Text.putStrLn "OK"
+  (code, out, err) :: (ExitCode, ByteString, ByteString) <- ByteString.readProcess (Proc.proc "ls" ["-al"])
+  ByteString.hPutStr IO.stdout out
+  ByteString.hPutStr IO.stdout err
+
+  (out, err) :: (Text, Text) <- Text.readProcess_ (Proc.proc "df" ["-h", "/"])
+  Text.hPutStr IO.stdout out
+  Text.hPutStr IO.stdout err
+
+  code :: ExitCode <- Proc.runProcess (Proc.proc "false" ([] @Text))
+
+  Proc.runProcess_ (Proc.proc "echo" ["Hello, World!"])
