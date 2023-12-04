@@ -75,6 +75,26 @@ My definition of a shell scripting language:
 
 Hell satisfies these criteria.
 
+The other design decisions are:
+
+* Use existing Haskell naming convention, don't rename things for the
+  sake of it. Even if the names Haskell chose aren't great, or are
+  long.
+* Lean on and re-use concepts in the host system, even if they're
+  flawed. Haskell's standard libraries get a lot of things right, and
+  some things wrong. But stick to the intuitions that already are
+  there where possible.
+* Don't break common shell understanding. Current directory and
+  environment variables are process-wide, even if one would prefer
+  otherwise. If you want "local" directories, carry a path around.
+* Use established API patterns that already work. (In particular this
+  applies to the process launching API, which "script in Haskell"
+  always tend to re-invent. I'm just re-using the API of
+  typed-process.)
+
+One exception to this rule is avoiding `type String`. Sorry, it's hard
+to justify when `Text` is established.
+
 ## Instructions
 
 ### Running
