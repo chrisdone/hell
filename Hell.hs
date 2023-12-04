@@ -44,7 +44,6 @@ data UTerm
   | ULit (forall g. Typed (Term g))
   | UBind UTerm UTerm
   | UList [UTerm] (Maybe SomeTRep)
-  | UEmptyList SomeTRep
 
 data Binding = Singleton String | Tuple [String]
 
