@@ -347,12 +347,27 @@ desugarType t = do
         (StarTypeRep aRep, StarTypeRep bRep) ->
           pure $ StarTypeRep (Type.Fun aRep bRep)
         _ -> Left KindError
-    HSE.TyApp l (HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ "IO"))) a -> do
+    HSE.TyApp l f a -> do
+      f' <- go f
       a' <- go a
-      case a' of
-        StarTypeRep aRep -> pure $ StarTypeRep (Type.App (typeRep @IO) aRep)
+      case applyTypes f' a' of
+        Just someTypeRep -> pure someTypeRep
         _ -> Left KindError
     t -> Left $ UnknownType $ show t
+
+-- | Supports up to 3-ary type functions, but not more.
+applyTypes :: SomeTypeRep -> SomeTypeRep -> Maybe SomeTypeRep
+applyTypes (SomeTypeRep f) (SomeTypeRep a) = do
+  Type.HRefl <- Type.eqTypeRep (typeRepKind a) (typeRep @Type)
+  case typeRepKind f of
+    Type.Fun a' (b :: TypeRep b)
+      | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type)) ->
+        pure $ SomeTypeRep $ Type.App f a
+      | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type)) ->
+        pure $ SomeTypeRep $ Type.App f a
+      | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type -> Type)) ->
+        pure $ SomeTypeRep $ Type.App f a
+    _ -> Nothing
 
 desugarTypeSpec :: Spec
 desugarTypeSpec = do
@@ -447,7 +462,9 @@ supportedTypeConstructors = Map.fromList [
   ("Char", SomeTypeRep $ typeRep @Char),
   ("Text", SomeTypeRep $ typeRep @Text),
   ("ByteString", SomeTypeRep $ typeRep @ByteString),
-  ("ExitCode", SomeTypeRep $ typeRep @ExitCode)
+  ("ExitCode", SomeTypeRep $ typeRep @ExitCode),
+  ("IO", SomeTypeRep $ typeRep @IO),
+  ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig)
   ]
 
 --------------------------------------------------------------------------------
