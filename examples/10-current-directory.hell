@@ -1,0 +1,4 @@
+main = do
+  dir :: Text <- Dir.getCurrentDirectory
+  Text.putStrLn dir
+  Dir.setCurrentDirectory dir

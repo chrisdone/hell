@@ -23,6 +23,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
 import qualified System.IO as IO
+import qualified System.Directory as Dir
 
 import System.Process.Typed
 import Control.Monad.State
@@ -462,11 +463,13 @@ supportedLits = Map.fromList [
    ("IO.BlockBuffering", lit IO.BlockBuffering),
    -- Get arguments
    ("Env.getArgs", lit getArgs),
+   -- Current directory
+   ("Dir.getCurrentDirectory", lit (fmap Text.pack Dir.getCurrentDirectory)),
+   ("Dir.setCurrentDirectory", lit (Dir.setCurrentDirectory . Text.unpack)),
    -- Process
    ("Proc.proc", lit $ \n xs -> proc (Text.unpack n) (map Text.unpack xs)),
    ("Proc.runProcess", lit $ runProcess @IO @() @() @()),
    ("Proc.runProcess_", lit $ runProcess_ @IO @() @() @()),
-
    -- Misc
    (">>", then')
   ]
