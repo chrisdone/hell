@@ -511,7 +511,7 @@ supportedLits = Map.fromList [
    ("IO.LineBuffering", lit IO.LineBuffering),
    ("IO.BlockBuffering", lit IO.BlockBuffering),
    -- Get arguments
-   ("Env.getArgs", lit getArgs),
+   ("Environment.getArgs", lit getArgs),
    -- Current directory
    ("Directory.getCurrentDirectory", lit (fmap Text.pack Dir.getCurrentDirectory)),
    ("Directory.setCurrentDirectory", lit (Dir.setCurrentDirectory . Text.unpack)),
