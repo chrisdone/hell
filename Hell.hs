@@ -1,5 +1,5 @@
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments #-}
-{-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types #-}
+{-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types, ViewPatterns #-}
 {-# LANGUAGE LambdaCase, ScopedTypeVariables, PatternSynonyms, OverloadedStrings #-}
 
 -- * Original type checker code by Stephanie Weirich at Dagstuhl (Sept 04)
@@ -33,7 +33,7 @@ import Data.Text (Text)
 import Data.ByteString (ByteString)
 import Data.Constraint
 import GHC.Types
-import Type.Reflection (TypeRep, typeRepKind, typeRep)
+import Type.Reflection (SomeTypeRep(..), TypeRep, typeRepKind, typeRep)
 import Test.Hspec
 
 --------------------------------------------------------------------------------
@@ -82,6 +82,14 @@ data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 deriving instance Show SomeStarType
 instance Eq SomeStarType where
   SomeStarType x == SomeStarType y = Type.SomeTypeRep x == Type.SomeTypeRep y
+
+pattern StarTypeRep t <- (toStarType -> Just (SomeStarType t)) where
+  StarTypeRep t = SomeTypeRep t
+
+toStarType :: SomeTypeRep -> Maybe SomeStarType
+toStarType (SomeTypeRep t) = do
+  Type.HRefl <- Type.eqTypeRep (typeRepKind t) (typeRep @Type)
+  pure $ SomeStarType t
 
 -- The type environment and lookup
 data TyEnv g where
@@ -211,7 +219,7 @@ check = tc
 --------------------------------------------------------------------------------
 -- Desugar expressions
 
-data DesugarError = InvalidConstructor String | InvalidVariable String | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String
+data DesugarError = InvalidConstructor String | InvalidVariable String | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String | KindError
   deriving (Show, Eq)
 
 nestedTyApps :: HSE.Exp HSE.SrcSpanInfo -> Maybe (HSE.QName HSE.SrcSpanInfo, [HSE.Type HSE.SrcSpanInfo])
@@ -305,32 +313,45 @@ desugarIdent _ = Nothing
 -- Desugar types
 
 desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
-desugarType = go where
-  go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
+desugarType t = do
+  someRep <- go t
+  case someRep of
+    StarTypeRep t -> pure (SomeStarType t)
+    _ -> Left KindError
+
+  where
+  go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
   go = \case
     HSE.TyTuple _ HSE.Boxed types -> do
       tys <- traverse go types
       case tys of
-        [SomeStarType a,SomeStarType b] ->
-          pure $ SomeStarType (Type.App (Type.App (typeRep @(,)) a) b)
-        [SomeStarType a,SomeStarType b, SomeStarType c] ->
-          pure $ SomeStarType (Type.App (Type.App (Type.App (typeRep @(,,)) a) b) c)
-        [SomeStarType a,SomeStarType b, SomeStarType c, SomeStarType d] ->
-          pure $ SomeStarType (Type.App (Type.App (Type.App (Type.App (typeRep @(,,,)) a) b) c) d)
+        [StarTypeRep a,StarTypeRep b] ->
+          pure $ StarTypeRep (Type.App (Type.App (typeRep @(,)) a) b)
+        [StarTypeRep a,StarTypeRep b, StarTypeRep c] ->
+          pure $ StarTypeRep (Type.App (Type.App (Type.App (typeRep @(,,)) a) b) c)
+        [StarTypeRep a,StarTypeRep b, StarTypeRep c, StarTypeRep d] ->
+          pure $ StarTypeRep (Type.App (Type.App (Type.App (Type.App (typeRep @(,,,)) a) b) c) d)
     HSE.TyParen _ x -> go x
     HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ name))
       | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
-    HSE.TyCon _ (HSE.Special _ HSE.UnitCon{}) -> pure $ SomeStarType $ typeRep @()
+    HSE.TyCon _ (HSE.Special _ HSE.UnitCon{}) -> pure $ StarTypeRep $ typeRep @()
     HSE.TyList _ inner -> do
-      SomeStarType t <- go inner
-      pure $ SomeStarType $ Type.App (typeRep @[]) t
+      rep <- go inner
+      case rep of
+        StarTypeRep t -> pure $ StarTypeRep $ Type.App (typeRep @[]) t
+        _ -> Left KindError
     HSE.TyFun l a b -> do
-      SomeStarType aRep <- go a
-      SomeStarType bRep <- go b
-      pure $ SomeStarType (Type.Fun aRep bRep)
+      a' <- go a
+      b' <- go b
+      case (a', b') of
+        (StarTypeRep aRep, StarTypeRep bRep) ->
+          pure $ StarTypeRep (Type.Fun aRep bRep)
+        _ -> Left KindError
     HSE.TyApp l (HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ "IO"))) a -> do
-      SomeStarType aRep <- go a
-      pure $ SomeStarType (Type.App (typeRep @IO) aRep)
+      a' <- go a
+      case a' of
+        StarTypeRep aRep -> pure $ StarTypeRep (Type.App (typeRep @IO) aRep)
+        _ -> Left KindError
     t -> Left $ UnknownType $ show t
 
 desugarTypeSpec :: Spec
@@ -419,14 +440,14 @@ spec = do
 --------------------------------------------------------------------------------
 -- Supported type constructors
 
-supportedTypeConstructors :: Map String SomeStarType
+supportedTypeConstructors :: Map String SomeTypeRep
 supportedTypeConstructors = Map.fromList [
-  ("Bool", SomeStarType $ typeRep @Bool),
-  ("Int", SomeStarType $ typeRep @Int),
-  ("Char", SomeStarType $ typeRep @Char),
-  ("Text", SomeStarType $ typeRep @Text),
-  ("ByteString", SomeStarType $ typeRep @ByteString),
-  ("ExitCode", SomeStarType $ typeRep @ExitCode)
+  ("Bool", SomeTypeRep $ typeRep @Bool),
+  ("Int", SomeTypeRep $ typeRep @Int),
+  ("Char", SomeTypeRep $ typeRep @Char),
+  ("Text", SomeTypeRep $ typeRep @Text),
+  ("ByteString", SomeTypeRep $ typeRep @ByteString),
+  ("ExitCode", SomeTypeRep $ typeRep @ExitCode)
   ]
 
 --------------------------------------------------------------------------------
