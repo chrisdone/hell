@@ -41,12 +41,12 @@ import Test.Hspec
 
 data UTerm
   = UVar String
-  | ULam Binding SomeTRep UTerm
+  | ULam Binding SomeStarType UTerm
   | UApp UTerm UTerm
-  | UForall [SomeTRep] Forall
+  | UForall [SomeStarType] Forall
   | ULit (forall g. Typed (Term g))
   | UBind UTerm UTerm
-  | UList [UTerm] (Maybe SomeTRep)
+  | UList [UTerm] (Maybe SomeStarType)
 
 data Binding = Singleton String | Tuple [String]
 
@@ -78,10 +78,10 @@ data Typed (thing :: Type -> Type) = forall ty. Typed (TypeRep (ty :: Type)) (th
 --------------------------------------------------------------------------------
 -- Type checker helpers
 
-data SomeTRep = forall (a :: Type). SomeTRep (TypeRep a)
-deriving instance Show SomeTRep
-instance Eq SomeTRep where
-  SomeTRep x == SomeTRep y = Type.SomeTypeRep x == Type.SomeTypeRep y
+data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
+deriving instance Show SomeStarType
+instance Eq SomeStarType where
+  SomeStarType x == SomeStarType y = Type.SomeTypeRep x == Type.SomeTypeRep y
 
 -- The type environment and lookup
 data TyEnv g where
@@ -117,7 +117,7 @@ lookupVar v (Cons (Tuple ss) ty e)
 tc :: UTerm -> TyEnv g -> Typed (Term g)
 tc (UVar v) env = case lookupVar v env of
   Typed ty v -> Typed ty (Var v)
-tc (ULam s (SomeTRep bndr_ty') body) env =
+tc (ULam s (SomeStarType bndr_ty') body) env =
       case tc body (Cons s bndr_ty' env) of
         Typed body_ty' body' ->
           Typed
@@ -142,9 +142,9 @@ tc (UApp e1 e2) env =
 tc (ULit lit) _env = lit
 -- Polytyped terms, must be, syntactically, fully-saturated
 tc (UForall reps fall) _env = go reps fall where
-  go :: [SomeTRep] -> Forall -> Typed (Term g)
+  go :: [SomeStarType] -> Forall -> Typed (Term g)
   go [] (Final typed) = typed
-  go (SomeTRep rep:reps) (More f) = go reps (f rep)
+  go (SomeStarType rep:reps) (More f) = go reps (f rep)
   go _ _ = error "forall type arguments mismatch."
 
 
@@ -176,7 +176,7 @@ tc (UBind m f) env =
 -- Lists
 -- 1. Empty list; we don't have anything to check, but we need a type.
 -- 2. Populated list, we don't need a type, and expect something immediately.
-tc (UList [] (Just (SomeTRep (t :: TypeRep t)))) env =
+tc (UList [] (Just (SomeStarType (t :: TypeRep t)))) env =
   Typed (Type.App (typeRep @[]) t) (Lit ([] :: [t]))
 tc (UList [x] Nothing) env =
   case tc x env of
@@ -266,7 +266,7 @@ desugarExp globals = go where
       loop id stmts
     e -> Left $ UnsupportedSyntax $ show e
 
-desugarQName :: Map String UTerm -> HSE.QName HSE.SrcSpanInfo -> [SomeTRep] -> Either DesugarError UTerm
+desugarQName :: Map String UTerm -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> Either DesugarError UTerm
 desugarQName globals qname [] =
   case qname of
     HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
@@ -290,7 +290,7 @@ desugarQName globals qname treps =
         pure (UForall treps forall)
     _ -> Left $ InvalidVariable $ show qname
 
-desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, SomeTRep)
+desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, SomeStarType)
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) = fmap (Singleton i,) (desugarType typ)
 desugarArg (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
   | Just idents <- traverse desugarIdent idents = fmap (Tuple idents,) (desugarType typ)
@@ -304,43 +304,43 @@ desugarIdent _ = Nothing
 --------------------------------------------------------------------------------
 -- Desugar types
 
-desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTRep
+desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
 desugarType = go where
-  go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTRep
+  go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
   go = \case
     HSE.TyTuple _ HSE.Boxed types -> do
       tys <- traverse go types
       case tys of
-        [SomeTRep a,SomeTRep b] ->
-          pure $ SomeTRep (Type.App (Type.App (typeRep @(,)) a) b)
-        [SomeTRep a,SomeTRep b, SomeTRep c] ->
-          pure $ SomeTRep (Type.App (Type.App (Type.App (typeRep @(,,)) a) b) c)
-        [SomeTRep a,SomeTRep b, SomeTRep c, SomeTRep d] ->
-          pure $ SomeTRep (Type.App (Type.App (Type.App (Type.App (typeRep @(,,,)) a) b) c) d)
+        [SomeStarType a,SomeStarType b] ->
+          pure $ SomeStarType (Type.App (Type.App (typeRep @(,)) a) b)
+        [SomeStarType a,SomeStarType b, SomeStarType c] ->
+          pure $ SomeStarType (Type.App (Type.App (Type.App (typeRep @(,,)) a) b) c)
+        [SomeStarType a,SomeStarType b, SomeStarType c, SomeStarType d] ->
+          pure $ SomeStarType (Type.App (Type.App (Type.App (Type.App (typeRep @(,,,)) a) b) c) d)
     HSE.TyParen _ x -> go x
     HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ name))
       | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
-    HSE.TyCon _ (HSE.Special _ HSE.UnitCon{}) -> pure $ SomeTRep $ typeRep @()
+    HSE.TyCon _ (HSE.Special _ HSE.UnitCon{}) -> pure $ SomeStarType $ typeRep @()
     HSE.TyList _ inner -> do
-      SomeTRep t <- go inner
-      pure $ SomeTRep $ Type.App (typeRep @[]) t
+      SomeStarType t <- go inner
+      pure $ SomeStarType $ Type.App (typeRep @[]) t
     HSE.TyFun l a b -> do
-      SomeTRep aRep <- go a
-      SomeTRep bRep <- go b
-      pure $ SomeTRep (Type.Fun aRep bRep)
+      SomeStarType aRep <- go a
+      SomeStarType bRep <- go b
+      pure $ SomeStarType (Type.Fun aRep bRep)
     HSE.TyApp l (HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ "IO"))) a -> do
-      SomeTRep aRep <- go a
-      pure $ SomeTRep (Type.App (typeRep @IO) aRep)
+      SomeStarType aRep <- go a
+      pure $ SomeStarType (Type.App (typeRep @IO) aRep)
     t -> Left $ UnknownType $ show t
 
 desugarTypeSpec :: Spec
 desugarTypeSpec = do
   it "desugarType" $ do
-    shouldBe (try "Bool") (Right (SomeTRep $ typeRep @Bool))
-    shouldBe (try "Int") (Right (SomeTRep $ typeRep @Int))
-    shouldBe (try "Bool -> Int") (Right (SomeTRep $ typeRep @(Bool -> Int)))
-    shouldBe (try "()") (Right (SomeTRep $ typeRep @()))
-    shouldBe (try "[Int]") (Right (SomeTRep $ typeRep @[Int]))
+    shouldBe (try "Bool") (Right (SomeStarType $ typeRep @Bool))
+    shouldBe (try "Int") (Right (SomeStarType $ typeRep @Int))
+    shouldBe (try "Bool -> Int") (Right (SomeStarType $ typeRep @(Bool -> Int)))
+    shouldBe (try "()") (Right (SomeStarType $ typeRep @()))
+    shouldBe (try "[Int]") (Right (SomeStarType $ typeRep @[Int]))
   where try e = case fmap desugarType $ HSE.parseType e of
            HSE.ParseOk r -> r
            _ -> error "Parse failed."
@@ -419,14 +419,14 @@ spec = do
 --------------------------------------------------------------------------------
 -- Supported type constructors
 
-supportedTypeConstructors :: Map String SomeTRep
+supportedTypeConstructors :: Map String SomeStarType
 supportedTypeConstructors = Map.fromList [
-  ("Bool", SomeTRep $ typeRep @Bool),
-  ("Int", SomeTRep $ typeRep @Int),
-  ("Char", SomeTRep $ typeRep @Char),
-  ("Text", SomeTRep $ typeRep @Text),
-  ("ByteString", SomeTRep $ typeRep @ByteString),
-  ("ExitCode", SomeTRep $ typeRep @ExitCode)
+  ("Bool", SomeStarType $ typeRep @Bool),
+  ("Int", SomeStarType $ typeRep @Int),
+  ("Char", SomeStarType $ typeRep @Char),
+  ("Text", SomeStarType $ typeRep @Text),
+  ("ByteString", SomeStarType $ typeRep @ByteString),
+  ("ExitCode", SomeStarType $ typeRep @ExitCode)
   ]
 
 --------------------------------------------------------------------------------
