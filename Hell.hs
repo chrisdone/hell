@@ -25,7 +25,8 @@ import qualified Data.Text.IO as Text
 import qualified System.IO as IO
 import qualified System.Directory as Dir
 
-import System.Process.Typed
+import Data.Bifunctor
+import System.Process.Typed as Process
 import Control.Monad.State
 import System.Environment
 import Data.Map (Map)
@@ -207,6 +208,7 @@ tc (UList (x:xs) Nothing) env =
       case Type.eqTypeRep (Type.App (typeRep @[]) a_rep) as_rep of
         Just Type.HRefl ->
           Typed as_rep (App (App (Lit (:)) a) as)
+tc UList{} env = error "List must either be [x,..] or [] @T"
 
 --------------------------------------------------------------------------------
 -- Evaluator
@@ -511,12 +513,15 @@ supportedLits = Map.fromList [
    ("IO.LineBuffering", lit IO.LineBuffering),
    ("IO.BlockBuffering", lit IO.BlockBuffering),
    -- Get arguments
-   ("Environment.getArgs", lit getArgs),
+   ("Environment.getArgs", lit $ fmap (map Text.pack) getArgs),
+   ("Environment.getEnvironment", lit $ fmap (map (bimap Text.pack Text.pack)) getEnvironment),
+   ("Environment.getEnv", lit $ fmap Text.pack . getEnv . Text.unpack),
    -- Current directory
    ("Directory.getCurrentDirectory", lit (fmap Text.pack Dir.getCurrentDirectory)),
    ("Directory.setCurrentDirectory", lit (Dir.setCurrentDirectory . Text.unpack)),
    -- Process
    ("Process.proc", lit $ \n xs -> proc (Text.unpack n) (map Text.unpack xs)),
+   ("Process.setEnv", lit $ Process.setEnv @() @() @() . map (bimap Text.unpack Text.unpack)),
    ("Process.runProcess", lit $ runProcess @IO @() @() @()),
    ("Process.runProcess_", lit $ runProcess_ @IO @() @() @()),
    -- Misc
@@ -536,6 +541,9 @@ polyLits = Map.fromList [
   ("Fun.fix", More \(a :: TypeRep a) -> Type.withTypeable a $
       Final $ typed (Fun.fix :: (a -> a) -> a)),
   -- Data.List
+  ("List.cons", More \(a :: TypeRep a) -> Final $
+    Type.withTypeable a $
+    typed ((:) :: a -> [a] -> [a])),
   ("List.mapM_", More \(a :: TypeRep a) -> Final $
       Type.withTypeable a $
       typed (mapM_ :: (a -> IO ()) -> [a] -> IO ())
