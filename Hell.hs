@@ -47,6 +47,7 @@ data UTerm
   | ULit (forall g. Typed (Term g))
   | UBind UTerm UTerm
   | UList [UTerm] (Maybe SomeStarType)
+  | UTuple [UTerm]
 
 data Binding = Singleton String | Tuple [String]
 
@@ -123,6 +124,16 @@ lookupVar v (Cons (Tuple ss) ty e)
 -- Type checker
 
 tc :: UTerm -> TyEnv g -> Typed (Term g)
+tc (UTuple [x,y]) env =
+  case (tc x env, tc y env) of
+    (Typed (x_t :: TypeRep x) x', Typed (y_t :: TypeRep y) y') ->
+      Type.withTypeable x_t $ Type.withTypeable y_t $
+      Typed (typeRep @(x,y)) $ App (App (Lit ((,) :: x -> y -> (x,y))) x') y'
+tc (UTuple [x,y,z]) env =
+  case (tc x env, tc y env, tc z env) of
+    (Typed (x_t :: TypeRep x) x', Typed (y_t :: TypeRep y) y', Typed (z_t :: TypeRep z) z') ->
+      Type.withTypeable x_t $ Type.withTypeable y_t $ Type.withTypeable z_t $
+      Typed (typeRep @(x,y,z)) $ App (App (App (Lit ((,,) :: x -> y -> z -> (x,y,z))) x') y') z'
 tc (UVar v) env = case lookupVar v env of
   Typed ty v -> Typed ty (Var v)
 tc (ULam s (SomeStarType bndr_ty') body) env =
@@ -232,6 +243,7 @@ desugarExp :: Map String UTerm -> HSE.Exp HSE.SrcSpanInfo -> Either DesugarError
 desugarExp globals = go where
   go = \case
     HSE.Paren _ x -> go x
+    HSE.Tuple _ HSE.Boxed terms -> UTuple <$> traverse go terms
     HSE.List _ xs -> UList <$> traverse go xs <*> pure Nothing
     HSE.App _ (HSE.List _ xs) (HSE.TypeApp _ ty) -> UList <$> traverse go xs <*> fmap Just (desugarType ty)
     HSE.Lit _ lit' -> case lit' of

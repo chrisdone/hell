@@ -1,3 +1,7 @@
 main = do
-  let demo :: (Int,Char) -> Char = \((x, y) :: (Int, Char)) -> y
-  Text.putStrLn "OK!"
+  let demo :: (Int,Text) -> Text = \((x, y) :: (Int, Text)) -> y
+  let foobar :: (Int, Text) = (123, "foo")
+  Text.putStrLn (demo foobar)
+
+  let (foo,bar) :: (Int, Text) = (123, "foo")
+  Text.putStrLn bar
