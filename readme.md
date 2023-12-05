@@ -74,6 +74,9 @@ The other design decisions are:
 One exception to this rule is avoiding `type String`. Sorry, it's hard
 to justify when `Text` is established.
 
+Also, avoiding operators, because operators are a bit harder to deal
+with combined with type applications.
+
 ### More formal description
 
 * The language is a simply-typed lambda calculus, with Haskell syntax.
