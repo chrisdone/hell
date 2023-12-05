@@ -501,12 +501,12 @@ supportedLits = Map.fromList [
    -- Get arguments
    ("Env.getArgs", lit getArgs),
    -- Current directory
-   ("Dir.getCurrentDirectory", lit (fmap Text.pack Dir.getCurrentDirectory)),
-   ("Dir.setCurrentDirectory", lit (Dir.setCurrentDirectory . Text.unpack)),
+   ("Directory.getCurrentDirectory", lit (fmap Text.pack Dir.getCurrentDirectory)),
+   ("Directory.setCurrentDirectory", lit (Dir.setCurrentDirectory . Text.unpack)),
    -- Process
-   ("Proc.proc", lit $ \n xs -> proc (Text.unpack n) (map Text.unpack xs)),
-   ("Proc.runProcess", lit $ runProcess @IO @() @() @()),
-   ("Proc.runProcess_", lit $ runProcess_ @IO @() @() @()),
+   ("Process.proc", lit $ \n xs -> proc (Text.unpack n) (map Text.unpack xs)),
+   ("Process.runProcess", lit $ runProcess @IO @() @() @()),
+   ("Process.runProcess_", lit $ runProcess_ @IO @() @() @()),
    -- Misc
    (">>", then')
   ]
