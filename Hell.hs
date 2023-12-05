@@ -1,6 +1,6 @@
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types, ViewPatterns #-}
-{-# LANGUAGE LambdaCase, ScopedTypeVariables, PatternSynonyms, OverloadedStrings #-}
+{-# LANGUAGE LambdaCase, ScopedTypeVariables, PatternSynonyms, OverloadedStrings, MultiWayIf #-}
 
 -- * Original type checker code by Stephanie Weirich at Dagstuhl (Sept 04)
 -- * Modernized with Type.Reflection, also by Stephanie
@@ -359,15 +359,14 @@ desugarType t = do
 applyTypes :: SomeTypeRep -> SomeTypeRep -> Maybe SomeTypeRep
 applyTypes (SomeTypeRep f) (SomeTypeRep a) = do
   Type.HRefl <- Type.eqTypeRep (typeRepKind a) (typeRep @Type)
-  case typeRepKind f of
-    Type.Fun a' (b :: TypeRep b)
-      | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type)) ->
-        pure $ SomeTypeRep $ Type.App f a
-      | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type)) ->
-        pure $ SomeTypeRep $ Type.App f a
-      | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type -> Type)) ->
-        pure $ SomeTypeRep $ Type.App f a
-    _ -> Nothing
+  if
+   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type)) ->
+     pure $ SomeTypeRep $ Type.App f a
+   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type)) ->
+     pure $ SomeTypeRep $ Type.App f a
+   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type -> Type)) ->
+     pure $ SomeTypeRep $ Type.App f a
+   | otherwise -> Nothing
 
 desugarTypeSpec :: Spec
 desugarTypeSpec = do
