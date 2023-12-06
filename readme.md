@@ -116,3 +116,102 @@ amd64 Linux binary.
 Build statically for Linux in a musl distribution:
 
     stack build --ghc-options="-static -optl-static"
+
+## Performance
+
+I did a quick `fib` test and it does fine compared with
+`runhaskell`. It doesn't have to be super fast, but it seems not to be
+*slower* than GHC's bytecode interpreter, and that's fine for me.
+
+```haskell
+import Data.Function
+import Data.Bool
+main = print $ fib (30::Int)
+
+fib :: Int -> Int
+fib = fix (\fib i ->
+    bool
+        (bool
+           ( (fib (subtract 1 i))
+            + (fib (subtract 2 i)))
+          1
+          (i == 1))
+        0
+        (i == 0)
+    )
+```
+```haskell
+main = do
+  Text.putStrLn (Int.show (Main.fib 30))
+
+fib =
+  Function.fix @(Int -> Int)
+    (\(fib :: Int -> Int) -> \(i :: Int) ->
+      Bool.bool @Int
+        (Bool.bool @Int
+           (Int.plus (fib (Int.subtract 1 i))
+                     (fib (Int.subtract 2 i)))
+           1
+           (Int.eq i 1))
+        0
+        (Int.eq i 0)
+    )
+```
+
+```
+$ GHCRTS='-s' runhaskell test.hs
+832040
+     962,232,208 bytes allocated in the heap
+      30,899,272 bytes copied during GC
+       9,916,872 bytes maximum residency (4 sample(s))
+         187,960 bytes maximum slop
+              24 MiB total memory in use (0 MB lost due to fragmentation)
+
+                                     Tot time (elapsed)  Avg pause  Max pause
+  Gen  0       109 colls,     0 par    0.022s   0.022s     0.0002s    0.0037s
+  Gen  1         4 colls,     0 par    0.067s   0.067s     0.0168s    0.0216s
+
+  TASKS: 5 (1 bound, 4 peak workers (4 total), using -N1)
+
+  SPARKS: 0 (0 converted, 0 overflowed, 0 dud, 0 GC'd, 0 fizzled)
+
+  INIT    time    0.001s  (  0.001s elapsed)
+  MUT     time    3.758s  (  3.804s elapsed)
+  GC      time    0.089s  (  0.089s elapsed)
+  EXIT    time    0.001s  (  0.007s elapsed)
+  Total   time    3.849s  (  3.900s elapsed)
+
+  Alloc rate    256,067,353 bytes per MUT second
+
+  Productivity  97.6% of total user, 97.5% of total elapsed
+
+$ stack run -- examples/12-fib.hell +RTS -s
+832040
+   1,892,556,080 bytes allocated in the heap
+       1,588,368 bytes copied during GC
+         150,208 bytes maximum residency (2 sample(s))
+          87,360 bytes maximum slop
+              41 MiB total memory in use (0 MB lost due to fragmentation)
+
+                                     Tot time (elapsed)  Avg pause  Max pause
+  Gen  0       451 colls,   451 par    0.299s   0.158s     0.0004s    0.0006s
+  Gen  1         2 colls,     1 par    0.001s   0.001s     0.0004s    0.0006s
+
+  Parallel GC work balance: 4.14% (serial 0%, perfect 100%)
+
+  TASKS: 18 (1 bound, 17 peak workers (17 total), using -N8)
+
+  SPARKS: 0 (0 converted, 0 overflowed, 0 dud, 0 GC'd, 0 fizzled)
+
+  INIT    time    0.004s  (  0.002s elapsed)
+  MUT     time    1.971s  (  1.588s elapsed)
+  GC      time    0.300s  (  0.159s elapsed)
+  EXIT    time    0.002s  (  0.001s elapsed)
+  Total   time    2.278s  (  1.750s elapsed)
+
+  Alloc rate    960,062,184 bytes per MUT second
+
+  Productivity  86.5% of total user, 90.8% of total elapsed
+
+
+```
