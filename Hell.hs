@@ -537,8 +537,8 @@ then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 polyLits :: Map String Forall
 polyLits = Map.fromList [
   -- Data.Function
-  ("Fun.id", More \a -> Final (Typed (Type.Fun a a) (Lit id))),
-  ("Fun.fix", More \(a :: TypeRep a) -> Type.withTypeable a $
+  ("Function.id", More \a -> Final (Typed (Type.Fun a a) (Lit id))),
+  ("Function.fix", More \(a :: TypeRep a) -> Type.withTypeable a $
       Final $ typed (Fun.fix :: (a -> a) -> a)),
   -- Data.List
   ("List.cons", More \(a :: TypeRep a) -> Final $
