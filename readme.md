@@ -121,8 +121,9 @@ Build statically for Linux in a musl distribution:
 ## Performance
 
 I did a quick `fib` test and it does fine compared with
-`runhaskell`. It doesn't have to be super fast, but it seems not to be
-*slower* than GHC's bytecode interpreter, and that's fine for me.
+`runhaskell`. There might be some undue strictness or something; I
+haven't looked deeply into it. What's important is that it's not dog
+slow, and it isn't.
 
 ```haskell
 import Data.Function
