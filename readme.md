@@ -1,4 +1,4 @@
-# hell (WIP)
+# hell
 
 Welcome to Hell :smiling_imp:
 
@@ -8,11 +8,12 @@ Welcome to Hell :smiling_imp:
 - [hell](#hell)
     - [Description](#description)
         - [Informal description](#informal-description)
-        - [More formal description](#more-formal-description)
         - [Design philosophy](#design-philosophy)
+        - [More formal description](#more-formal-description)
     - [Instructions](#instructions)
         - [Running](#running)
         - [Building](#building)
+    - [Performance](#performance)
 
 <!-- markdown-toc end -->
 
