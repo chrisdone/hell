@@ -499,6 +499,9 @@ supportedLits = Map.fromList [
    ("Text.length", lit Text.length),
    -- Int operations
    ("Int.show", lit (Text.pack . show @Int)),
+   ("Int.eq", lit ((==) @Int)),
+   ("Int.plus", lit ((+) @Int)),
+   ("Int.subtract", lit (subtract @Int)),
    -- Bytes I/O
    ("ByteString.hGet", lit ByteString.hGet),
    ("ByteString.hPutStr", lit ByteString.hPutStr),
@@ -536,6 +539,10 @@ then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 polyLits :: Map String Forall
 polyLits = Map.fromList [
+  -- Bool
+   ("Bool.bool", More \a ->
+     Final (Typed (Type.Fun a (Type.Fun a (Type.Fun (typeRep @Bool) a))) (Lit Bool.bool))
+   ),
   -- Data.Function
   ("Function.id", More \a -> Final (Typed (Type.Fun a a) (Lit id))),
   ("Function.fix", More \(a :: TypeRep a) -> Type.withTypeable a $
