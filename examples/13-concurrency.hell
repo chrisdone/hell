@@ -1,0 +1,11 @@
+main = do
+  (left, right) :: (Text, Text) <-
+    Async.concurrently @Text @Text
+       (Main.curl "http://worldtimeapi.org/api/timezone/Europe/London")
+       (Main.curl "http://worldtimeapi.org/api/timezone/Europe/Rome")
+  Text.putStrLn left
+  Text.putStrLn right
+
+curl = \(url :: Text) -> do
+  (out, err) :: (Text, Text) <- Text.readProcess_ (Process.proc "curl" [url])
+  IO.pure @Text out

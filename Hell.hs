@@ -23,6 +23,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
 import qualified System.IO as IO
+import qualified Control.Concurrent.Async as Async
 import qualified System.Directory as Dir
 
 import Data.Bifunctor
@@ -561,6 +562,12 @@ polyLits = Map.fromList [
   ("List.map", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
       Type.withTypeable a $ Type.withTypeable b $
       typed (Prelude.map :: (a -> b) -> [a] -> [b])
+  ),
+  -- Async
+  ("Async.concurrently", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
+    Type.withTypeable a $
+    Type.withTypeable b $
+    typed (Async.concurrently :: IO a -> IO b -> IO (a,b))
   )
  ]
 
