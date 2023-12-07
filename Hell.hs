@@ -604,12 +604,30 @@ polyLits = Map.fromList [
     Type.withTypeable b $
     typed (maybe :: b -> (a -> b) -> Maybe a -> b)
   ),
+  ("Maybe.Nothing", More \(a :: TypeRep a) -> Final $
+    Type.withTypeable a $
+    typed (Nothing :: Maybe a)
+  ),
+  ("Maybe.Just", More \(a :: TypeRep a) -> Final $
+    Type.withTypeable a $
+    typed (Just :: a -> Maybe a)
+  ),
   -- Either
   ("Either.either", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> More \(x :: TypeRep x) -> Final $
     Type.withTypeable a $
     Type.withTypeable b $
     Type.withTypeable x $
     typed (either :: (a -> x) -> (b -> x) -> Either a b -> x)
+  ),
+  ("Either.Left", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
+    Type.withTypeable a $
+    Type.withTypeable b $
+    typed (Left :: a -> Either a b)
+  ),
+  ("Either.Right", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
+    Type.withTypeable a $
+    Type.withTypeable b $
+    typed (Right :: b -> Either a b)
   ),
   -- Async
   ("Async.concurrently", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
