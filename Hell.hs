@@ -477,6 +477,8 @@ supportedTypeConstructors = Map.fromList [
   ("Text", SomeTypeRep $ typeRep @Text),
   ("ByteString", SomeTypeRep $ typeRep @ByteString),
   ("ExitCode", SomeTypeRep $ typeRep @ExitCode),
+  ("Maybe", SomeTypeRep $ typeRep @Maybe),
+  ("Either", SomeTypeRep $ typeRep @Either),
   ("IO", SomeTypeRep $ typeRep @IO),
   ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig)
   ]
@@ -562,6 +564,19 @@ polyLits = Map.fromList [
   ("List.map", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
       Type.withTypeable a $ Type.withTypeable b $
       typed (Prelude.map :: (a -> b) -> [a] -> [b])
+  ),
+  -- Maybe
+  ("Maybe.maybe", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
+    Type.withTypeable a $
+    Type.withTypeable b $
+    typed (maybe :: b -> (a -> b) -> Maybe a -> b)
+  ),
+  -- Either
+  ("Either.either", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> More \(x :: TypeRep x) -> Final $
+    Type.withTypeable a $
+    Type.withTypeable b $
+    Type.withTypeable x $
+    typed (either :: (a -> x) -> (b -> x) -> Either a b -> x)
   ),
   -- Async
   ("Async.concurrently", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
