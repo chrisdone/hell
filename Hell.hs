@@ -26,6 +26,7 @@ import qualified System.IO as IO
 import qualified Control.Concurrent.Async as Async
 import qualified System.Directory as Dir
 
+import Data.Traversable
 import Data.Bifunctor
 import System.Process.Typed as Process
 import Control.Monad.State
@@ -557,9 +558,24 @@ polyLits = Map.fromList [
   ("List.cons", More \(a :: TypeRep a) -> Final $
     Type.withTypeable a $
     typed ((:) :: a -> [a] -> [a])),
+  ("List.map", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
+      Type.withTypeable a $
+      Type.withTypeable b $
+      typed (map :: (a -> b) -> [a] -> [b])
+  ) ,
   ("List.mapM_", More \(a :: TypeRep a) -> Final $
       Type.withTypeable a $
       typed (mapM_ :: (a -> IO ()) -> [a] -> IO ())
+  ) ,
+  ("List.traverse", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
+      Type.withTypeable a $
+      Type.withTypeable b $
+      typed (traverse :: (a -> IO b) -> [a] -> IO [b])
+  ) ,
+  ("List.for", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
+      Type.withTypeable a $
+      Type.withTypeable b $
+      typed (for :: [a] -> (a -> IO b) -> IO [b])
   ) ,
   ("List.map", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
       Type.withTypeable a $ Type.withTypeable b $
