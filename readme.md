@@ -72,6 +72,10 @@ The other design decisions are:
   always tend to re-invent. I'm just re-using the API of
   typed-process.)
 
+Names mirror their equivalent Haskell names (typically the
+package). `Data.Text` is `Text.*`, `Control.Concurrent.Async` is
+`async`, etc.
+
 One exception to this rule is avoiding `type String`. Sorry, it's hard
 to justify when `Text` is established.
 
@@ -86,7 +90,7 @@ with combined with type applications.
 * Polymorphic primitives such as `id` require passing the type of the
   argument as `id @Int 123`. You cannot define polymorphic lambdas of
   your own. It's not full System-F.
-* Recursion is not supported. Use `Fun.fix`.
+* Recursion is not supported. Use `Function.fix`.
 * It will support type-classes (for equality, dictionaries, etc), but
   the dictionaries must be explicitly supplied. You can't define
   classes, or data types, of your own.
