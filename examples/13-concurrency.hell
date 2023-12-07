@@ -1,10 +1,19 @@
 main = do
+
+  -- Run two things concurrently and return both results
   (left, right) :: (Text, Text) <-
     Async.concurrently @Text @Text
-       (Main.curl "http://worldtimeapi.org/api/timezone/Europe/London")
-       (Main.curl "http://worldtimeapi.org/api/timezone/Europe/Rome")
+       (Main.curl "https://worldtimeapi.org/api/timezone/Europe/London")
+       (Main.curl "https://worldtimeapi.org/api/timezone/Europe/Rome")
   Text.putStrLn left
   Text.putStrLn right
+
+  -- Run two things concurrently and return the one that completes first
+  result :: Either Text Text <-
+    Async.race @Text @Text
+       (Main.curl "https://worldtimeapi.org/api/timezone/Europe/London")
+       (Main.curl "https://worldtimeapi.org/api/timezone/Europe/Rome")
+  Either.either @Text @Text @(IO ()) Text.putStrLn Text.putStrLn result
 
 curl = \(url :: Text) -> do
   (out, err) :: (Text, Text) <- Text.readProcess_ (Process.proc "curl" [url])

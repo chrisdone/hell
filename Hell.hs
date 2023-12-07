@@ -599,6 +599,11 @@ polyLits = Map.fromList [
     Type.withTypeable a $
     Type.withTypeable b $
     typed (Async.concurrently :: IO a -> IO b -> IO (a,b))
+  ),
+  ("Async.race", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
+    Type.withTypeable a $
+    Type.withTypeable b $
+    typed (Async.race :: IO a -> IO b -> IO (Either a b))
   )
  ]
 
