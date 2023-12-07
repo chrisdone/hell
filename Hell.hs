@@ -539,6 +539,9 @@ then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 polyLits :: Map String Forall
 polyLits = Map.fromList [
+  ("IO.pure", More \(a :: TypeRep a) ->
+    Type.withTypeable a $
+    Final (Typed (typeRep @(a -> IO a)) (Lit pure))),
   -- Bool
    ("Bool.bool", More \a ->
      Final (Typed (Type.Fun a (Type.Fun a (Type.Fun (typeRep @Bool) a))) (Lit Bool.bool))
