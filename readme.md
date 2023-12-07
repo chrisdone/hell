@@ -38,6 +38,15 @@ main = do
   Text.putStrLn name
 ```
 
+Supports:
+
+* UTF-8 and binary file I/O
+* Stdout/stderr/stdin I/O
+* Directory, arguments, environment variables
+* Concurrency (via `async`)
+* Recursion (via `fix`)
+* Running processes (via `typed-process`)
+
 ### Design philosophy
 
 Turtle, Shelly, shell-conduit and Shh are "do shell scripting in
