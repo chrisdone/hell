@@ -500,6 +500,7 @@ supportedLits = Map.fromList [
    ("Text.readProcess", lit t_readProcess),
    ("Text.readProcess_", lit t_readProcess_),
    -- Text operations
+   ("Text.eq", lit ((==) @Text)),
    ("Text.length", lit Text.length),
    ("Text.concat", lit Text.concat),
    ("Text.intercalate", lit Text.intercalate),
