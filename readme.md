@@ -41,6 +41,7 @@ main = do
 Supports:
 
 * UTF-8 and binary file I/O
+* UTF-8 text operations (via `text`)
 * Stdout/stderr/stdin I/O
 * Directory, arguments, environment variables
 * Concurrency (via `async`)
