@@ -82,6 +82,9 @@ to justify when `Text` is established.
 Also, avoiding operators, because operators are a bit harder to deal
 with combined with type applications.
 
+There is only one monad, `IO`. So all monadic actions are specialised
+upon it.
+
 ### More formal description
 
 * The language is a simply-typed lambda calculus, with Haskell syntax.
