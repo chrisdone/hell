@@ -1,0 +1,6 @@
+main = do
+  Text.putStrLn (Text.concat ["Hello, ", "World!"])
+  Text.putStrLn (Text.take 3 "Hello, World!")
+  Text.putStrLn (Text.drop 3 "Hello, World!")
+  Text.putStrLn (Text.strip "  Hello, World!   ")
+  Text.putStrLn (Text.intercalate ", " ["Hello","World!"])

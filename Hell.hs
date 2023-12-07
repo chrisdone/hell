@@ -501,6 +501,23 @@ supportedLits = Map.fromList [
    ("Text.readProcess_", lit t_readProcess_),
    -- Text operations
    ("Text.length", lit Text.length),
+   ("Text.concat", lit Text.concat),
+   ("Text.intercalate", lit Text.intercalate),
+   ("Text.reverse", lit Text.reverse),
+   ("Text.toLower", lit Text.toLower),
+   ("Text.toUpper", lit Text.toUpper),
+   -- Needs Char operations.
+   -- ("Text.any", lit Text.any),
+   -- ("Text.all", lit Text.all),
+   -- ("Text.filter", lit Text.filter),
+   ("Text.take", lit Text.take),
+   ("Text.takeEnd", lit Text.takeEnd),
+   ("Text.drop", lit Text.drop),
+   ("Text.dropEnd", lit Text.dropEnd),
+   ("Text.strip", lit Text.strip),
+   ("Text.isPrefixOf", lit Text.isPrefixOf),
+   ("Text.isSuffixOf", lit Text.isSuffixOf),
+   ("Text.isInfixOf", lit Text.isInfixOf),
    -- Int operations
    ("Int.show", lit (Text.pack . show @Int)),
    ("Int.eq", lit ((==) @Int)),
