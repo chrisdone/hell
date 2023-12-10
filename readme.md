@@ -95,6 +95,12 @@ with combined with type applications.
 There is only one monad, `IO`. So all monadic actions are specialised
 upon it.
 
+`mapM`/`forM` are specialised on lists (like Haskell 98), and live
+under the `IO.` namespace. In future, there could be `Maybe.mapM`,
+etc. It's also possible to have `traverse @IO @[]` type of thing, but
+that seems unnecessarily verbose. List is mostly fine, especially for
+scripting purposes.
+
 ### More formal description
 
 * The language is a simply-typed lambda calculus, with Haskell syntax.

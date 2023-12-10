@@ -581,20 +581,14 @@ polyLits = Map.fromList [
       Type.withTypeable b $
       typed (map :: (a -> b) -> [a] -> [b])
   ) ,
-  ("List.mapM_", More \(a :: TypeRep a) -> Final $
+  ("IO.mapM_", More \(a :: TypeRep a) -> Final $
       Type.withTypeable a $
       typed (mapM_ :: (a -> IO ()) -> [a] -> IO ())
-  ) ,
-  ("List.traverse", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
+  ),
+  ("IO.forM_", More \(a :: TypeRep a) -> Final $
       Type.withTypeable a $
-      Type.withTypeable b $
-      typed (traverse :: (a -> IO b) -> [a] -> IO [b])
-  ) ,
-  ("List.for", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
-      Type.withTypeable a $
-      Type.withTypeable b $
-      typed (for :: [a] -> (a -> IO b) -> IO [b])
-  ) ,
+      typed (forM_ :: [a] -> (a -> IO ()) -> IO ())
+  ),
   ("List.map", More \(a :: TypeRep a) -> More \(b :: TypeRep b) -> Final $
       Type.withTypeable a $ Type.withTypeable b $
       typed (Prelude.map :: (a -> b) -> [a] -> [b])

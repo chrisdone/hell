@@ -1,5 +1,5 @@
 main = do
-  List.mapM_ @Text Text.putStrLn ["Hello, ", "World!"]
+  IO.mapM_ @Text Text.putStrLn ["Hello, ", "World!"]
 
   Function.fix @(IO ()) (\(loop :: IO ()) -> do
     Text.putStrLn "Ahhhhh! More?"
