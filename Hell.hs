@@ -11,6 +11,7 @@
 import qualified Data.Graph as Graph
 import qualified Data.Bool as Bool
 import qualified Data.Map as Map
+import qualified Data.List as List
 import qualified Text.Show as Show
 import qualified Data.Function as Fun
 import qualified Data.Generics.Schemes as SYB
@@ -609,6 +610,11 @@ polyLits = Map.fromList [
       Type.withTypeable a $
       Type.withTypeable b $
       typed (map :: (a -> b) -> [a] -> [b])
+  ) ,
+  ("List.lookup", Constrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Final $
+      Type.withTypeable a $
+      Type.withTypeable b $
+      typed (List.lookup :: a -> [(a,b)] -> Maybe b)
   ) ,
   ("IO.mapM_", Unconstrained \(a :: TypeRep a) -> Final $
       Type.withTypeable a $

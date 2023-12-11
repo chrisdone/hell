@@ -2,3 +2,9 @@ main = do
   Text.print @Int 123
   Text.putStrLn (Text.show @Int 123)
   Text.print @Bool (Bool.True)
+
+  env :: [(Text,Text)] <- Environment.getEnvironment
+  Maybe.maybe @Text @(IO ())
+    (Text.putStrLn "Seems the environment variable is not there.")
+    (\(path :: Text) -> Text.putStrLn (Text.concat ["HOME is ", path]))
+    (List.lookup @Text @Text "HOME" env)
