@@ -56,6 +56,7 @@ data Binding = Singleton String | Tuple [String]
 
 data Forall
   = Unconstrained (forall (a :: Type) g. TypeRep a -> Forall)
+  | Constrained (forall (a :: Type) g. (Show a, Eq a, Ord a) => TypeRep a -> Forall)
   | Final (forall g. Typed (Term g))
 
 lit :: Type.Typeable a => a -> UTerm
@@ -167,6 +168,15 @@ tc (UForall reps fall) _env = go reps fall where
   go :: [SomeStarType] -> Forall -> Typed (Term g)
   go [] (Final typed) = typed
   go (SomeStarType rep:reps) (Unconstrained f) = go reps (f rep)
+  go (SomeStarType rep:reps) (Constrained f) =
+    if
+      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
+      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Bool) -> go reps (f rep)
+      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Char) -> go reps (f rep)
+      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Text) -> go reps (f rep)
+      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ByteString) -> go reps (f rep)
+      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ExitCode) -> go reps (f rep)
+      | otherwise -> error $ "type doesn't have enough instances " ++ show rep
   go _ _ = error "forall type arguments mismatch."
 
 
