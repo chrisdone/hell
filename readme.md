@@ -110,9 +110,9 @@ scripting purposes.
   argument as `id @Int 123`. You cannot define polymorphic lambdas of
   your own. It's not full System-F.
 * Recursion is not supported. Use `Function.fix`.
-* Supports type-classes (`Eq`, `Ord` and `Show` only), but the type be
-  explicitly supplied. You can't define classes, or data types, of
-  your own.
+* Supports type-classes (`Eq`, `Ord` and `Show` only), but the type
+  must still be explicitly supplied. You can't define classes, or data
+  types, of your own.
 * The types and functions available lean directly on the host language
   (Haskell) and are either directly lifted, or a simplified layer over
   the original things.
