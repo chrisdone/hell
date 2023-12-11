@@ -618,10 +618,6 @@ polyLits = Map.fromList [
       Type.withTypeable a $
       typed (forM_ :: [a] -> (a -> IO ()) -> IO ())
   ),
-  ("List.map", Unconstrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Final $
-      Type.withTypeable a $ Type.withTypeable b $
-      typed (Prelude.map :: (a -> b) -> [a] -> [b])
-  ),
   -- Maybe
   ("Maybe.maybe", Unconstrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Final $
     Type.withTypeable a $
