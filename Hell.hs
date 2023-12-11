@@ -537,6 +537,9 @@ supportedLits = Map.fromList [
    ("IO.NoBuffering", lit IO.NoBuffering),
    ("IO.LineBuffering", lit IO.LineBuffering),
    ("IO.BlockBuffering", lit IO.BlockBuffering),
+   -- Bool
+   ("Bool.True", lit Bool.True),
+   ("Bool.False", lit Bool.False),
    -- Get arguments
    ("Environment.getArgs", lit $ fmap (map Text.pack) getArgs),
    ("Environment.getEnvironment", lit $ fmap (map (bimap Text.pack Text.pack)) getEnvironment),
