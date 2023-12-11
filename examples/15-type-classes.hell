@@ -1,0 +1,4 @@
+main = do
+  Text.print @Int 123
+  Text.putStrLn (Text.show @Int 123)
+  Text.print @Bool (Bool.True)

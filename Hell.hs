@@ -11,6 +11,7 @@
 import qualified Data.Graph as Graph
 import qualified Data.Bool as Bool
 import qualified Data.Map as Map
+import qualified Text.Show as Show
 import qualified Data.Function as Fun
 import qualified Data.Generics.Schemes as SYB
 import qualified Type.Reflection as Type
@@ -647,7 +648,15 @@ polyLits = Map.fromList [
     Type.withTypeable a $
     Type.withTypeable b $
     typed (Async.race :: IO a -> IO b -> IO (Either a b))
-  )
+  ),
+  -- Type-class constrained functions
+  ("Text.show", Constrained \(a :: TypeRep a) -> Final $
+    Type.withTypeable a $
+    typed (Text.pack . Show.show :: a -> Text)),
+  -- Type-class constrained functions
+  ("Text.print", Constrained \(a :: TypeRep a) -> Final $
+    Type.withTypeable a $
+    typed (t_putStrLn . Text.pack . Show.show :: a -> IO ()))
  ]
 
 --------------------------------------------------------------------------------
