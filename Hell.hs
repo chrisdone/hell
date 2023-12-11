@@ -734,6 +734,7 @@ main = do
                                Just Type.HRefl ->
                                  let action :: IO () = eval () ex
                                  in action
+                               Nothing -> error $ "Type isn't IO (), but: " ++ show t
 
 --------------------------------------------------------------------------------
 -- Get declarations from the module
