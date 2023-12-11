@@ -52,6 +52,7 @@ data UTerm
   | UBind UTerm UTerm
   | UList [UTerm] (Maybe SomeStarType)
   | UTuple [UTerm]
+  | UIf UTerm UTerm UTerm
 
 data Binding = Singleton String | Tuple [String]
 
@@ -181,6 +182,19 @@ tc (UForall reps fall) _env = go reps fall where
   go _ _ = error "forall type arguments mismatch."
 
 
+-- Special handling for `if'
+tc (UIf i t e) env =
+  case tc i env of
+    Typed i_ty i'
+      | Just Type.HRefl <- Type.eqTypeRep i_ty (typeRep @Bool) ->
+        case (tc t env, tc e env) of
+          (Typed (t_ty :: TypeRep a) t', Typed e_ty e')
+            | Just Type.HRefl <- Type.eqTypeRep t_ty e_ty ->
+               Typed t_ty (App (App (App (Lit (Bool.bool @a)) e') t') i')
+            | otherwise ->
+              error $ "If branches types don't match: " ++ show t_ty ++ " vs " ++ show e_ty
+      | otherwise -> error $ "If's condition isn't Bool, got: " ++ show i_ty
+
 -- Bind needs special type-checker handling, because do-notation lacks
 -- the means to pass the types about >>=
 tc (UBind m f) env =
@@ -258,6 +272,7 @@ desugarExp :: Map String UTerm -> HSE.Exp HSE.SrcSpanInfo -> Either DesugarError
 desugarExp globals = go where
   go = \case
     HSE.Paren _ x -> go x
+    HSE.If _ i t e -> UIf <$> go i <*> go t <*> go e
     HSE.Tuple _ HSE.Boxed terms -> UTuple <$> traverse go terms
     HSE.List _ xs -> UList <$> traverse go xs <*> pure Nothing
     HSE.App _ (HSE.List _ xs) (HSE.TypeApp _ ty) -> UList <$> traverse go xs <*> fmap Just (desugarType ty)

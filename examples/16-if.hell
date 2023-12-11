@@ -1,0 +1,4 @@
+main =
+  if Bool.True
+     then Text.putStrLn "OK, logic works!"
+     else Text.putStrLn "Oh no."
