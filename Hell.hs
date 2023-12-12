@@ -529,6 +529,7 @@ supportedLits = Map.fromList [
    ("Text.readProcess", lit t_readProcess),
    ("Text.readProcess_", lit t_readProcess_),
    ("Text.readProcessStdout_", lit t_readProcessStdout_),
+   ("Text.setStdin", lit t_setStdin),
    -- Text operations
    ("Text.eq", lit ((==) @Text)),
    ("Text.length", lit Text.length),
@@ -697,6 +698,9 @@ polyLits = Map.fromList [
 -- UTF-8 specific operations without all the environment gubbins
 --
 -- Much better than what Data.Text.IO provides
+
+t_setStdin :: Text -> ProcessConfig () () () -> ProcessConfig () () ()
+t_setStdin text = setStdin (byteStringInput (L.fromStrict (Text.encodeUtf8 text)))
 
 t_readProcess :: ProcessConfig () () () -> IO (ExitCode, Text, Text)
 t_readProcess c = do
