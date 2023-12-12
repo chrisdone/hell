@@ -29,6 +29,7 @@ import qualified Data.Text.IO as Text
 import qualified System.IO as IO
 import qualified Control.Concurrent.Async as Async
 import qualified System.Directory as Dir
+import qualified Options.Applicative as Options
 
 import Data.Traversable
 import Data.Bifunctor
@@ -762,9 +763,27 @@ b_readProcessStdout_ c = do
 ------------------------------------------------------------------------------
 -- Main entry point
 
+data Command
+  = Run FilePath
+  | Check FilePath
+
+commandParser :: Options.Parser Command
+commandParser =
+  Options.asum [
+   Run <$> Options.strArgument (Options.metavar "FILE" <> Options.help "Run the given .hell file"),
+   Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file")
+  ]
+
 main :: IO ()
-main = do
-  (filePath:_) <- getArgs
+main = dispatch =<< Options.execParser opts
+  where
+    opts = Options.info (commandParser Options.<**> Options.helper)
+      ( Options.fullDesc
+     <> Options.progDesc "Runs and typechecks Hell scripts"
+     <> Options.header "hell - A Haskell-driven scripting language" )
+
+dispatch :: Command -> IO ()
+dispatch (Run filePath) = do
   string <- readFile filePath
   case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
     HSE.ParseFailed _ e -> error $ e
@@ -785,6 +804,28 @@ main = do
                                Just Type.HRefl ->
                                  let action :: IO () = eval () ex
                                  in action
+                               Nothing -> error $ "Type isn't IO (), but: " ++ show t
+dispatch (Check filePath) = do
+  string <- readFile filePath
+  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
+    HSE.ParseFailed _ e -> error $ e
+    HSE.ParseOk binds
+      | anyCycles binds -> error "Cyclic bindings are not supported!"
+      | otherwise ->
+            case desugarAll binds of
+              Left err -> error $ "Error desugaring! " ++ show err
+              Right terms ->
+                case lookup "main" terms of
+                  Nothing -> error "No main declaration!"
+                  Just main' ->
+                    case check main' Nil of
+                       Typed t ex ->
+                         case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
+                           Just Type.HRefl ->
+                             case Type.eqTypeRep t (typeRep @(IO ())) of
+                               Just Type.HRefl ->
+                                 let action :: IO () = eval () ex
+                                 in pure ()
                                Nothing -> error $ "Type isn't IO (), but: " ++ show t
 
 --------------------------------------------------------------------------------

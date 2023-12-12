@@ -28,6 +28,7 @@ executable hell
     , haskell-src-exts
     , hspec
     , mtl
+    , optparse-applicative
     , syb
     , temporary
     , text

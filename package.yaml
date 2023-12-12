@@ -19,6 +19,7 @@ dependencies:
 - syb
 - constraints
 - typed-process
+- optparse-applicative
 
 executables:
   hell:
