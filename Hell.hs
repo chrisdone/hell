@@ -615,6 +615,9 @@ polyLits = Map.fromList [
   ("List.cons", Unconstrained \(a :: TypeRep a) -> Final $
     Type.withTypeable a $
     typed ((:) :: a -> [a] -> [a])),
+  ("List.concat", Unconstrained \(a :: TypeRep a) -> Final $
+    Type.withTypeable a $
+    typed (List.concat :: [[a]] -> [a])),
   ("List.map", Unconstrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Final $
       Type.withTypeable a $
       Type.withTypeable b $
