@@ -646,6 +646,10 @@ polyLits = Map.fromList [
     Type.withTypeable a $
     typed (Just :: a -> Maybe a)
   ),
+  ("Maybe.listToMaybe", Unconstrained \(a :: TypeRep a) -> Final $
+    Type.withTypeable a $
+    typed (Maybe.listToMaybe :: [a] -> Maybe a)
+  ),
   -- Either
   ("Either.either", Unconstrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Unconstrained \(x :: TypeRep x) -> Final $
     Type.withTypeable a $
