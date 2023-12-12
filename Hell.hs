@@ -528,6 +528,7 @@ supportedLits = Map.fromList [
    ("Text.appendFile", lit t_appendFile),
    ("Text.readProcess", lit t_readProcess),
    ("Text.readProcess_", lit t_readProcess_),
+   ("Text.readProcessStdout_", lit t_readProcessStdout_),
    -- Text operations
    ("Text.eq", lit ((==) @Text)),
    ("Text.length", lit Text.length),
@@ -558,6 +559,7 @@ supportedLits = Map.fromList [
    ("ByteString.hPutStr", lit ByteString.hPutStr),
    ("ByteString.readProcess", lit b_readProcess),
    ("ByteString.readProcess_", lit b_readProcess_),
+   ("ByteString.readProcessStdout_", lit b_readProcessStdout_),
    -- Handles, buffering
    ("IO.stdout", lit IO.stdout),
    ("IO.stderr", lit IO.stderr),
@@ -702,6 +704,11 @@ t_readProcess_ c = do
   (out, err) <- b_readProcess_ c
   pure (Text.decodeUtf8 out, Text.decodeUtf8 err)
 
+t_readProcessStdout_ :: ProcessConfig () () () -> IO Text
+t_readProcessStdout_ c = do
+  out <- b_readProcessStdout_ c
+  pure (Text.decodeUtf8 out)
+
 t_putStrLn :: Text -> IO ()
 t_putStrLn = ByteString.hPutBuilder IO.stdout . (<>"\n") . ByteString.byteString . Text.encodeUtf8
 
@@ -735,6 +742,11 @@ b_readProcess_ :: ProcessConfig () () () -> IO (ByteString, ByteString)
 b_readProcess_ c = do
   (out, err) <- readProcess_ c
   pure (L.toStrict out, L.toStrict err)
+
+b_readProcessStdout_ :: ProcessConfig () () () -> IO ByteString
+b_readProcessStdout_ c = do
+  out <- readProcessStdout_ c
+  pure (L.toStrict out)
 
 ------------------------------------------------------------------------------
 -- Main entry point
