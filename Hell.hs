@@ -766,12 +766,14 @@ b_readProcessStdout_ c = do
 data Command
   = Run FilePath
   | Check FilePath
+  | Version
 
 commandParser :: Options.Parser Command
 commandParser =
   Options.asum [
    Run <$> Options.strArgument (Options.metavar "FILE" <> Options.help "Run the given .hell file"),
-   Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file")
+   Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file"),
+   Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version")
   ]
 
 main :: IO ()
@@ -783,6 +785,7 @@ main = dispatch =<< Options.execParser opts
      <> Options.header "hell - A Haskell-driven scripting language" )
 
 dispatch :: Command -> IO ()
+dispatch Version = putStrLn "2023-12-12"
 dispatch (Run filePath) = do
   string <- readFile filePath
   case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
