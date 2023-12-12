@@ -9,6 +9,8 @@
 -- * Dropped UType in favor of TypeRep
 
 import qualified Data.Graph as Graph
+import qualified Data.Eq as Eq
+import qualified Data.Ord as Ord
 import qualified Data.Bool as Bool
 import qualified Data.Map as Map
 import qualified Data.List as List
@@ -567,6 +569,7 @@ supportedLits = Map.fromList [
    -- Bool
    ("Bool.True", lit Bool.True),
    ("Bool.False", lit Bool.False),
+   ("Bool.not", lit Bool.not),
    -- Get arguments
    ("Environment.getArgs", lit $ fmap (map Text.pack) getArgs),
    ("Environment.getEnvironment", lit $ fmap (map (bimap Text.pack Text.pack)) getEnvironment),
@@ -579,6 +582,9 @@ supportedLits = Map.fromList [
    ("Process.setEnv", lit $ Process.setEnv @() @() @() . map (bimap Text.unpack Text.unpack)),
    ("Process.runProcess", lit $ runProcess @IO @() @() @()),
    ("Process.runProcess_", lit $ runProcess_ @IO @() @() @()),
+   -- Lists
+   ("List.and", lit (List.and @[])),
+   ("List.or", lit (List.or @[])),
    -- Misc
    (">>", then')
   ]
@@ -670,10 +676,15 @@ polyLits = Map.fromList [
   ("Text.show", Constrained \(a :: TypeRep a) -> Final $
     Type.withTypeable a $
     typed (Text.pack . Show.show :: a -> Text)),
-  -- Type-class constrained functions
   ("Text.print", Constrained \(a :: TypeRep a) -> Final $
     Type.withTypeable a $
-    typed (t_putStrLn . Text.pack . Show.show :: a -> IO ()))
+    typed (t_putStrLn . Text.pack . Show.show :: a -> IO ())),
+  ("Eq.eq", Constrained \(a :: TypeRep a) -> Final $
+    Type.withTypeable a $ typed ((Eq.==) :: a -> a -> Bool)),
+  ("Ord.lt", Constrained \(a :: TypeRep a) -> Final $
+    Type.withTypeable a $ typed ((Ord.<) :: a -> a -> Bool)),
+  ("Ord.gt", Constrained \(a :: TypeRep a) -> Final $
+    Type.withTypeable a $ typed ((Ord.>) :: a -> a -> Bool))
  ]
 
 --------------------------------------------------------------------------------
