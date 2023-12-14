@@ -1,5 +1,6 @@
-resolver: lts-20.24
+resolver: lts-21.24 # GHC-9.4.8
 system-ghc: true
+ghc-options:
+  "$everything": "-split-sections -j"
 packages:
 - '.'
-allow-different-user: true
