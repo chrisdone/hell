@@ -43,7 +43,7 @@ import Data.Text (Text)
 import Data.ByteString (ByteString)
 import Data.Constraint
 import GHC.Types
-import Type.Reflection (SomeTypeRep(..), TypeRep, typeRepKind, typeRep)
+import Type.Reflection (SomeTypeRep(..), TypeRep, typeRepKind, typeRep, pattern TypeRep)
 
 --------------------------------------------------------------------------------
 -- Untyped AST
@@ -137,13 +137,11 @@ lookupVar v (Cons (Tuple ss) ty e)
 tc :: UTerm -> TyEnv g -> Typed (Term g)
 tc (UTuple [x,y]) env =
   case (tc x env, tc y env) of
-    (Typed (x_t :: TypeRep x) x', Typed (y_t :: TypeRep y) y') ->
-      Type.withTypeable x_t $ Type.withTypeable y_t $
+    (Typed (TypeRep @x) x', Typed (TypeRep @y) y') ->
       Typed (typeRep @(x,y)) $ App (App (Lit ((,) :: x -> y -> (x,y))) x') y'
 tc (UTuple [x,y,z]) env =
   case (tc x env, tc y env, tc z env) of
-    (Typed (x_t :: TypeRep x) x', Typed (y_t :: TypeRep y) y', Typed (z_t :: TypeRep z) z') ->
-      Type.withTypeable x_t $ Type.withTypeable y_t $ Type.withTypeable z_t $
+    (Typed (TypeRep @x) x', Typed (TypeRep @y) y', Typed (TypeRep @z) z') ->
       Typed (typeRep @(x,y,z)) $ App (App (App (Lit ((,,) :: x -> y -> z -> (x,y,z))) x') y') z'
 tc (UVar v) env = case lookupVar v env of
   Typed ty v -> Typed ty (Var v)
@@ -602,8 +600,7 @@ then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 polyLits :: Map String Forall
 polyLits = Map.fromList [
-  ("IO.pure", Unconstrained \(a :: TypeRep a) ->
-    Type.withTypeable a $
+  ("IO.pure", Unconstrained \(TypeRep @a) ->
     Final (Typed (typeRep @(a -> IO a)) (Lit pure))),
   -- Bool
    ("Bool.bool", Unconstrained \a ->
@@ -611,92 +608,66 @@ polyLits = Map.fromList [
    ),
   -- Data.Function
   ("Function.id", Unconstrained \a -> Final (Typed (Type.Fun a a) (Lit id))),
-  ("Function.fix", Unconstrained \(a :: TypeRep a) -> Type.withTypeable a $
+  ("Function.fix", Unconstrained \(TypeRep @a) ->
       Final $ typed (Fun.fix :: (a -> a) -> a)),
   -- Data.List
-  ("List.cons", Unconstrained \(a :: TypeRep a) -> Final $
-    Type.withTypeable a $
+  ("List.cons", Unconstrained \(TypeRep @a) -> Final $
     typed ((:) :: a -> [a] -> [a])),
-  ("List.concat", Unconstrained \(a :: TypeRep a) -> Final $
-    Type.withTypeable a $
+  ("List.concat", Unconstrained \(TypeRep @a) -> Final $
     typed (List.concat :: [[a]] -> [a])),
-  ("List.map", Unconstrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Final $
-      Type.withTypeable a $
-      Type.withTypeable b $
+  ("List.map", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
       typed (map :: (a -> b) -> [a] -> [b])
   ) ,
-  ("List.lookup", Constrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Final $
-      Type.withTypeable a $
-      Type.withTypeable b $
+  ("List.lookup", Constrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
       typed (List.lookup :: a -> [(a,b)] -> Maybe b)
   ) ,
-  ("IO.mapM_", Unconstrained \(a :: TypeRep a) -> Final $
-      Type.withTypeable a $
+  ("IO.mapM_", Unconstrained \(TypeRep @a) -> Final $
       typed (mapM_ :: (a -> IO ()) -> [a] -> IO ())
   ),
-  ("IO.forM_", Unconstrained \(a :: TypeRep a) -> Final $
-      Type.withTypeable a $
+  ("IO.forM_", Unconstrained \(TypeRep @a) -> Final $
       typed (forM_ :: [a] -> (a -> IO ()) -> IO ())
   ),
   -- Maybe
-  ("Maybe.maybe", Unconstrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Final $
-    Type.withTypeable a $
-    Type.withTypeable b $
+  ("Maybe.maybe", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
     typed (maybe :: b -> (a -> b) -> Maybe a -> b)
   ),
-  ("Maybe.Nothing", Unconstrained \(a :: TypeRep a) -> Final $
-    Type.withTypeable a $
+  ("Maybe.Nothing", Unconstrained \(TypeRep @a) -> Final $
     typed (Nothing :: Maybe a)
   ),
-  ("Maybe.Just", Unconstrained \(a :: TypeRep a) -> Final $
-    Type.withTypeable a $
+  ("Maybe.Just", Unconstrained \(TypeRep @a) -> Final $
     typed (Just :: a -> Maybe a)
   ),
-  ("Maybe.listToMaybe", Unconstrained \(a :: TypeRep a) -> Final $
-    Type.withTypeable a $
+  ("Maybe.listToMaybe", Unconstrained \(TypeRep @a) -> Final $
     typed (Maybe.listToMaybe :: [a] -> Maybe a)
   ),
   -- Either
-  ("Either.either", Unconstrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Unconstrained \(x :: TypeRep x) -> Final $
-    Type.withTypeable a $
-    Type.withTypeable b $
-    Type.withTypeable x $
+  ("Either.either", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Unconstrained \(TypeRep @x) -> Final $
     typed (either :: (a -> x) -> (b -> x) -> Either a b -> x)
   ),
-  ("Either.Left", Unconstrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Final $
-    Type.withTypeable a $
-    Type.withTypeable b $
+  ("Either.Left", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
     typed (Left :: a -> Either a b)
   ),
-  ("Either.Right", Unconstrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Final $
-    Type.withTypeable a $
-    Type.withTypeable b $
+  ("Either.Right", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
     typed (Right :: b -> Either a b)
   ),
   -- Async
-  ("Async.concurrently", Unconstrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Final $
-    Type.withTypeable a $
-    Type.withTypeable b $
+  ("Async.concurrently", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
     typed (Async.concurrently :: IO a -> IO b -> IO (a,b))
   ),
-  ("Async.race", Unconstrained \(a :: TypeRep a) -> Unconstrained \(b :: TypeRep b) -> Final $
-    Type.withTypeable a $
-    Type.withTypeable b $
+  ("Async.race", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
     typed (Async.race :: IO a -> IO b -> IO (Either a b))
   ),
   -- Type-class constrained functions
-  ("Text.show", Constrained \(a :: TypeRep a) -> Final $
-    Type.withTypeable a $
+  ("Text.show", Constrained \(TypeRep @a) -> Final $
     typed (Text.pack . Show.show :: a -> Text)),
-  ("Text.print", Constrained \(a :: TypeRep a) -> Final $
-    Type.withTypeable a $
+  ("Text.print", Constrained \(TypeRep @a) -> Final $
     typed (t_putStrLn . Text.pack . Show.show :: a -> IO ())),
-  ("Eq.eq", Constrained \(a :: TypeRep a) -> Final $
-    Type.withTypeable a $ typed ((Eq.==) :: a -> a -> Bool)),
-  ("Ord.lt", Constrained \(a :: TypeRep a) -> Final $
-    Type.withTypeable a $ typed ((Ord.<) :: a -> a -> Bool)),
-  ("Ord.gt", Constrained \(a :: TypeRep a) -> Final $
-    Type.withTypeable a $ typed ((Ord.>) :: a -> a -> Bool))
+  ("Eq.eq", Constrained \(TypeRep @a) -> Final $
+     typed ((Eq.==) :: a -> a -> Bool)),
+  ("Ord.lt", Constrained \(TypeRep @a) -> Final $
+     typed ((Ord.<) :: a -> a -> Bool)),
+  ("Ord.gt", Constrained \(TypeRep @a) -> Final $
+     typed ((Ord.>) :: a -> a -> Bool))
  ]
 
 --------------------------------------------------------------------------------
