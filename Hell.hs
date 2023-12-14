@@ -336,11 +336,11 @@ desugarQName globals qname [] =
 desugarQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
-      | Just forall <- Map.lookup (prefix ++ "." ++ string) polyLits ->
-        pure (UForall treps forall)
+      | Just forall' <- Map.lookup (prefix ++ "." ++ string) polyLits ->
+        pure (UForall treps forall')
     HSE.UnQual _ (HSE.Symbol _ string)
-      | Just forall <- Map.lookup string polyLits ->
-        pure (UForall treps forall)
+      | Just forall' <- Map.lookup string polyLits ->
+        pure (UForall treps forall')
     _ -> Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, SomeStarType)
