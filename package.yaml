@@ -5,9 +5,8 @@ author: "Chris Done"
 copyright: "2023 Chris Done"
 
 dependencies:
-- base
+- base >= 4.17.2.1
 - haskell-src-exts
-- hspec
 - ghc-prim
 - containers
 - text
@@ -15,7 +14,6 @@ dependencies:
 - async
 - mtl
 - directory
-- temporary
 - syb
 - constraints
 - typed-process
