@@ -1,14 +1,22 @@
+--
+-- Welcome to Hell
+--
+-- Haskell as a scripting language!
+--
+-- Special thanks to Stephanie Weirich, whose type-safe typechecker
+-- this is built upon, and for the Type.Reflection module, which has
+-- made some of this more ergonomic.
+
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments #-}
-{-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types, ViewPatterns #-}
-{-# LANGUAGE LambdaCase, ScopedTypeVariables, PatternSynonyms, OverloadedStrings, MultiWayIf #-}
+{-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types #-}
+{-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms #-}
+{-# LANGUAGE OverloadedStrings, MultiWayIf #-}
 
 module Main (main) where
 
--- * Original type checker code by Stephanie Weirich at Dagstuhl (Sept 04)
--- * Modernized with Type.Reflection, also by Stephanie
--- * Polytyped prims added
--- * Type-class dictionary passing added
--- * Dropped UType in favor of TypeRep
+-- All modules tend to be imported qualified by their last component,
+-- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
+-- guest language as such.
 
 import qualified Data.Graph as Graph
 import qualified Data.Eq as Eq
@@ -33,6 +41,8 @@ import qualified Control.Concurrent.Async as Async
 import qualified System.Directory as Dir
 import qualified Options.Applicative as Options
 
+-- Things used within the host language.
+
 import Data.Traversable
 import Data.Bifunctor
 import System.Process.Typed as Process
@@ -45,11 +55,148 @@ import Data.Constraint
 import GHC.Types
 import Type.Reflection (SomeTypeRep(..), TypeRep, typeRepKind, typeRep, pattern TypeRep)
 
+-- Testing support
+
 import Test.Hspec
 import Test.QuickCheck
 
+------------------------------------------------------------------------------
+-- Main entry point
+
+data Command
+  = Run FilePath
+  | Check FilePath
+  | Version
+  | Exec String
+
+main :: IO ()
+main = dispatch =<< Options.execParser opts
+  where
+    opts = Options.info (commandParser Options.<**> Options.helper)
+      ( Options.fullDesc
+     <> Options.progDesc "Runs and typechecks Hell scripts"
+     <> Options.header "hell - A Haskell-driven scripting language" )
+
+commandParser :: Options.Parser Command
+commandParser =
+  Options.asum [
+   Run <$> Options.strArgument (Options.metavar "FILE" <> Options.help "Run the given .hell file"),
+   Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file"),
+   Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version"),
+   Exec <$> Options.strOption (Options.long "exec" <> Options.help "Execute the given expression" <> Options.metavar "EXPR")
+  ]
+
+dispatch :: Command -> IO ()
+dispatch Version = putStrLn "2023-12-12"
+dispatch (Run filePath) = do
+  string <- readFile filePath
+  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
+    HSE.ParseFailed _ e -> error $ e
+    HSE.ParseOk binds
+      | anyCycles binds -> error "Cyclic bindings are not supported!"
+      | otherwise ->
+            case desugarAll binds of
+              Left err -> error $ "Error desugaring! " ++ show err
+              Right terms ->
+                case lookup "main" terms of
+                  Nothing -> error "No main declaration!"
+                  Just main' ->
+                    case check main' Nil of
+                       Typed t ex ->
+                         case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
+                           Just Type.HRefl ->
+                             case Type.eqTypeRep t (typeRep @(IO ())) of
+                               Just Type.HRefl ->
+                                 let action :: IO () = eval () ex
+                                 in action
+                               Nothing -> error $ "Type isn't IO (), but: " ++ show t
+dispatch (Check filePath) = do
+  string <- readFile filePath
+  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
+    HSE.ParseFailed _ e -> error $ e
+    HSE.ParseOk binds
+      | anyCycles binds -> error "Cyclic bindings are not supported!"
+      | otherwise ->
+            case desugarAll binds of
+              Left err -> error $ "Error desugaring! " ++ show err
+              Right terms ->
+                case lookup "main" terms of
+                  Nothing -> error "No main declaration!"
+                  Just main' ->
+                    case check main' Nil of
+                       Typed t ex ->
+                         case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
+                           Just Type.HRefl ->
+                             case Type.eqTypeRep t (typeRep @(IO ())) of
+                               Just Type.HRefl ->
+                                 let action :: IO () = eval () ex
+                                 in pure ()
+                               Nothing -> error $ "Type isn't IO (), but: " ++ show t
+dispatch (Exec string) = do
+  case HSE.parseExpWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string of
+    HSE.ParseFailed _ e -> error $ e
+    HSE.ParseOk e ->
+            case desugarExp mempty e of
+              Left err -> error $ "Error desugaring! " ++ show err
+              Right uterm ->
+                    case check uterm Nil of
+                       Typed t ex ->
+                         case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
+                           Just Type.HRefl ->
+                             case Type.eqTypeRep t (typeRep @(IO ())) of
+                               Just Type.HRefl ->
+                                 let action :: IO () = eval () ex
+                                 in action
+                               Nothing -> error $ "Type isn't IO (), but: " ++ show t
+
 --------------------------------------------------------------------------------
--- Untyped AST
+-- Get declarations from the module
+
+parseModule :: HSE.Module HSE.SrcSpanInfo -> HSE.ParseResult [(String, HSE.Exp HSE.SrcSpanInfo)]
+parseModule (HSE.Module _ Nothing [] [] decls) =
+  traverse parseDecl decls
+  where
+    parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
+          pure (string, exp')
+    parseDecl _ = error "Can't parse that!"
+
+--------------------------------------------------------------------------------
+-- Typed AST support
+--
+-- We define a well-typed, well-indexed GADT AST which can be evaluated directly.
+
+data Term g t where
+  Var :: Var g t -> Term g t
+  Lam :: TypeRep (a :: Type) -> Term (g, a) b -> Term g (a -> b)
+  App :: Term g (s -> t) -> Term g s -> Term g t
+  Lit :: a -> Term g a
+
+data Var g t where
+  ZVar :: (t -> a) -> Var (h, t) a
+  SVar :: Var h t -> Var (h, s) t
+
+--------------------------------------------------------------------------------
+-- Evaluator
+--
+
+-- This is the entire evaluator. Type-safe and total.
+eval :: env -> Term env t -> t
+eval env (Var v) = lookp v env
+eval env (Lam _ e) = \x -> eval (env, x) e
+eval env (App e1 e2) = (eval env e1) (eval env e2)
+eval _env (Lit a) = a
+
+-- Type-safe, total lookup. The final @slot@ determines which slot of
+-- a given tuple to pick out.
+lookp :: Var env t -> env -> t
+lookp (ZVar slot) (_, x) = slot x
+lookp (SVar v) (env, x) = lookp v env
+
+--------------------------------------------------------------------------------
+-- The "untyped" AST
+--
+-- This is the AST that is not interpreted, and is just
+-- type-checked. The HSE AST is desugared into this one.
 
 data UTerm
   = UVar String
@@ -72,27 +219,6 @@ data Forall
 lit :: Type.Typeable a => a -> UTerm
 lit l = ULit (Typed (Type.typeOf l) (Lit l))
 
-typed :: Type.Typeable a => a -> Typed (Term g)
-typed l = Typed (Type.typeOf l) (Lit l)
-
---------------------------------------------------------------------------------
--- Typed AST
-
-data Term g t where
-  Var :: Var g t -> Term g t
-  Lam :: TypeRep (a :: Type) -> Term (g, a) b -> Term g (a -> b)
-  App :: Term g (s -> t) -> Term g s -> Term g t
-  Lit :: a -> Term g a
-
-data Var g t where
-  ZVar :: (t -> a) -> Var (h, t) a
-  SVar :: Var h t -> Var (h, s) t
-
-data Typed (thing :: Type -> Type) = forall ty. Typed (TypeRep (ty :: Type)) (thing ty)
-
---------------------------------------------------------------------------------
--- Type checker helpers
-
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 deriving instance Show SomeStarType
 instance Eq SomeStarType where
@@ -106,37 +232,24 @@ toStarType (SomeTypeRep t) = do
   Type.HRefl <- Type.eqTypeRep (typeRepKind t) (typeRep @Type)
   pure $ SomeStarType t
 
+--------------------------------------------------------------------------------
+-- The type checker
+
+data Typed (thing :: Type -> Type) = forall ty. Typed (TypeRep (ty :: Type)) (thing ty)
+
+typed :: Type.Typeable a => a -> Typed (Term g)
+typed l = Typed (Type.typeOf l) (Lit l)
+
 -- The type environment and lookup
 data TyEnv g where
   Nil :: TyEnv g
   Cons :: Binding -> TypeRep (t :: Type) -> TyEnv h -> TyEnv (h, t)
 
-lookupVar :: String -> TyEnv g -> Typed (Var g)
-lookupVar str Nil = error $ "Variable not found: " ++ str
-lookupVar v (Cons (Singleton s) ty e)
-  | v == s = Typed ty (ZVar id)
-  | otherwise = case lookupVar v e of
-      Typed ty v -> Typed ty (SVar v)
-lookupVar v (Cons (Tuple ss) ty e)
-  | Just i <- lookup v $ zip ss [0..] =
-    case ty of
-      Type.App (Type.App tup x) y
-       | Just Type.HRefl <- Type.eqTypeRep tup (typeRep @(,)) ->
-          case i of
-            0 -> Typed x $ ZVar \(a,_) -> a
-            1 -> Typed y $ ZVar \(_,b) -> b
-      Type.App (Type.App (Type.App tup x) y) z
-       | Just Type.HRefl <- Type.eqTypeRep tup (typeRep @(,,)) ->
-          case i of
-            0 -> Typed x $ ZVar \(a,_,_) -> a
-            1 -> Typed y $ ZVar \(_,b,_) -> b
-            2 -> Typed z $ ZVar \(_,_,c) -> c
-  | otherwise = case lookupVar v e of
-      Typed ty v -> Typed ty (SVar v)
+-- The top-level checker used by the main function.
+check :: UTerm -> TyEnv () -> Typed (Term ())
+check = tc
 
---------------------------------------------------------------------------------
--- Type checker
-
+-- Type check a term given an environment of names.
 tc :: UTerm -> TyEnv g -> Typed (Term g)
 tc (UTuple [x,y]) env =
   case (tc x env, tc y env) of
@@ -186,8 +299,6 @@ tc (UForall reps fall) _env = go reps fall where
       | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ExitCode) -> go reps (f rep)
       | otherwise -> error $ "type doesn't have enough instances " ++ show rep
   go _ _ = error "forall type arguments mismatch."
-
-
 -- Special handling for `if'
 tc (UIf i t e) env =
   case tc i env of
@@ -200,7 +311,6 @@ tc (UIf i t e) env =
             | otherwise ->
               error $ "If branches types don't match: " ++ show t_ty ++ " vs " ++ show e_ty
       | otherwise -> error $ "If's condition isn't Bool, got: " ++ show i_ty
-
 -- Bind needs special type-checker handling, because do-notation lacks
 -- the means to pass the types about >>=
 tc (UBind m f) env =
@@ -225,7 +335,6 @@ tc (UBind m f) env =
                   Just Type.HRefl <- Type.eqTypeRep (typeRepKind b) (typeRep @Type) ->
                   Typed final (App (App (Lit (>>=)) m') f')
               _ -> error "Bind in do-notation type mismatch."
-
 -- Lists
 -- 1. Empty list; we don't have anything to check, but we need a type.
 -- 2. Populated list, we don't need a type, and expect something immediately.
@@ -243,24 +352,30 @@ tc (UList (x:xs) Nothing) env =
           Typed as_rep (App (App (Lit (:)) a) as)
 tc UList{} env = error "List must either be [x,..] or [] @T"
 
---------------------------------------------------------------------------------
--- Evaluator
-
-eval :: env -> Term env t -> t
-eval env (Var v) = lookp v env
-eval env (Lam _ e) = \x -> eval (env, x) e
-eval env (App e1 e2) = (eval env e1) (eval env e2)
-eval _env (Lit a) = a
-
-lookp :: Var env t -> env -> t
-lookp (ZVar slot) (_, x) = slot x
-lookp (SVar v) (env, x) = lookp v env
-
---------------------------------------------------------------------------------
--- Top-level example
-
-check :: UTerm -> TyEnv () -> Typed (Term ())
-check = tc
+-- Make a well-typed literal - e.g. @lit Text.length@ - which can be
+-- embedded in the untyped AST.
+lookupVar :: String -> TyEnv g -> Typed (Var g)
+lookupVar str Nil = error $ "Variable not found: " ++ str
+lookupVar v (Cons (Singleton s) ty e)
+  | v == s = Typed ty (ZVar id)
+  | otherwise = case lookupVar v e of
+      Typed ty v -> Typed ty (SVar v)
+lookupVar v (Cons (Tuple ss) ty e)
+  | Just i <- lookup v $ zip ss [0..] =
+    case ty of
+      Type.App (Type.App tup x) y
+       | Just Type.HRefl <- Type.eqTypeRep tup (typeRep @(,)) ->
+          case i of
+            0 -> Typed x $ ZVar \(a,_) -> a
+            1 -> Typed y $ ZVar \(_,b) -> b
+      Type.App (Type.App (Type.App tup x) y) z
+       | Just Type.HRefl <- Type.eqTypeRep tup (typeRep @(,,)) ->
+          case i of
+            0 -> Typed x $ ZVar \(a,_,_) -> a
+            1 -> Typed y $ ZVar \(_,b,_) -> b
+            2 -> Typed z $ ZVar \(_,_,c) -> c
+  | otherwise = case lookupVar v e of
+      Typed ty v -> Typed ty (SVar v)
 
 --------------------------------------------------------------------------------
 -- Desugar expressions
@@ -489,15 +604,6 @@ freeVariablesSpec = do
   where try e = case fmap freeVariables $ HSE.parseExp e of
            HSE.ParseOk names -> names
            _ -> error "Parse failed."
-
---------------------------------------------------------------------------------
--- Test everything
-
-spec :: Spec
-spec = do
-  anyCyclesSpec
-  freeVariablesSpec
-  desugarTypeSpec
 
 --------------------------------------------------------------------------------
 -- Supported type constructors
@@ -734,103 +840,3 @@ b_readProcessStdout_ :: ProcessConfig () () () -> IO ByteString
 b_readProcessStdout_ c = do
   out <- readProcessStdout_ c
   pure (L.toStrict out)
-
-------------------------------------------------------------------------------
--- Main entry point
-
-data Command
-  = Run FilePath
-  | Check FilePath
-  | Version
-  | Exec String
-
-commandParser :: Options.Parser Command
-commandParser =
-  Options.asum [
-   Run <$> Options.strArgument (Options.metavar "FILE" <> Options.help "Run the given .hell file"),
-   Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file"),
-   Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version"),
-   Exec <$> Options.strOption (Options.long "exec" <> Options.help "Execute the given expression" <> Options.metavar "EXPR")
-  ]
-
-main :: IO ()
-main = dispatch =<< Options.execParser opts
-  where
-    opts = Options.info (commandParser Options.<**> Options.helper)
-      ( Options.fullDesc
-     <> Options.progDesc "Runs and typechecks Hell scripts"
-     <> Options.header "hell - A Haskell-driven scripting language" )
-
-dispatch :: Command -> IO ()
-dispatch Version = putStrLn "2023-12-12"
-dispatch (Run filePath) = do
-  string <- readFile filePath
-  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
-    HSE.ParseFailed _ e -> error $ e
-    HSE.ParseOk binds
-      | anyCycles binds -> error "Cyclic bindings are not supported!"
-      | otherwise ->
-            case desugarAll binds of
-              Left err -> error $ "Error desugaring! " ++ show err
-              Right terms ->
-                case lookup "main" terms of
-                  Nothing -> error "No main declaration!"
-                  Just main' ->
-                    case check main' Nil of
-                       Typed t ex ->
-                         case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
-                           Just Type.HRefl ->
-                             case Type.eqTypeRep t (typeRep @(IO ())) of
-                               Just Type.HRefl ->
-                                 let action :: IO () = eval () ex
-                                 in action
-                               Nothing -> error $ "Type isn't IO (), but: " ++ show t
-dispatch (Check filePath) = do
-  string <- readFile filePath
-  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
-    HSE.ParseFailed _ e -> error $ e
-    HSE.ParseOk binds
-      | anyCycles binds -> error "Cyclic bindings are not supported!"
-      | otherwise ->
-            case desugarAll binds of
-              Left err -> error $ "Error desugaring! " ++ show err
-              Right terms ->
-                case lookup "main" terms of
-                  Nothing -> error "No main declaration!"
-                  Just main' ->
-                    case check main' Nil of
-                       Typed t ex ->
-                         case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
-                           Just Type.HRefl ->
-                             case Type.eqTypeRep t (typeRep @(IO ())) of
-                               Just Type.HRefl ->
-                                 let action :: IO () = eval () ex
-                                 in pure ()
-                               Nothing -> error $ "Type isn't IO (), but: " ++ show t
-dispatch (Exec string) = do
-  case HSE.parseExpWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string of
-    HSE.ParseFailed _ e -> error $ e
-    HSE.ParseOk e ->
-            case desugarExp mempty e of
-              Left err -> error $ "Error desugaring! " ++ show err
-              Right uterm ->
-                    case check uterm Nil of
-                       Typed t ex ->
-                         case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
-                           Just Type.HRefl ->
-                             case Type.eqTypeRep t (typeRep @(IO ())) of
-                               Just Type.HRefl ->
-                                 let action :: IO () = eval () ex
-                                 in action
-                               Nothing -> error $ "Type isn't IO (), but: " ++ show t
-
---------------------------------------------------------------------------------
--- Get declarations from the module
-
-parseModule :: HSE.Module HSE.SrcSpanInfo -> HSE.ParseResult [(String, HSE.Exp HSE.SrcSpanInfo)]
-parseModule (HSE.Module _ Nothing [] [] decls) =
-  traverse parseDecl decls
-  where
-    parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
-          pure (string, exp')
-    parseDecl _ = error "Can't parse that!"
