@@ -18,7 +18,8 @@ executable hell
       Paths_brossa
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      async
+      QuickCheck
+    , async
     , base >=4.17.2.1
     , bytestring
     , constraints
@@ -26,6 +27,7 @@ executable hell
     , directory
     , ghc-prim
     , haskell-src-exts
+    , hspec
     , mtl
     , optparse-applicative
     , syb

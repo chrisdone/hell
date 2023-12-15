@@ -18,6 +18,8 @@ dependencies:
 - constraints
 - typed-process
 - optparse-applicative
+- hspec
+- QuickCheck
 
 executables:
   hell:
