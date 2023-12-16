@@ -63,7 +63,9 @@ My definition of a shell scripting language:
 * Small, portable binary
 * Stable, does not change in backwards-incompatible ways
 
-Hell satisfies these criteria.
+Hell can satisfy these criteria.
+
+The other point of view that I've arrived at is that quotation like that of Bash and so on was never a good idea. I explored a Haskell that is quoted by default, such as `ls $(echo x)`, and realised that this way leads to madness. What you write in a REPL and what you write in a script file *can* be different.
 
 The other design decisions are:
 
