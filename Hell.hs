@@ -652,6 +652,7 @@ supportedLits = Map.fromList [
    -- ("Text.all", lit Text.all),
    -- ("Text.filter", lit Text.filter),
    ("Text.take", lit Text.take),
+   ("Text.splitOn", lit Text.splitOn),
    ("Text.takeEnd", lit Text.takeEnd),
    ("Text.drop", lit Text.drop),
    ("Text.dropEnd", lit Text.dropEnd),
@@ -688,6 +689,7 @@ supportedLits = Map.fromList [
    ("Environment.getEnv", lit $ fmap Text.pack . getEnv . Text.unpack),
    -- Current directory
    ("Directory.getCurrentDirectory", lit (fmap Text.pack Dir.getCurrentDirectory)),
+   ("Directory.listDirectory", lit (fmap (fmap Text.pack) . Dir.listDirectory . Text.unpack)),
    ("Directory.setCurrentDirectory", lit (Dir.setCurrentDirectory . Text.unpack)),
    -- Process
    ("Process.proc", lit $ \n xs -> proc (Text.unpack n) (map Text.unpack xs)),
@@ -724,6 +726,10 @@ polyLits = Map.fromList [
     typed ((:) :: a -> [a] -> [a])),
   ("List.concat", Unconstrained \(TypeRep @a) -> Final $
     typed (List.concat :: [[a]] -> [a])),
+  ("List.drop", Unconstrained \(TypeRep @a) -> Final $
+    typed (List.drop :: Int -> [a] -> [a])),
+  ("List.take", Unconstrained \(TypeRep @a) -> Final $
+    typed (List.take :: Int -> [a] -> [a])),
   ("List.map", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
       typed (map :: (a -> b) -> [a] -> [b])
   ) ,
