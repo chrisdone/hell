@@ -643,6 +643,10 @@ supportedLits = Map.fromList [
    ("Text.eq", lit ((==) @Text)),
    ("Text.length", lit Text.length),
    ("Text.concat", lit Text.concat),
+   ("Text.lines", lit Text.lines),
+   ("Text.words", lit Text.words),
+   ("Text.unlines", lit Text.unlines),
+   ("Text.unwords", lit Text.unwords),
    ("Text.intercalate", lit Text.intercalate),
    ("Text.reverse", lit Text.reverse),
    ("Text.toLower", lit Text.toLower),
@@ -724,6 +728,8 @@ polyLits = Map.fromList [
   -- Data.List
   ("List.cons", Unconstrained \(TypeRep @a) -> Final $
     typed ((:) :: a -> [a] -> [a])),
+  ("List.index", Unconstrained \(TypeRep @a) -> Final $
+    typed ((!!) :: [a] -> Int -> a)),
   ("List.concat", Unconstrained \(TypeRep @a) -> Final $
     typed (List.concat :: [[a]] -> [a])),
   ("List.drop", Unconstrained \(TypeRep @a) -> Final $
