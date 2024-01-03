@@ -643,6 +643,7 @@ supportedLits = Map.fromList [
    ("Text.eq", lit ((==) @Text)),
    ("Text.length", lit Text.length),
    ("Text.concat", lit Text.concat),
+   ("Text.breakOn", lit Text.breakOn),
    ("Text.lines", lit Text.lines),
    ("Text.words", lit Text.words),
    ("Text.unlines", lit Text.unlines),
