@@ -37,6 +37,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
 import qualified System.IO as IO
+import qualified System.IO.Error as Error
 import qualified Control.Concurrent.Async as Async
 import qualified System.Directory as Dir
 import qualified Options.Applicative as Options
@@ -660,6 +661,10 @@ supportedLits = Map.fromList [
    ("Text.splitOn", lit Text.splitOn),
    ("Text.takeEnd", lit Text.takeEnd),
    ("Text.drop", lit Text.drop),
+   ("Text.stripPrefix", lit Text.stripPrefix),
+   ("Text.stripSuffix", lit Text.stripSuffix),
+   ("Text.isSuffixOf", lit Text.isSuffixOf),
+   ("Text.isPrefixOf", lit Text.isPrefixOf),
    ("Text.dropEnd", lit Text.dropEnd),
    ("Text.strip", lit Text.strip),
    ("Text.isPrefixOf", lit Text.isPrefixOf),
@@ -684,6 +689,8 @@ supportedLits = Map.fromList [
    ("IO.NoBuffering", lit IO.NoBuffering),
    ("IO.LineBuffering", lit IO.LineBuffering),
    ("IO.BlockBuffering", lit IO.BlockBuffering),
+   -- Errors
+   ("Error.userError", lit Error.userError),
    -- Bool
    ("Bool.True", lit Bool.True),
    ("Bool.False", lit Bool.False),
@@ -716,6 +723,8 @@ then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 polyLits :: Map String Forall
 polyLits = Map.fromList [
+  ("Error.ioError", Unconstrained \(TypeRep @a) ->
+    Final (Typed (typeRep @(IOError -> IO a)) (Lit Error.ioError))),
   ("IO.pure", Unconstrained \(TypeRep @a) ->
     Final (Typed (typeRep @(a -> IO a)) (Lit pure))),
   -- Bool
@@ -729,8 +738,6 @@ polyLits = Map.fromList [
   -- Data.List
   ("List.cons", Unconstrained \(TypeRep @a) -> Final $
     typed ((:) :: a -> [a] -> [a])),
-  ("List.index", Unconstrained \(TypeRep @a) -> Final $
-    typed ((!!) :: [a] -> Int -> a)),
   ("List.concat", Unconstrained \(TypeRep @a) -> Final $
     typed (List.concat :: [[a]] -> [a])),
   ("List.drop", Unconstrained \(TypeRep @a) -> Final $
