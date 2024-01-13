@@ -96,7 +96,7 @@ dispatch (Run filePath) = do
     HSE.ParseOk binds
       | anyCycles binds -> error "Cyclic bindings are not supported!"
       | otherwise ->
-            case desugarAll binds of
+            case flip evalStateT 0 $ desugarAll binds of
               Left err -> error $ "Error desugaring! " ++ show err
               Right terms ->
                 case lookup "main" terms of
@@ -121,7 +121,7 @@ dispatch (Check filePath) = do
     HSE.ParseOk binds
       | anyCycles binds -> error "Cyclic bindings are not supported!"
       | otherwise ->
-            case desugarAll binds of
+            case flip evalStateT 0 $ desugarAll binds of
               Left err -> error $ "Error desugaring! " ++ show err
               Right terms ->
                 case lookup "main" terms of
@@ -143,7 +143,7 @@ dispatch (Exec string) = do
   case HSE.parseExpWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string of
     HSE.ParseFailed _ e -> error $ e
     HSE.ParseOk e ->
-            case desugarExp mempty e of
+            case flip evalStateT 0 $ desugarExp mempty e of
               Left err -> error $ "Error desugaring! " ++ show err
               Right uterm ->
                     case inferExp mempty uterm of
@@ -402,7 +402,7 @@ nestedTyApps = go [] where
   go acc _ = Nothing
 
 desugarExp :: Map String (UTerm IType) -> HSE.Exp HSE.SrcSpanInfo ->
-   Either DesugarError (UTerm IType)
+   StateT Int (Either DesugarError) (UTerm IType)
 desugarExp globals = go where
   go = \case
     HSE.Paren _ x -> go x
@@ -430,7 +430,7 @@ desugarExp globals = go where
         HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
           | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
             pure $ fmap IType uterm
-        _ -> Left $ InvalidConstructor $ show qname
+        _ -> lift $ Left $ InvalidConstructor $ show qname
     -- HSE.Do _ stmts -> do
     --   let loop f [HSE.Qualifier _ e] = f <$> go e
     --       loop f (s:ss) = do
@@ -448,12 +448,12 @@ desugarExp globals = go where
     --             loop (f . UApp (UApp then' e')) ss
     --       loop _ _ = error "Malformed do-notation!"
     --   loop id stmts
-    e -> Left $ UnsupportedSyntax $ show e
+    e -> lift $ Left $ UnsupportedSyntax $ show e
 
-desugarQName :: Map String (UTerm IType) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> Either DesugarError (UTerm IType)
+desugarQName :: Map String (UTerm IType) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> StateT Int (Either DesugarError) (UTerm IType)
 desugarQName globals qname [] =
   case qname of
-    HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
+    HSE.UnQual _ (HSE.Ident _ string) -> pure $ UVar string
     HSE.Qual _ (HSE.ModuleName _ "Main") (HSE.Ident _ string)
       | Just uterm  <- Map.lookup string globals ->
         pure uterm
@@ -463,7 +463,7 @@ desugarQName globals qname [] =
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just uterm <- Map.lookup string supportedLits ->
         pure $ fmap IType uterm
-    _ -> Left $ InvalidVariable $ show qname
+    _ -> lift $ Left $ InvalidVariable $ show qname
 desugarQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
@@ -472,14 +472,14 @@ desugarQName globals qname treps =
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just forall' <- Map.lookup string polyLits ->
         pure (UForall (map IType treps) forall')
-    _ -> Left $ InvalidVariable $ show qname
+    _ -> lift $ Left $ InvalidVariable $ show qname
 
-desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, SomeStarType)
+desugarArg :: HSE.Pat HSE.SrcSpanInfo -> StateT Int (Either DesugarError) (Binding, SomeStarType)
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) = fmap (Singleton i,) (desugarType typ)
 desugarArg (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
   | Just idents <- traverse desugarIdent idents = fmap (Tuple idents,) (desugarType typ)
 desugarArg (HSE.PParen _ p) = desugarArg p
-desugarArg p = Left $ BadParameterSyntax $ show p
+desugarArg p = lift $ Left $ BadParameterSyntax $ show p
 
 desugarIdent :: HSE.Pat HSE.SrcSpanInfo -> Maybe String
 desugarIdent (HSE.PVar _ (HSE.Ident _ s)) = Just s
@@ -488,15 +488,15 @@ desugarIdent _ = Nothing
 --------------------------------------------------------------------------------
 -- Desugar types
 
-desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
+desugarType :: HSE.Type HSE.SrcSpanInfo -> StateT Int (Either DesugarError) SomeStarType
 desugarType t = do
   someRep <- go t
   case someRep of
     StarTypeRep t -> pure (SomeStarType t)
-    _ -> Left KindError
+    _ -> lift $ Left KindError
 
   where
-  go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
+  go :: HSE.Type HSE.SrcSpanInfo -> StateT Int (Either DesugarError) SomeTypeRep
   go = \case
     HSE.TyTuple _ HSE.Boxed types -> do
       tys <- traverse go types
@@ -515,21 +515,21 @@ desugarType t = do
       rep <- go inner
       case rep of
         StarTypeRep t -> pure $ StarTypeRep $ Type.App (typeRep @[]) t
-        _ -> Left KindError
+        _ -> lift $ Left KindError
     HSE.TyFun l a b -> do
       a' <- go a
       b' <- go b
       case (a', b') of
         (StarTypeRep aRep, StarTypeRep bRep) ->
           pure $ StarTypeRep (Type.Fun aRep bRep)
-        _ -> Left KindError
+        _ -> lift $ Left KindError
     HSE.TyApp l f a -> do
       f' <- go f
       a' <- go a
       case applyTypes f' a' of
         Just someTypeRep -> pure someTypeRep
-        _ -> Left KindError
-    t -> Left $ UnknownType $ show t
+        _ -> lift $ Left KindError
+    t -> lift $ Left $ UnknownType $ show t
 
 -- | Supports up to 3-ary type functions, but not more.
 applyTypes :: SomeTypeRep -> SomeTypeRep -> Maybe SomeTypeRep
@@ -552,16 +552,16 @@ desugarTypeSpec = do
     shouldBe (try "Bool -> Int") (Right (SomeStarType $ typeRep @(Bool -> Int)))
     shouldBe (try "()") (Right (SomeStarType $ typeRep @()))
     shouldBe (try "[Int]") (Right (SomeStarType $ typeRep @[Int]))
-  where try e = case fmap desugarType $ HSE.parseType e of
+  where try e = case fmap (flip evalStateT 0 . desugarType) $ HSE.parseType e of
            HSE.ParseOk r -> r
            _ -> error "Parse failed."
 
 --------------------------------------------------------------------------------
 -- Desugar all bindings
 
-desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Either DesugarError [(String, UTerm IType)]
+desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> StateT Int (Either DesugarError) [(String, UTerm IType)]
 desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stronglyConnected where
-  go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String (UTerm IType)) (Either DesugarError) (String, UTerm IType)
+  go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String (UTerm IType)) (StateT Int (Either DesugarError)) (String, UTerm IType)
   go (name, expr) = do
     globals <- get
     uterm <- lift $ desugarExp globals expr
