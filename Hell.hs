@@ -10,7 +10,7 @@
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types #-}
 {-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms #-}
-{-# LANGUAGE OverloadedStrings, MultiWayIf #-}
+{-# LANGUAGE OverloadedStrings, MultiWayIf, DeriveFunctor #-}
 
 module Main (main) where
 
@@ -102,15 +102,18 @@ dispatch (Run filePath) = do
                 case lookup "main" terms of
                   Nothing -> error "No main declaration!"
                   Just main' ->
-                    case check main' Nil of
-                       Typed t ex ->
-                         case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
-                           Just Type.HRefl ->
-                             case Type.eqTypeRep t (typeRep @(IO ())) of
+                    case inferExp mempty main' of
+                      Left err -> error $ "Error inferring! " ++ show err
+                      Right uterm ->
+                        case check uterm Nil of
+                           Typed t ex ->
+                             case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
                                Just Type.HRefl ->
-                                 let action :: IO () = eval () ex
-                                 in action
-                               Nothing -> error $ "Type isn't IO (), but: " ++ show t
+                                 case Type.eqTypeRep t (typeRep @(IO ())) of
+                                   Just Type.HRefl ->
+                                     let action :: IO () = eval () ex
+                                     in action
+                                   Nothing -> error $ "Type isn't IO (), but: " ++ show t
 dispatch (Check filePath) = do
   string <- readFile filePath
   case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
@@ -124,15 +127,18 @@ dispatch (Check filePath) = do
                 case lookup "main" terms of
                   Nothing -> error "No main declaration!"
                   Just main' ->
-                    case check main' Nil of
-                       Typed t ex ->
-                         case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
-                           Just Type.HRefl ->
-                             case Type.eqTypeRep t (typeRep @(IO ())) of
+                    case inferExp mempty main' of
+                      Left err -> error $ "Error inferring! " ++ show err
+                      Right uterm ->
+                        case check uterm Nil of
+                           Typed t ex ->
+                             case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
                                Just Type.HRefl ->
-                                 let action :: IO () = eval () ex
-                                 in pure ()
-                               Nothing -> error $ "Type isn't IO (), but: " ++ show t
+                                 case Type.eqTypeRep t (typeRep @(IO ())) of
+                                   Just Type.HRefl ->
+                                     let action :: IO () = eval () ex
+                                     in pure ()
+                                   Nothing -> error $ "Type isn't IO (), but: " ++ show t
 dispatch (Exec string) = do
   case HSE.parseExpWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string of
     HSE.ParseFailed _ e -> error $ e
@@ -140,15 +146,18 @@ dispatch (Exec string) = do
             case desugarExp mempty e of
               Left err -> error $ "Error desugaring! " ++ show err
               Right uterm ->
-                    case check uterm Nil of
-                       Typed t ex ->
-                         case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
-                           Just Type.HRefl ->
-                             case Type.eqTypeRep t (typeRep @(IO ())) of
+                    case inferExp mempty uterm of
+                      Left err -> error $ "Error inferring! " ++ show err
+                      Right uterm ->
+                        case check uterm Nil of
+                           Typed t ex ->
+                             case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
                                Just Type.HRefl ->
-                                 let action :: IO () = eval () ex
-                                 in action
-                               Nothing -> error $ "Type isn't IO (), but: " ++ show t
+                                 case Type.eqTypeRep t (typeRep @(IO ())) of
+                                   Just Type.HRefl ->
+                                     let action :: IO () = eval () ex
+                                     in action
+                                   Nothing -> error $ "Type isn't IO (), but: " ++ show t
 
 --------------------------------------------------------------------------------
 -- Get declarations from the module
@@ -199,18 +208,18 @@ lookp (SVar v) (env, x) = lookp v env
 -- This is the AST that is not interpreted, and is just
 -- type-checked. The HSE AST is desugared into this one.
 
-data UTerm
+data UTerm t
   = UVar String
-  | ULam Binding SomeStarType UTerm
-  | UApp UTerm UTerm
-  | UForall [SomeStarType] Forall
+  | ULam Binding t (UTerm t)
+  | UApp (UTerm t) (UTerm t)
+  | UForall [t] Forall
   | ULit (forall g. Typed (Term g))
-
-  -- Special constructors needed for syntax that is "polymorphic."
-  | UBind UTerm UTerm
-  | UList [UTerm] (Maybe SomeStarType)
-  | UTuple [UTerm]
-  | UIf UTerm UTerm UTerm
+  deriving Functor
+  -- -- Special constructors needed for syntax that is "polymorphic."
+  -- | UBind t UTerm UTerm
+  -- | UList t [UTerm]
+  -- | UTuple [(t,UTerm)]
+  -- | UIf t UTerm UTerm UTerm
 
 data Binding = Singleton String | Tuple [String]
 
@@ -219,7 +228,7 @@ data Forall
   | Constrained (forall (a :: Type) g. (Show a, Eq a, Ord a) => TypeRep a -> Forall)
   | Final (forall g. Typed (Term g))
 
-lit :: Type.Typeable a => a -> UTerm
+lit :: Type.Typeable a => a -> UTerm SomeStarType
 lit l = ULit (Typed (Type.typeOf l) (Lit l))
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
@@ -249,19 +258,19 @@ data TyEnv g where
   Cons :: Binding -> TypeRep (t :: Type) -> TyEnv h -> TyEnv (h, t)
 
 -- The top-level checker used by the main function.
-check :: UTerm -> TyEnv () -> Typed (Term ())
+check :: (UTerm SomeStarType) -> TyEnv () -> Typed (Term ())
 check = tc
 
 -- Type check a term given an environment of names.
-tc :: UTerm -> TyEnv g -> Typed (Term g)
-tc (UTuple [x,y]) env =
-  case (tc x env, tc y env) of
-    (Typed (TypeRep @x) x', Typed (TypeRep @y) y') ->
-      Typed (typeRep @(x,y)) $ App (App (Lit ((,) :: x -> y -> (x,y))) x') y'
-tc (UTuple [x,y,z]) env =
-  case (tc x env, tc y env, tc z env) of
-    (Typed (TypeRep @x) x', Typed (TypeRep @y) y', Typed (TypeRep @z) z') ->
-      Typed (typeRep @(x,y,z)) $ App (App (App (Lit ((,,) :: x -> y -> z -> (x,y,z))) x') y') z'
+tc :: (UTerm SomeStarType) -> TyEnv g -> Typed (Term g)
+-- tc (UTuple [x,y]) env =
+--   case (tc x env, tc y env) of
+--     (Typed (TypeRep @x) x', Typed (TypeRep @y) y') ->
+--       Typed (typeRep @(x,y)) $ App (App (Lit ((,) :: x -> y -> (x,y))) x') y'
+-- tc (UTuple [x,y,z]) env =
+--   case (tc x env, tc y env, tc z env) of
+--     (Typed (TypeRep @x) x', Typed (TypeRep @y) y', Typed (TypeRep @z) z') ->
+--       Typed (typeRep @(x,y,z)) $ App (App (App (Lit ((,,) :: x -> y -> z -> (x,y,z))) x') y') z'
 tc (UVar v) env = case lookupVar v env of
   Typed ty v -> Typed ty (Var v)
 tc (ULam s (SomeStarType bndr_ty') body) env =
@@ -303,57 +312,57 @@ tc (UForall reps fall) _env = go reps fall where
       | otherwise -> error $ "type doesn't have enough instances " ++ show rep
   go _ _ = error "forall type arguments mismatch."
 -- Special handling for `if'
-tc (UIf i t e) env =
-  case tc i env of
-    Typed i_ty i'
-      | Just Type.HRefl <- Type.eqTypeRep i_ty (typeRep @Bool) ->
-        case (tc t env, tc e env) of
-          (Typed (t_ty :: TypeRep a) t', Typed e_ty e')
-            | Just Type.HRefl <- Type.eqTypeRep t_ty e_ty ->
-               Typed t_ty (App (App (App (Lit (Bool.bool @a)) e') t') i')
-            | otherwise ->
-              error $ "If branches types don't match: " ++ show t_ty ++ " vs " ++ show e_ty
-      | otherwise -> error $ "If's condition isn't Bool, got: " ++ show i_ty
+-- tc (UIf i t e) env =
+--   case tc i env of
+--     Typed i_ty i'
+--       | Just Type.HRefl <- Type.eqTypeRep i_ty (typeRep @Bool) ->
+--         case (tc t env, tc e env) of
+--           (Typed (t_ty :: TypeRep a) t', Typed e_ty e')
+--             | Just Type.HRefl <- Type.eqTypeRep t_ty e_ty ->
+--                Typed t_ty (App (App (App (Lit (Bool.bool @a)) e') t') i')
+--             | otherwise ->
+--               error $ "If branches types don't match: " ++ show t_ty ++ " vs " ++ show e_ty
+--       | otherwise -> error $ "If's condition isn't Bool, got: " ++ show i_ty
 -- Bind needs special type-checker handling, because do-notation lacks
 -- the means to pass the types about >>=
-tc (UBind m f) env =
-  case tc m env of
-    Typed m_ty' m'
-      | Just Type.HRefl <- Type.eqTypeRep (typeRepKind m_ty') (typeRep @Type) ->
-       case tc f env of
-         Typed f_ty' f'
-          | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f_ty') (typeRep @Type) ->
-           -- Happy path:
-           --
-           -- m_ty' == typeRep @(IO a)
-           -- f_ty' == typeRep @(a -> IO b)
-           -- final type is: IO b
-           case (m_ty', f_ty') of
-              (Type.App io1 a1, Type.Fun a2 final@(Type.App io2 (b :: TypeRep b)))
-                | Just Type.HRefl <- Type.eqTypeRep io1 (typeRep @IO),
-                  Just Type.HRefl <- Type.eqTypeRep io2 (typeRep @IO),
-                  Just Type.HRefl <- Type.eqTypeRep a1 a2,
-                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind a1) (typeRep @Type),
-                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind a2) (typeRep @Type),
-                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind b) (typeRep @Type) ->
-                  Typed final (App (App (Lit (>>=)) m') f')
-              _ -> error "Bind in do-notation type mismatch."
+-- tc (UBind m f) env =
+--   case tc m env of
+--     Typed m_ty' m'
+--       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind m_ty') (typeRep @Type) ->
+--        case tc f env of
+--          Typed f_ty' f'
+--           | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f_ty') (typeRep @Type) ->
+--            -- Happy path:
+--            --
+--            -- m_ty' == typeRep @(IO a)
+--            -- f_ty' == typeRep @(a -> IO b)
+--            -- final type is: IO b
+--            case (m_ty', f_ty') of
+--               (Type.App io1 a1, Type.Fun a2 final@(Type.App io2 (b :: TypeRep b)))
+--                 | Just Type.HRefl <- Type.eqTypeRep io1 (typeRep @IO),
+--                   Just Type.HRefl <- Type.eqTypeRep io2 (typeRep @IO),
+--                   Just Type.HRefl <- Type.eqTypeRep a1 a2,
+--                   Just Type.HRefl <- Type.eqTypeRep (typeRepKind a1) (typeRep @Type),
+--                   Just Type.HRefl <- Type.eqTypeRep (typeRepKind a2) (typeRep @Type),
+--                   Just Type.HRefl <- Type.eqTypeRep (typeRepKind b) (typeRep @Type) ->
+--                   Typed final (App (App (Lit (>>=)) m') f')
+--               _ -> error "Bind in do-notation type mismatch."
 -- Lists
 -- 1. Empty list; we don't have anything to check, but we need a type.
 -- 2. Populated list, we don't need a type, and expect something immediately.
-tc (UList [] (Just (SomeStarType (t :: TypeRep t)))) env =
-  Typed (Type.App (typeRep @[]) t) (Lit ([] :: [t]))
-tc (UList [x] Nothing) env =
-  case tc x env of
-    Typed rep t' ->
-      Typed (Type.App (typeRep @[]) rep) (App (Lit (:[])) t')
-tc (UList (x:xs) Nothing) env =
-  case (tc x env, tc (UList xs Nothing) env) of
-    (Typed a_rep a, Typed as_rep as) ->
-      case Type.eqTypeRep (Type.App (typeRep @[]) a_rep) as_rep of
-        Just Type.HRefl ->
-          Typed as_rep (App (App (Lit (:)) a) as)
-tc UList{} env = error "List must either be [x,..] or [] @T"
+-- tc (UList [] (Just (SomeStarType (t :: TypeRep t)))) env =
+--   Typed (Type.App (typeRep @[]) t) (Lit ([] :: [t]))
+-- tc (UList [x] Nothing) env =
+--   case tc x env of
+--     Typed rep t' ->
+--       Typed (Type.App (typeRep @[]) rep) (App (Lit (:[])) t')
+-- tc (UList (x:xs) Nothing) env =
+--   case (tc x env, tc (UList xs Nothing) env) of
+--     (Typed a_rep a, Typed as_rep as) ->
+--       case Type.eqTypeRep (Type.App (typeRep @[]) a_rep) as_rep of
+--         Just Type.HRefl ->
+--           Typed as_rep (App (App (Lit (:)) a) as)
+-- tc UList{} env = error "List must either be [x,..] or [] @T"
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
 -- embedded in the untyped AST.
@@ -392,15 +401,16 @@ nestedTyApps = go [] where
   go acc (HSE.App _ e (HSE.TypeApp _ ty)) = go (ty:acc) e
   go acc _ = Nothing
 
-desugarExp :: Map String UTerm -> HSE.Exp HSE.SrcSpanInfo -> Either DesugarError UTerm
+desugarExp :: Map String (UTerm IType) -> HSE.Exp HSE.SrcSpanInfo ->
+   Either DesugarError (UTerm IType)
 desugarExp globals = go where
   go = \case
     HSE.Paren _ x -> go x
-    HSE.If _ i t e -> UIf <$> go i <*> go t <*> go e
-    HSE.Tuple _ HSE.Boxed terms -> UTuple <$> traverse go terms
-    HSE.List _ xs -> UList <$> traverse go xs <*> pure Nothing
-    HSE.App _ (HSE.List _ xs) (HSE.TypeApp _ ty) -> UList <$> traverse go xs <*> fmap Just (desugarType ty)
-    HSE.Lit _ lit' -> case lit' of
+    -- HSE.If _ i t e -> UIf <$> go i <*> go t <*> go e
+    -- HSE.Tuple _ HSE.Boxed terms -> UTuple <$> traverse go terms
+    -- HSE.List _ xs -> UList <$> traverse go xs <*> pure Nothing
+    -- HSE.App _ (HSE.List _ xs) (HSE.TypeApp _ ty) -> UList <$> traverse go xs <*> fmap Just (desugarType ty)
+    HSE.Lit _ lit' -> fmap (fmap IType) $ case lit' of
       HSE.Char _ char _ -> pure $ lit char
       HSE.String _ string _ -> pure $ lit $ Text.pack string
       HSE.Int _ int _ -> pure $ lit (fromIntegral int :: Int)
@@ -414,33 +424,33 @@ desugarExp globals = go where
     HSE.Lambda _ pats e -> do
       args <- traverse desugarArg pats
       e' <- go e
-      pure $ foldr (\(name,ty) inner  -> ULam name ty inner)  e' args
+      pure $ foldr (\(name,ty) inner  -> ULam name (IType ty) inner)  e' args
     HSE.Con _ qname ->
       case qname of
         HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
           | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
-            pure uterm
+            pure $ fmap IType uterm
         _ -> Left $ InvalidConstructor $ show qname
-    HSE.Do _ stmts -> do
-      let loop f [HSE.Qualifier _ e] = f <$> go e
-          loop f (s:ss) = do
-            case s of
-              HSE.Generator _ pat e -> do
-                 (s, rep) <- desugarArg pat
-                 m <- go e
-                 loop (f . (\f -> UBind m (ULam s rep f))) ss
-              HSE.LetStmt _ (HSE.BDecls _ [HSE.PatBind _ pat (HSE.UnGuardedRhs _ e) Nothing]) -> do
-                 (s, rep) <- desugarArg pat
-                 value <- go e
-                 loop (f . (\f -> UApp (ULam s rep f) value)) ss
-              HSE.Qualifier _ e -> do
-                e' <- go e
-                loop (f . UApp (UApp then' e')) ss
-          loop _ _ = error "Malformed do-notation!"
-      loop id stmts
+    -- HSE.Do _ stmts -> do
+    --   let loop f [HSE.Qualifier _ e] = f <$> go e
+    --       loop f (s:ss) = do
+    --         case s of
+    --           HSE.Generator _ pat e -> do
+    --              (s, rep) <- desugarArg pat
+    --              m <- go e
+    --              loop (f . (\f -> UBind m (ULam s rep f))) ss
+    --           HSE.LetStmt _ (HSE.BDecls _ [HSE.PatBind _ pat (HSE.UnGuardedRhs _ e) Nothing]) -> do
+    --              (s, rep) <- desugarArg pat
+    --              value <- go e
+    --              loop (f . (\f -> UApp (ULam s rep f) value)) ss
+    --           HSE.Qualifier _ e -> do
+    --             e' <- go e
+    --             loop (f . UApp (UApp then' e')) ss
+    --       loop _ _ = error "Malformed do-notation!"
+    --   loop id stmts
     e -> Left $ UnsupportedSyntax $ show e
 
-desugarQName :: Map String UTerm -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> Either DesugarError UTerm
+desugarQName :: Map String (UTerm IType) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> Either DesugarError (UTerm IType)
 desugarQName globals qname [] =
   case qname of
     HSE.UnQual _ (HSE.Ident _ string) -> Right $ UVar string
@@ -449,19 +459,19 @@ desugarQName globals qname [] =
         pure uterm
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
-        pure uterm
+        pure $ fmap IType uterm
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just uterm <- Map.lookup string supportedLits ->
-        pure uterm
+        pure $ fmap IType uterm
     _ -> Left $ InvalidVariable $ show qname
 desugarQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just forall' <- Map.lookup (prefix ++ "." ++ string) polyLits ->
-        pure (UForall treps forall')
+        pure (UForall (map IType treps) forall')
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just forall' <- Map.lookup string polyLits ->
-        pure (UForall treps forall')
+        pure (UForall (map IType treps) forall')
     _ -> Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, SomeStarType)
@@ -549,14 +559,37 @@ desugarTypeSpec = do
 --------------------------------------------------------------------------------
 -- Desugar all bindings
 
-desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Either DesugarError [(String, UTerm)]
+desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Either DesugarError [(String, UTerm IType)]
 desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stronglyConnected where
-  go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String UTerm) (Either DesugarError) (String, UTerm)
+  go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String (UTerm IType)) (Either DesugarError) (String, UTerm IType)
   go (name, expr) = do
     globals <- get
     uterm <- lift $ desugarExp globals expr
     modify' $ Map.insert name uterm
     pure (name, uterm)
+
+--------------------------------------------------------------------------------
+-- Infer
+
+data IType = IType SomeStarType | IVar Int
+data InferError = TypeMismatch SomeStarType SomeStarType
+  deriving Show
+
+-- assumes reverse topological order (desugarAll does this)
+infer :: [(String, UTerm IType)] -> Either InferError [(String, UTerm SomeStarType)]
+infer = flip evalStateT Map.empty . traverse go where
+  go :: (String, UTerm IType) -> StateT (Map String (UTerm SomeStarType)) (Either InferError) (String, UTerm SomeStarType)
+  go (name, expr) = do
+    globals <- get
+    uterm <- lift $ inferExp globals expr
+    modify' $ Map.insert name uterm
+    pure (name, uterm)
+
+inferExp ::
+  Map String (UTerm SomeStarType) ->
+  UTerm IType ->
+  Either InferError (UTerm SomeStarType)
+inferExp globals = undefined
 
 --------------------------------------------------------------------------------
 -- Occurs check
@@ -628,7 +661,7 @@ supportedTypeConstructors = Map.fromList [
 --------------------------------------------------------------------------------
 -- Support primitives
 
-supportedLits :: Map String UTerm
+supportedLits :: Map String (UTerm SomeStarType)
 supportedLits = Map.fromList [
    -- Text I/O
    ("Text.putStrLn", lit t_putStrLn),
@@ -717,7 +750,7 @@ supportedLits = Map.fromList [
    (">>", then')
   ]
 
-then' :: UTerm
+then' :: UTerm SomeStarType
 then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 --------------------------------------------------------------------------------
