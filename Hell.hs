@@ -205,6 +205,8 @@ data UTerm
   | UApp UTerm UTerm
   | UForall [SomeStarType] Forall
   | ULit (forall g. Typed (Term g))
+
+  -- Special constructors needed for syntax that is "polymorphic."
   | UBind UTerm UTerm
   | UList [UTerm] (Maybe SomeStarType)
   | UTuple [UTerm]
