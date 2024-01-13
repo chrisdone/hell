@@ -44,6 +44,7 @@ import qualified Options.Applicative as Options
 
 -- Things used within the host language.
 
+import Data.Void
 import Data.Traversable
 import Data.Bifunctor
 import System.Process.Typed as Process
@@ -862,3 +863,40 @@ b_readProcessStdout_ :: ProcessConfig () () () -> IO ByteString
 b_readProcessStdout_ c = do
   out <- readProcessStdout_ c
   pure (L.toStrict out)
+
+--------------------------------------------------------------------------------
+-- Inference type representation
+
+data IRep v
+  = IVar v
+  | IApp (IRep v) (IRep v)
+  | IFun (IRep v) (IRep v)
+  | ICon SomeTypeRep
+
+-- | A complete implementation of conversion from the inferer's type
+-- rep to some star type, ready for the type checker.
+toSomeTypeRep :: IRep Void -> Either DesugarError SomeStarType
+toSomeTypeRep t = do
+  someRep <- go t
+  case someRep of
+    StarTypeRep t -> pure (SomeStarType t)
+    _ -> Left KindError
+
+  where
+  go :: IRep Void -> Either DesugarError SomeTypeRep
+  go = \case
+    IVar v -> pure (absurd v)
+    ICon someTypeRep -> pure someTypeRep
+    IFun a b -> do
+      a' <- go a
+      b' <- go b
+      case (a', b') of
+        (StarTypeRep aRep, StarTypeRep bRep) ->
+          pure $ StarTypeRep (Type.Fun aRep bRep)
+        _ -> Left KindError
+    IApp f a -> do
+      f' <- go f
+      a' <- go a
+      case applyTypes f' a' of
+        Just someTypeRep -> pure someTypeRep
+        _ -> Left KindError
