@@ -18,6 +18,8 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+import Data.Void
+
 import qualified Data.Graph as Graph
 import qualified Data.Eq as Eq
 import qualified Data.Ord as Ord
@@ -862,3 +864,22 @@ b_readProcessStdout_ :: ProcessConfig () () () -> IO ByteString
 b_readProcessStdout_ c = do
   out <- readProcessStdout_ c
   pure (L.toStrict out)
+
+--------------------------------------------------------------------------------
+-- IRep
+
+data IRep v
+  = IVar v
+  | IApp (IRep v) (IRep v)
+  | IFun (IRep v) (IRep v)
+  | ICon SomeTypeRep
+
+-- | A complete implementation of conversion from the inferer's type
+-- rep to some star type, ready for the type checker.
+fromSomeStarType :: forall void. SomeStarType -> Either DesugarError (IRep void)
+fromSomeStarType (SomeStarType typeRep) = go typeRep where
+  go :: forall a. TypeRep a -> Either DesugarError (IRep void)
+  go = \case
+    Type.Fun a b -> IFun <$> go a <*> go b
+    Type.App a b -> IApp <$> go a <*> go b
+    typeRep@Type.Con{} -> pure $ ICon (SomeTypeRep typeRep)
