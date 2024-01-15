@@ -937,10 +937,10 @@ toSomeTypeRep t = do
         _ -> Left KindError
 
 -- | Convert from a type-indexed type to an untyped type.
-fromSomeStarType :: forall void. SomeStarType -> Either DesugarError (IRep void)
+fromSomeStarType :: forall void. SomeStarType -> IRep void
 fromSomeStarType (SomeStarType typeRep) = go typeRep where
-  go :: forall a. TypeRep a -> Either DesugarError (IRep void)
+  go :: forall a. TypeRep a -> IRep void
   go = \case
-    Type.Fun a b -> IFun <$> go a <*> go b
-    Type.App a b -> IApp <$> go a <*> go b
-    typeRep@Type.Con{} -> pure $ ICon (SomeTypeRep typeRep)
+    Type.Fun a b -> IFun (go a) (go b)
+    Type.App a b -> IApp (go a) (go b)
+    typeRep@Type.Con{} -> ICon (SomeTypeRep typeRep)
