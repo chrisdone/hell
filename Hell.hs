@@ -10,7 +10,7 @@
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types #-}
 {-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms #-}
-{-# LANGUAGE OverloadedStrings, MultiWayIf, DeriveFunctor #-}
+{-# LANGUAGE OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 
 module Main (main) where
 
@@ -214,7 +214,7 @@ data UTerm t
   | UApp (UTerm t) (UTerm t)
   | UForall [t] Forall
   | ULit (forall g. Typed (Term g))
-  deriving Functor
+  deriving (Traversable, Functor, Foldable)
   -- -- Special constructors needed for syntax that is "polymorphic."
   -- | UBind t UTerm UTerm
   -- | UList t [UTerm]
