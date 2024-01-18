@@ -53,6 +53,7 @@ import System.Process.Typed as Process
 import Control.Monad.State
 import System.Environment
 import Data.Map (Map)
+import Data.Set (Set)
 import Data.Text (Text)
 import Data.ByteString (ByteString)
 import Data.Constraint
@@ -907,6 +908,7 @@ data IRep v
   | IApp (IRep v) (IRep v)
   | IFun (IRep v) (IRep v)
   | ICon SomeTypeRep
+  deriving (Functor, Traversable, Foldable, Eq, Ord, Show)
 
 -- | A complete implementation of conversion from the inferer's type
 -- rep to some star type, ready for the type checker.
@@ -944,3 +946,17 @@ fromSomeStarType (SomeStarType typeRep) = go typeRep where
     Type.Fun a b -> IFun (go a) (go b)
     Type.App a b -> IApp (go a) (go b)
     typeRep@Type.Con{} -> ICon (SomeTypeRep typeRep)
+
+--------------------------------------------------------------------------------
+-- Inference elaboration phase
+
+newtype IVar = IVar0 Int
+  deriving (Ord, Eq, Show)
+
+data Equality = Equality (IRep IVar) (IRep IVar)
+  deriving (Show, Ord, Eq)
+
+elaborate :: UTerm (IRep v) -> (UTerm (IRep IVar), Set Equality)
+elaborate = flip runState mempty . go where
+  go :: UTerm (IRep v) -> State (Set Equality) (UTerm (IRep IVar))
+  go = undefined
