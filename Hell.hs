@@ -217,7 +217,6 @@ data UTerm t
   | ULam Binding t (UTerm t)
   | UApp (UTerm t) (UTerm t)
   | UForall [t] Forall
-  | ULit (forall g. Typed (Term g))
   deriving (Traversable, Functor, Foldable)
   -- -- Special constructors needed for syntax that is "polymorphic."
   -- | UBind t UTerm UTerm
@@ -233,7 +232,7 @@ data Forall
   | Final (forall g. Typed (Term g))
 
 lit :: Type.Typeable a => a -> UTerm SomeStarType
-lit l = ULit (Typed (Type.typeOf l) (Lit l))
+lit l = UForall [] $ Final (Typed (Type.typeOf l) (Lit l))
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 deriving instance Show SomeStarType
@@ -298,8 +297,6 @@ tc (UApp e1 e2) env =
                  -> Typed body_ty
                      (App e1'
                           e2')
--- Mono-typed terms
-tc (ULit lit) _env = lit
 -- Polytyped terms, must be, syntactically, fully-saturated
 tc (UForall reps fall) _env = go reps fall where
   go :: [SomeStarType] -> Forall -> Typed (Term g)
