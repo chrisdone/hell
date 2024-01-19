@@ -19,6 +19,7 @@ module Main (main) where
 -- guest language as such.
 
 import Data.Void
+import Data.Functor.Const
 
 import qualified Data.Graph as Graph
 import qualified Data.Eq as Eq
@@ -230,6 +231,44 @@ data Forall
   = Unconstrained (forall (a :: Type) g. TypeRep a -> Forall)
   | Constrained (forall (a :: Type) g. (Show a, Eq a, Ord a) => TypeRep a -> Forall)
   | Final (forall g. Typed (Term g))
+
+data ForallOf input output
+  = UnconstrainedOf (forall (a :: Type) g. input a -> ForallOf input output)
+  | ConstrainedOf (forall (a :: Type) g. (Show a, Eq a, Ord a) => input a -> ForallOf input output)
+  | FinalOf output
+
+data SomeTyped = SomeTyped (forall g. Typed (Term g))
+
+-- Proof that I preserve the behavior as before.
+proof_1 :: [SomeStarType] -> ForallOf TypeRep SomeTyped -> Typed (Term g)
+proof_1 = go
+  where
+    go :: [SomeStarType] -> ForallOf TypeRep SomeTyped -> Typed (Term g)
+    go [] (FinalOf (SomeTyped typed)) = typed
+    go (SomeStarType rep:reps) (UnconstrainedOf f) = go reps (f rep)
+    go (SomeStarType rep:reps) (ConstrainedOf f) =
+      if
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Bool) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Char) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Text) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ByteString) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ExitCode) -> go reps (f rep)
+        | otherwise -> error $ "type doesn't have enough instances " ++ show rep
+    go _ _ = error "forall type arguments mismatch."
+
+-- Proof that I can use a forall construction to receive and produce an IRep.
+proof_2 :: [IRep IVar] -> ForallOf (Const (IRep IVar)) (IRep IVar) -> IRep IVar
+proof_2 = go
+  where
+    go :: [IRep IVar] -> ForallOf (Const (IRep IVar)) (IRep IVar) -> IRep IVar
+    go [] (FinalOf typed) = typed
+    go (irep:reps) (UnconstrainedOf f) = go reps (f (Const irep))
+    -- The Void gives us a proof that this value is never actually
+    -- being provided anywhere, and therefore neither can it be
+    -- used. We just need to provide /a/ type for the class
+    -- constraints to be satisfied.
+    go (irep:reps) (ConstrainedOf f) = go reps (f (Const @(IRep IVar) @Void irep))
 
 lit :: Type.Typeable a => a -> UTerm SomeStarType
 lit l = UForall [] $ Final (Typed (Type.typeOf l) (Lit l))
