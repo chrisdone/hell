@@ -803,11 +803,11 @@ polyLits = Map.fromList [
   ("IO.pure", Unconstrained \(TypeRep @a) ->
     Final (Typed (typeRep @(a -> IO a)) (Lit pure))),
   -- Bool
-   ("Bool.bool", Unconstrained \a ->
-     Final (Typed (Type.Fun a (Type.Fun a (Type.Fun (typeRep @Bool) a))) (Lit Bool.bool))
+   ("Bool.bool", Unconstrained \(TypeRep @a) ->
+     Final (Typed (typeRep @(a -> a -> Bool -> a)) (Lit Bool.bool))
    ),
   -- Data.Function
-  ("Function.id", Unconstrained \a -> Final (Typed (Type.Fun a a) (Lit id))),
+  ("Function.id", Unconstrained \(TypeRep @a) -> Final (Typed (typeRep @(a -> a)) (Lit id))),
   ("Function.fix", Unconstrained \(TypeRep @a) ->
       Final $ typed (Fun.fix :: (a -> a) -> a)),
   -- Data.List
