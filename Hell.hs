@@ -863,15 +863,15 @@ polyLits = Map.fromList [
   ),
   -- Type-class constrained functions
   ("Text.show", Constrained \(TypeRep @a) -> Final $
-    typed (Text.pack . Show.show :: a -> Text)),
+    typed (Text.pack . Show.show :: Show a => a -> Text)),
   ("Text.print", Constrained \(TypeRep @a) -> Final $
-    typed (t_putStrLn . Text.pack . Show.show :: a -> IO ())),
+    typed (t_putStrLn . Text.pack . Show.show :: Show a => a -> IO ())),
   ("Eq.eq", Constrained \(TypeRep @a) -> Final $
-     typed ((Eq.==) :: a -> a -> Bool)),
+     typed ((Eq.==) :: Eq a => a -> a -> Bool)),
   ("Ord.lt", Constrained \(TypeRep @a) -> Final $
-     typed ((Ord.<) :: a -> a -> Bool)),
+     typed ((Ord.<) :: Ord a => a -> a -> Bool)),
   ("Ord.gt", Constrained \(TypeRep @a) -> Final $
-     typed ((Ord.>) :: a -> a -> Bool))
+     typed ((Ord.>) :: Ord a => a -> a -> Bool))
  ]
 
 --------------------------------------------------------------------------------
