@@ -799,15 +799,15 @@ then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 polyLits :: Map String Forall
 polyLits = Map.fromList [
   ("Error.ioError", Unconstrained \(TypeRep @a) ->
-    Final (Typed (typeRep @(IOError -> IO a)) (Lit Error.ioError))),
+    Final (typed (Error.ioError :: IOError -> IO a))),
   ("IO.pure", Unconstrained \(TypeRep @a) ->
-    Final (Typed (typeRep @(a -> IO a)) (Lit pure))),
+    Final (typed (pure :: a -> IO a))),
   -- Bool
    ("Bool.bool", Unconstrained \(TypeRep @a) ->
-     Final (Typed (typeRep @(a -> a -> Bool -> a)) (Lit Bool.bool))
+     Final (typed (Bool.bool :: a -> a -> Bool -> a))
    ),
   -- Data.Function
-  ("Function.id", Unconstrained \(TypeRep @a) -> Final (Typed (typeRep @(a -> a)) (Lit id))),
+  ("Function.id", Unconstrained \(TypeRep @a) -> Final (typed (id :: a -> a))),
   ("Function.fix", Unconstrained \(TypeRep @a) ->
       Final $ typed (Fun.fix :: (a -> a) -> a)),
   -- Data.List
