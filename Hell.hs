@@ -438,7 +438,7 @@ desugarExp globals = go where
     -- HSE.Tuple _ HSE.Boxed terms -> UTuple <$> traverse go terms
     -- HSE.List _ xs -> UList <$> traverse go xs <*> pure Nothing
     -- HSE.App _ (HSE.List _ xs) (HSE.TypeApp _ ty) -> UList <$> traverse go xs <*> fmap Just (desugarType ty)
-    HSE.Lit _ lit' -> fmap (fmap IType) $ case lit' of
+    HSE.Lit _ lit' -> fmap (fmap fromSomeStarType) $ case lit' of
       HSE.Char _ char _ -> pure $ lit char
       HSE.String _ string _ -> pure $ lit $ Text.pack string
       HSE.Int _ int _ -> pure $ lit (fromIntegral int :: Int)
@@ -452,12 +452,12 @@ desugarExp globals = go where
     HSE.Lambda _ pats e -> do
       args <- traverse desugarArg pats
       e' <- go e
-      pure $ foldr (\(name,ty) inner  -> ULam name (IType ty) inner)  e' args
+      pure $ foldr (\(name,ty) inner  -> ULam name (fromSomeStarType ty) inner)  e' args
     HSE.Con _ qname ->
       case qname of
         HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
           | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
-            pure $ fmap IType uterm
+            pure $ fmap fromSomeStarType uterm
         _ -> lift $ Left $ InvalidConstructor $ show qname
     -- HSE.Do _ stmts -> do
     --   let loop f [HSE.Qualifier _ e] = f <$> go e
@@ -487,21 +487,21 @@ desugarQName globals qname [] =
         pure uterm
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
-        pure $ fmap IType uterm
+        pure $ fmap fromSomeStarType uterm
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just uterm <- Map.lookup string supportedLits ->
-        pure $ fmap IType uterm
+        pure $ fmap fromSomeStarType uterm
     _ -> lift $ Left $ InvalidVariable $ show qname
 desugarQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just (forall', irep) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
         irep' <- traverse ensureIVar irep
-        pure (UForall (map IType treps) forall' irep')
+        pure (UForall (map fromSomeStarType treps) forall' irep')
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just (forall', irep) <- Map.lookup string polyLits -> do
         irep' <- traverse ensureIVar irep
-        pure (UForall (map IType treps) forall' irep')
+        pure (UForall (map fromSomeStarType treps) forall' irep')
     _ -> lift $ Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> StateT Desugar (Either DesugarError) (Binding, SomeStarType)
@@ -601,7 +601,7 @@ desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stron
 --------------------------------------------------------------------------------
 -- Infer
 
-data IType = IType SomeStarType
+type IType = IRep IVar
 data InferError = TypeMismatch SomeStarType SomeStarType
   deriving Show
 
