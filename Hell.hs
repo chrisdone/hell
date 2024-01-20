@@ -9,7 +9,7 @@
 
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types #-}
-{-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms, TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 
 module Main (main) where
@@ -20,15 +20,19 @@ module Main (main) where
 
 import Data.Void
 import Data.Functor.Const
+import qualified Language.Haskell.TH as TH
+import Language.Haskell.TH (Q)
 
 import qualified Data.Graph as Graph
 import qualified Data.Eq as Eq
+import qualified Data.Either as Either
 import qualified Data.Ord as Ord
 import qualified Data.Bool as Bool
 import qualified Data.Map as Map
 import qualified Data.List as List
+import qualified Data.Set as Set
 import qualified Text.Show as Show
-import qualified Data.Function as Fun
+import qualified Data.Function as Function
 import qualified Data.Generics.Schemes as SYB
 import qualified Type.Reflection as Type
 import qualified Data.Maybe as Maybe
@@ -756,85 +760,73 @@ then' :: UTerm SomeStarType
 then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 --------------------------------------------------------------------------------
--- Polymorphic primitives
+-- Derive prims TH
 
 polyLits :: Map String Forall
-polyLits = Map.fromList [
-  ("Error.ioError", Unconstrained \(TypeRep @a) ->
-    Final $ typed (Error.ioError :: IOError -> IO a)),
-  ("IO.pure", Unconstrained \(TypeRep @a) ->
-    Final $ typed (pure :: a -> IO a)),
-  -- Bool
-   ("Bool.bool", Unconstrained \(TypeRep @a) ->
-     Final $ typed (Bool.bool :: a -> a -> Bool -> a)
-   ),
-  -- Data.Function
-  ("Function.id", Unconstrained \(TypeRep @a) -> Final $ typed (id :: a -> a)),
-  ("Function.fix", Unconstrained \(TypeRep @a) ->
-      Final $ typed (Fun.fix :: (a -> a) -> a)),
-  -- Data.List
-  ("List.cons", Unconstrained \(TypeRep @a) -> Final $
-    typed ((:) :: a -> [a] -> [a])),
-  ("List.concat", Unconstrained \(TypeRep @a) -> Final $
-    typed (List.concat :: [[a]] -> [a])),
-  ("List.drop", Unconstrained \(TypeRep @a) -> Final $
-    typed (List.drop :: Int -> [a] -> [a])),
-  ("List.take", Unconstrained \(TypeRep @a) -> Final $
-    typed (List.take :: Int -> [a] -> [a])),
-  ("List.map", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
-      typed (map :: (a -> b) -> [a] -> [b])
-  ) ,
-  ("List.lookup", Constrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
-      typed (List.lookup :: a -> [(a,b)] -> Maybe b)
-  ) ,
-  ("IO.mapM_", Unconstrained \(TypeRep @a) -> Final $
-      typed (mapM_ :: (a -> IO ()) -> [a] -> IO ())
-  ),
-  ("IO.forM_", Unconstrained \(TypeRep @a) -> Final $
-      typed (forM_ :: [a] -> (a -> IO ()) -> IO ())
-  ),
-  -- Maybe
-  ("Maybe.maybe", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
-    typed (maybe :: b -> (a -> b) -> Maybe a -> b)
-  ),
-  ("Maybe.Nothing", Unconstrained \(TypeRep @a) -> Final $
-    typed (Nothing :: Maybe a)
-  ),
-  ("Maybe.Just", Unconstrained \(TypeRep @a) -> Final $
-    typed (Just :: a -> Maybe a)
-  ),
-  ("Maybe.listToMaybe", Unconstrained \(TypeRep @a) -> Final $
-    typed (Maybe.listToMaybe :: [a] -> Maybe a)
-  ),
-  -- Either
-  ("Either.either", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Unconstrained \(TypeRep @x) -> Final $
-    typed (either :: (a -> x) -> (b -> x) -> Either a b -> x)
-  ),
-  ("Either.Left", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
-    typed (Left :: a -> Either a b)
-  ),
-  ("Either.Right", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
-    typed (Right :: b -> Either a b)
-  ),
-  -- Async
-  ("Async.concurrently", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
-    typed (Async.concurrently :: IO a -> IO b -> IO (a,b))
-  ),
-  ("Async.race", Unconstrained \(TypeRep @a) -> Unconstrained \(TypeRep @b) -> Final $
-    typed (Async.race :: IO a -> IO b -> IO (Either a b))
-  ),
-  -- Type-class constrained functions
-  ("Text.show", Constrained \(TypeRep @a) -> Final $
-    typed (Text.pack . Show.show :: Show a => a -> Text)),
-  ("Text.print", Constrained \(TypeRep @a) -> Final $
-    typed (t_putStrLn . Text.pack . Show.show :: Show a => a -> IO ())),
-  ("Eq.eq", Constrained \(TypeRep @a) -> Final $
-     typed ((Eq.==) :: Eq a => a -> a -> Bool)),
-  ("Ord.lt", Constrained \(TypeRep @a) -> Final $
-     typed ((Ord.<) :: Ord a => a -> a -> Bool)),
-  ("Ord.gt", Constrained \(TypeRep @a) -> Final $
-     typed ((Ord.>) :: Ord a => a -> a -> Bool))
- ]
+polyLits = Map.fromList $
+  $(let
+      -- Derive well-typed primitive forms.
+      derivePrims :: Q TH.Exp -> Q TH.Exp
+      derivePrims m = do
+        e <- m
+        case e of
+          TH.DoE Nothing binds -> do
+            TH.listE $ map makePrim binds
+          _ -> error $ "Expected plain do-notation, but got: " ++ show e
+
+      -- Make a well-typed primitive form. Expects a very strict format.
+      makePrim :: TH.Stmt -> Q TH.Exp
+      makePrim (TH.NoBindS (TH.SigE (TH.AppE (TH.LitE (TH.StringL string)) expr)
+                   (TH.ForallT vars constraints typ))) =
+        let constrained = foldMap getConstraint constraints
+            builder =
+              foldr
+                (\(TH.PlainTV v TH.SpecifiedSpec) rest ->
+                  TH.appE
+                    (TH.conE (if Set.member v constrained then 'Constrained else 'Unconstrained))
+                    (TH.lamE [pure $ TH.ConP 'TypeRep [TH.VarT v] []]
+                             rest))
+                [| Final $ typed $(TH.sigE (pure expr) (pure typ)) |]
+                vars
+        in [| (string, $builder) |]
+      makePrim e = error $ "Should be of the form \"Some.name\" The.name :: T\ngot: " ++ show e
+
+      -- Just tells us whether a given variable is constrained by a
+      -- type-class or not.
+      getConstraint (TH.AppT (TH.ConT _cls) (TH.VarT v)) = Set.singleton v
+      getConstraint _ = error "Bad constraint!"
+    in
+    derivePrims [| do
+
+  "Error.ioError" Error.ioError :: forall a. IOError -> IO a
+  "IO.pure" pure :: forall a. a -> IO a
+  "Bool.bool" Bool.bool :: forall a. a -> a -> Bool -> a
+  "Function.id" Function.id :: forall a. a -> a
+  "Function.fix" Function.fix :: forall a. (a -> a) -> a
+  "List.cons" (:) :: forall a. a -> [a] -> [a]
+  "List.concat" List.concat :: forall a. [[a]] -> [a]
+  "List.drop" List.drop :: forall a. Int -> [a] -> [a]
+  "List.take" List.take :: forall a. Int -> [a] -> [a]
+  "List.map" List.map :: forall a b. (a -> b) -> [a] -> [b]
+  "List.lookup" List.lookup :: forall a b. Eq a => a -> [(a,b)] -> Maybe b
+  "List.mapM_" mapM_ :: forall a. (a -> IO ()) -> [a] -> IO ()
+  "List.forM_" forM_ :: forall a. [a] -> (a -> IO ()) -> IO ()
+  "Maybe.maybe" Maybe.maybe :: forall a b. b -> (a -> b) -> Maybe a -> b
+  "Maybe.Nothing" Maybe.Nothing :: forall a. Maybe a
+  "Maybe.Just" Maybe.Just :: forall a. a -> Maybe a
+  "Maybe.listToMaybe" Maybe.listToMaybe :: forall a. [a] -> Maybe a
+  "Either.either" Either.either :: forall a b x. (a -> x) -> (b -> x) -> Either a b -> x
+  "Either.Left" Either.Left :: forall a b. a -> Either a b
+  "Either.Right" Either.Right :: forall a b. b -> Either a b
+  "Async.concurrently" Async.concurrently :: forall a b. IO a -> IO b -> IO (a,b)
+  "Async.race" Async.race :: forall a b. IO a -> IO b -> IO (Either a b)
+  "Text.show" (Text.pack . Show.show) :: forall a. Show a => a -> Text
+  "Text.putStrLn" (t_putStrLn . Text.pack . Show.show) :: forall a. Show a => a -> IO ()
+  "Eq.eq" (Eq.==) :: forall a. Eq a => a -> a -> Bool
+  "Ord.lt" (Ord.<) :: forall a. Ord a => a -> a -> Bool
+  "Ord.gt" (Ord.>) :: forall a. Ord a => a -> a -> Bool
+
+  |])
 
 --------------------------------------------------------------------------------
 -- UTF-8 specific operations without all the environment gubbins
