@@ -606,7 +606,9 @@ type IType = IRep Void
 data InferError = TypeMismatch SomeStarType SomeStarType
   deriving Show
 
--- assumes reverse topological order (desugarAll does this)
+-- | Perform type inference on all definitions.
+--
+-- Note: Assumes reverse topological order (desugarAll does this).
 infer :: [(String, UTerm IType)] -> Either InferError [(String, UTerm SomeStarType)]
 infer = flip evalStateT Map.empty . traverse go where
   go :: (String, UTerm IType) -> StateT (Map String (UTerm SomeStarType)) (Either InferError) (String, UTerm SomeStarType)
@@ -616,7 +618,10 @@ infer = flip evalStateT Map.empty . traverse go where
     modify' $ Map.insert name uterm
     pure (name, uterm)
 
--- All types in the input are free of metavars.
+-- | Note: All types in the input are free of metavars. There is an
+-- intermediate phase in which there are metavars, but then they're
+-- all eliminated. By the type system, the output contains only
+-- determinate types.
 inferExp ::
   Map String (UTerm SomeStarType) ->
   UTerm IType ->
