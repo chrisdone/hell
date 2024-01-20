@@ -222,7 +222,10 @@ data UTerm t
   = UVar String
   | ULam Binding t (UTerm t)
   | UApp (UTerm t) (UTerm t)
-  | UForall [t] Forall (IRep IVar)
+
+  -- IRep below: The variables are poly types, they aren't metavars,
+  -- and need to be instantiated.
+  | UForall [t] Forall (IRep TH.Uniq)
   deriving (Traversable, Functor, Foldable)
   -- -- Special constructors needed for syntax that is "polymorphic."
   -- | UBind t UTerm UTerm
@@ -401,24 +404,24 @@ lookupVar v (Cons (Tuple ss) ty e)
 
 data Desugar = Desugar {
   counter :: Int,
-  thMapping :: Map TH.Uniq IVar
+  thMapping :: Map TH.Uniq IMetaVar
   }
 
-ensureIVar :: TH.Uniq -> StateT Desugar (Either DesugarError) IVar
-ensureIVar s = do
+ensureIMetaVar :: TH.Uniq -> StateT Desugar (Either DesugarError) IMetaVar
+ensureIMetaVar s = do
   Desugar{thMapping} <- get
   case Map.lookup s thMapping of
     Nothing -> do
-      ivar <- freshIVar
+      ivar <- freshIMetaVar
       modify \desugar -> desugar { thMapping = Map.insert s ivar thMapping }
       pure ivar
     Just ivar -> pure ivar
 
-freshIVar :: StateT Desugar (Either DesugarError) IVar
-freshIVar = do
+freshIMetaVar :: StateT Desugar (Either DesugarError) IMetaVar
+freshIMetaVar = do
   Desugar{counter} <- get
   modify \desugar -> desugar { counter = counter + 1 }
-  pure $ IVar0 counter
+  pure $ IMetaVar0 counter
 
 data DesugarError = InvalidConstructor String | InvalidVariable String | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String | KindError
   deriving (Show, Eq)
@@ -496,12 +499,10 @@ desugarQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just (forall', irep) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
-        irep' <- traverse ensureIVar irep
-        pure (UForall (map fromSomeStarType treps) forall' irep')
+        pure (UForall (map fromSomeStarType treps) forall' irep)
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just (forall', irep) <- Map.lookup string polyLits -> do
-        irep' <- traverse ensureIVar irep
-        pure (UForall (map fromSomeStarType treps) forall' irep')
+        pure (UForall (map fromSomeStarType treps) forall' irep)
     _ -> lift $ Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> StateT Desugar (Either DesugarError) (Binding, SomeStarType)
@@ -601,7 +602,7 @@ desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stron
 --------------------------------------------------------------------------------
 -- Infer
 
-type IType = IRep IVar
+type IType = IRep Void
 data InferError = TypeMismatch SomeStarType SomeStarType
   deriving Show
 
@@ -615,6 +616,7 @@ infer = flip evalStateT Map.empty . traverse go where
     modify' $ Map.insert name uterm
     pure (name, uterm)
 
+-- All types in the input are free of metavars.
 inferExp ::
   Map String (UTerm SomeStarType) ->
   UTerm IType ->
@@ -977,13 +979,20 @@ fromSomeStarType (SomeStarType typeRep) = go typeRep where
 --------------------------------------------------------------------------------
 -- Inference elaboration phase
 
-newtype IVar = IVar0 Int
+newtype IMetaVar = IMetaVar0 Int
   deriving (Ord, Eq, Show)
 
-data Equality = Equality (IRep IVar) (IRep IVar)
+data Equality = Equality (IRep IMetaVar) (IRep IMetaVar)
   deriving (Show, Ord, Eq)
 
-elaborate :: UTerm (IRep v) -> (UTerm (IRep IVar), Set Equality)
+-- | Elaboration phase.
+--
+-- Note: The input term contains no metavars. There are just some
+-- UForalls, which have poly types, and those are instantiated into
+-- metavars.
+--
+-- Output type /does/ contain meta vars.
+elaborate :: UTerm IType -> (UTerm (IRep IMetaVar), Set Equality)
 elaborate = flip runState mempty . go where
-  go :: UTerm (IRep v) -> State (Set Equality) (UTerm (IRep IVar))
+  go :: UTerm (IRep void) -> State (Set Equality) (UTerm (IRep IMetaVar))
   go = undefined
