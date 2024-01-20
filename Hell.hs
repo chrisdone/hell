@@ -407,22 +407,6 @@ data Desugar = Desugar {
   thMapping :: Map TH.Uniq IMetaVar
   }
 
-ensureIMetaVar :: TH.Uniq -> StateT Desugar (Either DesugarError) IMetaVar
-ensureIMetaVar s = do
-  Desugar{thMapping} <- get
-  case Map.lookup s thMapping of
-    Nothing -> do
-      ivar <- freshIMetaVar
-      modify \desugar -> desugar { thMapping = Map.insert s ivar thMapping }
-      pure ivar
-    Just ivar -> pure ivar
-
-freshIMetaVar :: StateT Desugar (Either DesugarError) IMetaVar
-freshIMetaVar = do
-  Desugar{counter} <- get
-  modify \desugar -> desugar { counter = counter + 1 }
-  pure $ IMetaVar0 counter
-
 data DesugarError = InvalidConstructor String | InvalidVariable String | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String | KindError
   deriving (Show, Eq)
 
@@ -1001,3 +985,20 @@ elaborate :: UTerm IType -> (UTerm (IRep IMetaVar), Set Equality)
 elaborate = flip runState mempty . go where
   go :: UTerm (IRep void) -> State (Set Equality) (UTerm (IRep IMetaVar))
   go = undefined
+
+-- TODO: these two functions should actually live in the elaborator
+-- monad, not the desugarer.
+ensureIMetaVar :: TH.Uniq -> StateT Desugar (Either DesugarError) IMetaVar
+ensureIMetaVar s = do
+  Desugar{thMapping} <- get
+  case Map.lookup s thMapping of
+    Nothing -> do
+      ivar <- freshIMetaVar
+      modify \desugar -> desugar { thMapping = Map.insert s ivar thMapping }
+      pure ivar
+    Just ivar -> pure ivar
+freshIMetaVar :: StateT Desugar (Either DesugarError) IMetaVar
+freshIMetaVar = do
+  Desugar{counter} <- get
+  modify \desugar -> desugar { counter = counter + 1 }
+  pure $ IMetaVar0 counter
