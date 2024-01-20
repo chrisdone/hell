@@ -7,7 +7,7 @@
 -- this is built upon, and for the Type.Reflection module, which has
 -- made some of this more ergonomic.
 
-{-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments #-}
+{-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments, NamedFieldPuns #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types #-}
 {-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms, TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
@@ -21,6 +21,7 @@ module Main (main) where
 import Data.Void
 import Data.Functor.Const
 import qualified Language.Haskell.TH as TH
+import qualified Language.Haskell.TH.Syntax as TH
 import Language.Haskell.TH (Q)
 
 import qualified Data.Graph as Graph
@@ -105,7 +106,7 @@ dispatch (Run filePath) = do
     HSE.ParseOk binds
       | anyCycles binds -> error "Cyclic bindings are not supported!"
       | otherwise ->
-            case flip evalStateT 0 $ desugarAll binds of
+            case flip evalStateT (Desugar 0 mempty) $ desugarAll binds of
               Left err -> error $ "Error desugaring! " ++ show err
               Right terms ->
                 case lookup "main" terms of
@@ -130,7 +131,7 @@ dispatch (Check filePath) = do
     HSE.ParseOk binds
       | anyCycles binds -> error "Cyclic bindings are not supported!"
       | otherwise ->
-            case flip evalStateT 0 $ desugarAll binds of
+            case flip evalStateT (Desugar 0 mempty) $ desugarAll binds of
               Left err -> error $ "Error desugaring! " ++ show err
               Right terms ->
                 case lookup "main" terms of
@@ -152,7 +153,7 @@ dispatch (Exec string) = do
   case HSE.parseExpWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string of
     HSE.ParseFailed _ e -> error $ e
     HSE.ParseOk e ->
-            case flip evalStateT 0 $ desugarExp mempty e of
+            case flip evalStateT (Desugar 0 mempty) $ desugarExp mempty e of
               Left err -> error $ "Error desugaring! " ++ show err
               Right uterm ->
                     case inferExp mempty uterm of
@@ -221,7 +222,7 @@ data UTerm t
   = UVar String
   | ULam Binding t (UTerm t)
   | UApp (UTerm t) (UTerm t)
-  | UForall [t] Forall
+  | UForall [t] Forall (IRep IVar)
   deriving (Traversable, Functor, Foldable)
   -- -- Special constructors needed for syntax that is "polymorphic."
   -- | UBind t UTerm UTerm
@@ -237,7 +238,7 @@ data Forall
   | Final (forall g. Typed (Term g))
 
 lit :: Type.Typeable a => a -> UTerm SomeStarType
-lit l = UForall [] $ Final (Typed (Type.typeOf l) (Lit l))
+lit l = UForall [] (Final (Typed (Type.typeOf l) (Lit l))) (fromSomeStarType (SomeStarType (Type.typeOf l)))
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 deriving instance Show SomeStarType
@@ -303,7 +304,7 @@ tc (UApp e1 e2) env =
                      (App e1'
                           e2')
 -- Polytyped terms, must be, syntactically, fully-saturated
-tc (UForall reps fall) _env = go reps fall where
+tc (UForall reps fall _) _env = go reps fall where
   go :: [SomeStarType] -> Forall -> Typed (Term g)
   go [] (Final typed) = typed
   go (SomeStarType rep:reps) (Unconstrained f) = go reps (f rep)
@@ -398,6 +399,27 @@ lookupVar v (Cons (Tuple ss) ty e)
 --------------------------------------------------------------------------------
 -- Desugar expressions
 
+data Desugar = Desugar {
+  counter :: Int,
+  thMapping :: Map TH.Uniq IVar
+  }
+
+ensureIVar :: TH.Uniq -> StateT Desugar (Either DesugarError) IVar
+ensureIVar s = do
+  Desugar{thMapping} <- get
+  case Map.lookup s thMapping of
+    Nothing -> do
+      ivar <- freshIVar
+      modify \desugar -> desugar { thMapping = Map.insert s ivar thMapping }
+      pure ivar
+    Just ivar -> pure ivar
+
+freshIVar :: StateT Desugar (Either DesugarError) IVar
+freshIVar = do
+  Desugar{counter} <- get
+  modify \desugar -> desugar { counter = counter + 1 }
+  pure $ IVar0 counter
+
 data DesugarError = InvalidConstructor String | InvalidVariable String | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String | KindError
   deriving (Show, Eq)
 
@@ -408,7 +430,7 @@ nestedTyApps = go [] where
   go acc _ = Nothing
 
 desugarExp :: Map String (UTerm IType) -> HSE.Exp HSE.SrcSpanInfo ->
-   StateT Int (Either DesugarError) (UTerm IType)
+   StateT Desugar (Either DesugarError) (UTerm IType)
 desugarExp globals = go where
   go = \case
     HSE.Paren _ x -> go x
@@ -456,7 +478,7 @@ desugarExp globals = go where
     --   loop id stmts
     e -> lift $ Left $ UnsupportedSyntax $ show e
 
-desugarQName :: Map String (UTerm IType) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> StateT Int (Either DesugarError) (UTerm IType)
+desugarQName :: Map String (UTerm IType) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> StateT Desugar (Either DesugarError) (UTerm IType)
 desugarQName globals qname [] =
   case qname of
     HSE.UnQual _ (HSE.Ident _ string) -> pure $ UVar string
@@ -473,14 +495,16 @@ desugarQName globals qname [] =
 desugarQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
-      | Just forall' <- Map.lookup (prefix ++ "." ++ string) polyLits ->
-        pure (UForall (map IType treps) forall')
+      | Just (forall', irep) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
+        irep' <- traverse ensureIVar irep
+        pure (UForall (map IType treps) forall' irep')
     HSE.UnQual _ (HSE.Symbol _ string)
-      | Just forall' <- Map.lookup string polyLits ->
-        pure (UForall (map IType treps) forall')
+      | Just (forall', irep) <- Map.lookup string polyLits -> do
+        irep' <- traverse ensureIVar irep
+        pure (UForall (map IType treps) forall' irep')
     _ -> lift $ Left $ InvalidVariable $ show qname
 
-desugarArg :: HSE.Pat HSE.SrcSpanInfo -> StateT Int (Either DesugarError) (Binding, SomeStarType)
+desugarArg :: HSE.Pat HSE.SrcSpanInfo -> StateT Desugar (Either DesugarError) (Binding, SomeStarType)
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) = fmap (Singleton i,) (desugarType typ)
 desugarArg (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
   | Just idents <- traverse desugarIdent idents = fmap (Tuple idents,) (desugarType typ)
@@ -494,7 +518,7 @@ desugarIdent _ = Nothing
 --------------------------------------------------------------------------------
 -- Desugar types
 
-desugarType :: HSE.Type HSE.SrcSpanInfo -> StateT Int (Either DesugarError) SomeStarType
+desugarType :: HSE.Type HSE.SrcSpanInfo -> StateT Desugar (Either DesugarError) SomeStarType
 desugarType t = do
   someRep <- go t
   case someRep of
@@ -502,7 +526,7 @@ desugarType t = do
     _ -> lift $ Left KindError
 
   where
-  go :: HSE.Type HSE.SrcSpanInfo -> StateT Int (Either DesugarError) SomeTypeRep
+  go :: HSE.Type HSE.SrcSpanInfo -> StateT Desugar (Either DesugarError) SomeTypeRep
   go = \case
     HSE.TyTuple _ HSE.Boxed types -> do
       tys <- traverse go types
@@ -558,16 +582,16 @@ desugarTypeSpec = do
     shouldBe (try "Bool -> Int") (Right (SomeStarType $ typeRep @(Bool -> Int)))
     shouldBe (try "()") (Right (SomeStarType $ typeRep @()))
     shouldBe (try "[Int]") (Right (SomeStarType $ typeRep @[Int]))
-  where try e = case fmap (flip evalStateT 0 . desugarType) $ HSE.parseType e of
+  where try e = case fmap (flip evalStateT (Desugar 0 mempty) . desugarType) $ HSE.parseType e of
            HSE.ParseOk r -> r
            _ -> error "Parse failed."
 
 --------------------------------------------------------------------------------
 -- Desugar all bindings
 
-desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> StateT Int (Either DesugarError) [(String, UTerm IType)]
+desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> StateT Desugar (Either DesugarError) [(String, UTerm IType)]
 desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stronglyConnected where
-  go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String (UTerm IType)) (StateT Int (Either DesugarError)) (String, UTerm IType)
+  go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String (UTerm IType)) (StateT Desugar (Either DesugarError)) (String, UTerm IType)
   go (name, expr) = do
     globals <- get
     uterm <- lift $ desugarExp globals expr
@@ -762,7 +786,7 @@ then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 --------------------------------------------------------------------------------
 -- Derive prims TH
 
-polyLits :: Map String Forall
+polyLits :: Map String (Forall, IRep TH.Uniq)
 polyLits = Map.fromList $
   $(let
       -- Derive well-typed primitive forms.
@@ -773,6 +797,19 @@ polyLits = Map.fromList $
           TH.DoE Nothing binds -> do
             TH.listE $ map makePrim binds
           _ -> error $ "Expected plain do-notation, but got: " ++ show e
+
+      nameUnique (TH.Name _ (TH.NameU i)) = i
+
+      toTy :: TH.Type -> Q TH.Exp
+      toTy = \case
+        TH.AppT (TH.AppT TH.ArrowT f) x -> [| IFun $(toTy f) $(toTy x) |]
+        TH.AppT f x -> [| IApp $(toTy f) $(toTy x) |]
+        TH.ConT name -> [| ICon (SomeTypeRep $(TH.appTypeE (TH.varE 'typeRep) (TH.conT name))) |]
+        TH.VarT a -> [| IVar $(TH.litE $ TH.IntegerL $ nameUnique a) |]
+        TH.ListT -> [| ICon (SomeTypeRep (typeRep @[])) |]
+        TH.TupleT 2 -> [| ICon (SomeTypeRep (typeRep @(,))) |]
+        TH.TupleT 0 -> [| ICon (SomeTypeRep (typeRep @())) |]
+        t -> error $ "Uexpected type shape: " ++ show t
 
       -- Make a well-typed primitive form. Expects a very strict format.
       makePrim :: TH.Stmt -> Q TH.Exp
@@ -788,7 +825,7 @@ polyLits = Map.fromList $
                              rest))
                 [| Final $ typed $(TH.sigE (pure expr) (pure typ)) |]
                 vars
-        in [| (string, $builder) |]
+        in [| (string, ($builder, $(toTy typ))) |]
       makePrim e = error $ "Should be of the form \"Some.name\" The.name :: T\ngot: " ++ show e
 
       -- Just tells us whether a given variable is constrained by a
