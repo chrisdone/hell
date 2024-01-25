@@ -225,7 +225,7 @@ data UTerm t
 
   -- IRep below: The variables are poly types, they aren't metavars,
   -- and need to be instantiated.
-  | UForall [t] Forall (IRep TH.Uniq)
+  | UForall [SomeStarType] Forall (IRep TH.Uniq)
   deriving (Traversable, Functor, Foldable)
   -- -- Special constructors needed for syntax that is "polymorphic."
   -- | UBind t UTerm UTerm
@@ -478,10 +478,10 @@ desugarQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just (forall', irep) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
-        pure (UForall (map fromSomeStarType treps) forall' irep)
+        pure (UForall treps forall' irep)
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just (forall', irep) <- Map.lookup string polyLits -> do
-        pure (UForall (map fromSomeStarType treps) forall' irep)
+        pure (UForall treps forall' irep)
     _ ->  Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> (Either DesugarError) (Binding, SomeStarType)
