@@ -240,7 +240,7 @@ data Forall
   | Constrained (forall (a :: Type) g. (Show a, Eq a, Ord a) => TypeRep a -> Forall)
   | Final (forall g. Typed (Term g))
 
-lit :: Type.Typeable a => a -> UTerm SomeStarType
+lit :: Type.Typeable a => a -> UTerm ()
 lit l = UForall [] (Final (Typed (Type.typeOf l) (Lit l))) (fromSomeStarType (SomeStarType (Type.typeOf l)))
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
@@ -412,8 +412,8 @@ nestedTyApps = go [] where
   go acc (HSE.App _ e (HSE.TypeApp _ ty)) = go (ty:acc) e
   go acc _ = Nothing
 
-desugarExp :: Map String (UTerm IType) -> HSE.Exp HSE.SrcSpanInfo ->
-   Either DesugarError (UTerm IType)
+desugarExp :: Map String (UTerm ()) -> HSE.Exp HSE.SrcSpanInfo ->
+   Either DesugarError (UTerm ())
 desugarExp globals = go where
   go = \case
     HSE.Paren _ x -> go x
@@ -421,7 +421,7 @@ desugarExp globals = go where
     -- HSE.Tuple _ HSE.Boxed terms -> UTuple <$> traverse go terms
     -- HSE.List _ xs -> UList <$> traverse go xs <*> pure Nothing
     -- HSE.App _ (HSE.List _ xs) (HSE.TypeApp _ ty) -> UList <$> traverse go xs <*> fmap Just (desugarType ty)
-    HSE.Lit _ lit' -> fmap (fmap fromSomeStarType) $ case lit' of
+    HSE.Lit _ lit' -> case lit' of
       HSE.Char _ char _ -> pure $ lit char
       HSE.String _ string _ -> pure $ lit $ Text.pack string
       HSE.Int _ int _ -> pure $ lit (fromIntegral int :: Int)
@@ -440,7 +440,7 @@ desugarExp globals = go where
       case qname of
         HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
           | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
-            pure $ fmap fromSomeStarType uterm
+            pure uterm
         _ -> Left $ InvalidConstructor $ show qname
     -- HSE.Do _ stmts -> do
     --   let loop f [HSE.Qualifier _ e] = f <$> go e
@@ -461,7 +461,7 @@ desugarExp globals = go where
     --   loop id stmts
     e -> Left $ UnsupportedSyntax $ show e
 
-desugarQName :: Map String (UTerm IType) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> Either DesugarError (UTerm IType)
+desugarQName :: Map String (UTerm ()) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> Either DesugarError (UTerm ())
 desugarQName globals qname [] =
   case qname of
     HSE.UnQual _ (HSE.Ident _ string) -> pure $ UVar string
@@ -470,10 +470,10 @@ desugarQName globals qname [] =
         pure uterm
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
-        pure $ fmap fromSomeStarType uterm
+        pure $ uterm
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just uterm <- Map.lookup string supportedLits ->
-        pure $ fmap fromSomeStarType uterm
+        pure $ uterm
     _ ->  Left $ InvalidVariable $ show qname
 desugarQName globals qname treps =
   case qname of
@@ -570,9 +570,9 @@ desugarTypeSpec = do
 --------------------------------------------------------------------------------
 -- Desugar all bindings
 
-desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Either DesugarError [(String, UTerm IType)]
+desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Either DesugarError [(String, UTerm ())]
 desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stronglyConnected where
-  go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String (UTerm IType)) (Either DesugarError) (String, UTerm IType)
+  go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String (UTerm ())) (Either DesugarError) (String, UTerm ())
   go (name, expr) = do
     globals <- get
     uterm <- lift $ desugarExp globals expr
@@ -582,16 +582,15 @@ desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stron
 --------------------------------------------------------------------------------
 -- Infer
 
-type IType = IRep Void
 data InferError = TypeMismatch SomeStarType SomeStarType
   deriving Show
 
 -- | Perform type inference on all definitions.
 --
 -- Note: Assumes reverse topological order (desugarAll does this).
-infer :: [(String, UTerm IType)] -> Either InferError [(String, UTerm SomeStarType)]
+infer :: [(String, UTerm ())] -> Either InferError [(String, UTerm SomeStarType)]
 infer = flip evalStateT Map.empty . traverse go where
-  go :: (String, UTerm IType) -> StateT (Map String (UTerm SomeStarType)) (Either InferError) (String, UTerm SomeStarType)
+  go :: (String, UTerm ()) -> StateT (Map String (UTerm SomeStarType)) (Either InferError) (String, UTerm SomeStarType)
   go (name, expr) = do
     globals <- get
     uterm <- lift $ inferExp globals expr
@@ -604,7 +603,7 @@ infer = flip evalStateT Map.empty . traverse go where
 -- determinate types.
 inferExp ::
   Map String (UTerm SomeStarType) ->
-  UTerm IType ->
+  UTerm () ->
   Either InferError (UTerm SomeStarType)
 inferExp globals = undefined
 
@@ -678,7 +677,7 @@ supportedTypeConstructors = Map.fromList [
 --------------------------------------------------------------------------------
 -- Support primitives
 
-supportedLits :: Map String (UTerm SomeStarType)
+supportedLits :: Map String (UTerm ())
 supportedLits = Map.fromList [
    -- Text I/O
    ("Text.putStrLn", lit t_putStrLn),
@@ -767,7 +766,7 @@ supportedLits = Map.fromList [
    (">>", then')
   ]
 
-then' :: UTerm SomeStarType
+then' :: UTerm ()
 then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 --------------------------------------------------------------------------------
@@ -986,11 +985,11 @@ data Equality = Equality (IRep IMetaVar) (IRep IMetaVar)
 -- metavars.
 --
 -- Output type /does/ contain meta vars.
-elaborate :: UTerm IType -> (UTerm (IRep IMetaVar), Set Equality)
+elaborate :: UTerm () -> (UTerm (IRep IMetaVar), Set Equality)
 elaborate = getEqualities . flip runState empty . go where
   empty = Elaborate{counter=0,thMapping=mempty,equalities=mempty}
   getEqualities (term, Elaborate{equalities}) = (term, equalities)
-  go :: UTerm (IRep void) -> State Elaborate (UTerm (IRep IMetaVar))
+  go :: UTerm () -> State Elaborate (UTerm (IRep IMetaVar))
   go = undefined
 
 ensureIMetaVar :: TH.Uniq -> State Elaborate IMetaVar
