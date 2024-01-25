@@ -991,9 +991,19 @@ elaborate = getEqualities . flip runState empty . go where
   getEqualities (term, Elaborate{equalities}) = (term, equalities)
   go :: UTerm () -> State Elaborate (UTerm (IRep IMetaVar))
   go = \case
-    UVar t string -> do
+    UForall () types forall' polyRep -> do
+      v <- freshIMetaVar
+      -- TODO: equality constraints.
+      pure $ UForall (IVar v) types forall' polyRep
+    UVar () string -> do
       v <- freshIMetaVar
       pure $ UVar (IVar v) string
+    UApp () f x -> do
+      f' <- go f
+      x' <- go x
+      -- TODO: equality constraints.
+      b <- freshIMetaVar
+      pure $ UApp (IVar b) f' x'
 
 ensureIMetaVar :: TH.Uniq -> State Elaborate IMetaVar
 ensureIMetaVar s = do
