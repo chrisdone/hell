@@ -219,13 +219,13 @@ lookp (SVar v) (env, x) = lookp v env
 -- type-checked. The HSE AST is desugared into this one.
 
 data UTerm t
-  = UVar String
-  | ULam Binding (Maybe SomeStarType) (UTerm t)
-  | UApp (UTerm t) (UTerm t)
+  = UVar t String
+  | ULam t Binding (Maybe SomeStarType) (UTerm t)
+  | UApp t (UTerm t) (UTerm t)
 
   -- IRep below: The variables are poly types, they aren't metavars,
   -- and need to be instantiated.
-  | UForall [SomeStarType] Forall (IRep TH.Uniq)
+  | UForall t [SomeStarType] Forall (IRep TH.Uniq)
   deriving (Traversable, Functor, Foldable)
   -- -- Special constructors needed for syntax that is "polymorphic."
   -- | UBind t UTerm UTerm
@@ -241,7 +241,7 @@ data Forall
   | Final (forall g. Typed (Term g))
 
 lit :: Type.Typeable a => a -> UTerm ()
-lit l = UForall [] (Final (Typed (Type.typeOf l) (Lit l))) (fromSomeStarType (SomeStarType (Type.typeOf l)))
+lit l = UForall () [] (Final (Typed (Type.typeOf l) (Lit l))) (fromSomeStarType (SomeStarType (Type.typeOf l)))
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 deriving instance Show SomeStarType
@@ -283,16 +283,16 @@ tc :: (UTerm SomeStarType) -> TyEnv g -> Typed (Term g)
 --   case (tc x env, tc y env, tc z env) of
 --     (Typed (TypeRep @x) x', Typed (TypeRep @y) y', Typed (TypeRep @z) z') ->
 --       Typed (typeRep @(x,y,z)) $ App (App (App (Lit ((,,) :: x -> y -> z -> (x,y,z))) x') y') z'
-tc (UVar v) env = case lookupVar v env of
+tc (UVar _ v) env = case lookupVar v env of
   Typed ty v -> Typed ty (Var v)
-tc (ULam s (Just (SomeStarType bndr_ty')) body) env =
+tc (ULam _ s (Just (SomeStarType bndr_ty')) body) env =
       case tc body (Cons s bndr_ty' env) of
         Typed body_ty' body' ->
           Typed
             (Type.Fun bndr_ty' body_ty')
             (Lam bndr_ty' body')
-tc (ULam s Nothing body) env = error $ "Lambdas presently require a type sig on the arg"
-tc (UApp e1 e2) env =
+tc (ULam _ s Nothing body) env = error $ "Lambdas presently require a type sig on the arg"
+tc (UApp _ e1 e2) env =
   case tc e1 env of
     Typed (Type.Fun bndr_ty body_ty) e1' ->
       case tc e2 env of
@@ -308,7 +308,7 @@ tc (UApp e1 e2) env =
                      (App e1'
                           e2')
 -- Polytyped terms, must be, syntactically, fully-saturated
-tc (UForall reps fall _) _env = go reps fall where
+tc (UForall _ reps fall _) _env = go reps fall where
   go :: [SomeStarType] -> Forall -> Typed (Term g)
   go [] (Final typed) = typed
   go (SomeStarType rep:reps) (Unconstrained f) = go reps (f rep)
@@ -430,12 +430,12 @@ desugarExp globals = go where
       desugarQName globals qname reps
     HSE.Var _ qname ->
       desugarQName globals qname []
-    HSE.App _ f x -> UApp <$> go f <*> go x
-    HSE.InfixApp _ x (HSE.QVarOp l f) y -> UApp <$> (UApp <$> go (HSE.Var l f) <*> go x) <*> go y
+    HSE.App _ f x -> UApp () <$> go f <*> go x
+    HSE.InfixApp _ x (HSE.QVarOp l f) y -> UApp () <$> (UApp () <$> go (HSE.Var l f) <*> go x) <*> go y
     HSE.Lambda _ pats e -> do
       args <- traverse desugarArg pats
       e' <- go e
-      pure $ foldr (\(name,ty) inner  -> ULam name (Just ty) inner)  e' args
+      pure $ foldr (\(name,ty) inner  -> ULam () name (Just ty) inner)  e' args
     HSE.Con _ qname ->
       case qname of
         HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
@@ -464,7 +464,7 @@ desugarExp globals = go where
 desugarQName :: Map String (UTerm ()) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> Either DesugarError (UTerm ())
 desugarQName globals qname [] =
   case qname of
-    HSE.UnQual _ (HSE.Ident _ string) -> pure $ UVar string
+    HSE.UnQual _ (HSE.Ident _ string) -> pure $ UVar () string
     HSE.Qual _ (HSE.ModuleName _ "Main") (HSE.Ident _ string)
       | Just uterm  <- Map.lookup string globals ->
         pure uterm
@@ -479,10 +479,10 @@ desugarQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just (forall', irep) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
-        pure (UForall treps forall' irep)
+        pure (UForall () treps forall' irep)
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just (forall', irep) <- Map.lookup string polyLits -> do
-        pure (UForall treps forall' irep)
+        pure (UForall () treps forall' irep)
     _ ->  Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, SomeStarType)
