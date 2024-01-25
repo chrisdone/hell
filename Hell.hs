@@ -981,7 +981,6 @@ data ElaborateError = E
 
 data Elaborate = Elaborate {
   counter :: Int,
-  thMapping :: Map TH.Uniq IMetaVar,
   equalities :: Set Equality
   }
 
@@ -997,7 +996,7 @@ data Equality = Equality (IRep IMetaVar) (IRep IMetaVar)
 -- Output type /does/ contain meta vars.
 elaborate :: UTerm () -> (UTerm (IRep IMetaVar), Set Equality)
 elaborate = getEqualities . flip runState empty . go where
-  empty = Elaborate{counter=0,thMapping=mempty,equalities=mempty}
+  empty = Elaborate{counter=0,equalities=mempty}
   getEqualities (term, Elaborate{equalities}) = (term, equalities)
   go :: UTerm () -> State Elaborate (UTerm (IRep IMetaVar))
   go = \case
@@ -1017,31 +1016,24 @@ elaborate = getEqualities . flip runState empty . go where
       body' <- go body
       let ty = IFun a (typeOf body')
       pure $ ULam ty binding mstarType body'
-    UForall () types forall' vars polyRep -> do
-      ty <- instantiate polyRep
-      -- TODO: equality constraints.
-      pure $ UForall ty types forall' vars polyRep
-
-instantiate :: IRep TH.Uniq -> State Elaborate (IRep IMetaVar)
-instantiate = go where
-  go = \case
-    IVar u -> fmap IVar (ensureIMetaVar u)
-    IApp f x -> IApp <$> go f <*> go x
-    IFun a b -> IFun <$> go a <*> go b
-    ICon someTypeRep -> pure $ ICon someTypeRep
+    UForall () types forall' uniqs polyRep -> do
+      -- Generate variables for each unique.
+      vars <- for uniqs \uniq -> do
+        v <- freshIMetaVar
+        pure (uniq, v)
+      -- Fill in the polyRep with the metavars.
+      monoType <- for polyRep \uniq ->
+        case List.lookup uniq vars of
+          Nothing -> error "Instantiation is broken internally."
+          Just var -> pure var
+      -- Order of types is position-dependent, apply the ones we have.
+      for (zip vars types) \((_uniq, var), someTypeRep) ->
+        equal (fromSomeStarType someTypeRep) (IVar var)
+      -- Done!
+      pure $ UForall monoType types forall' uniqs polyRep
 
 equal :: IRep IMetaVar -> IRep IMetaVar -> State Elaborate ()
 equal x y = modify \elaborate -> elaborate { equalities = equalities elaborate <> Set.singleton (Equality x y) }
-
-ensureIMetaVar :: TH.Uniq -> State Elaborate IMetaVar
-ensureIMetaVar s = do
-  Elaborate{thMapping} <- get
-  case Map.lookup s thMapping of
-    Nothing -> do
-      ivar <- freshIMetaVar
-      modify \elaborate -> elaborate { thMapping = Map.insert s ivar thMapping }
-      pure ivar
-    Just ivar -> pure ivar
 
 freshIMetaVar :: State Elaborate IMetaVar
 freshIMetaVar = do
