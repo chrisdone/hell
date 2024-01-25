@@ -971,7 +971,8 @@ data ElaborateError = E
 
 data Elaborate = Elaborate {
   counter :: Int,
-  thMapping :: Map TH.Uniq IMetaVar
+  thMapping :: Map TH.Uniq IMetaVar,
+  equalities :: Set Equality
   }
 
 data Equality = Equality (IRep IMetaVar) (IRep IMetaVar)
@@ -985,11 +986,13 @@ data Equality = Equality (IRep IMetaVar) (IRep IMetaVar)
 --
 -- Output type /does/ contain meta vars.
 elaborate :: UTerm IType -> (UTerm (IRep IMetaVar), Set Equality)
-elaborate = flip runState mempty . go where
-  go :: UTerm (IRep void) -> State (Set Equality) (UTerm (IRep IMetaVar))
+elaborate = getEqualities . flip runState empty . go where
+  empty = Elaborate{counter=0,thMapping=mempty,equalities=mempty}
+  getEqualities (term, Elaborate{equalities}) = (term, equalities)
+  go :: UTerm (IRep void) -> State Elaborate (UTerm (IRep IMetaVar))
   go = undefined
 
-ensureIMetaVar :: TH.Uniq -> StateT Elaborate (Either ElaborateError) IMetaVar
+ensureIMetaVar :: TH.Uniq -> State Elaborate IMetaVar
 ensureIMetaVar s = do
   Elaborate{thMapping} <- get
   case Map.lookup s thMapping of
@@ -999,7 +1002,7 @@ ensureIMetaVar s = do
       pure ivar
     Just ivar -> pure ivar
 
-freshIMetaVar :: StateT Elaborate (Either ElaborateError) IMetaVar
+freshIMetaVar :: State Elaborate IMetaVar
 freshIMetaVar = do
   Elaborate{counter} <- get
   modify \elaborate -> elaborate { counter = counter + 1 }
