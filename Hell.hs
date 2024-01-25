@@ -233,6 +233,13 @@ data UTerm t
   -- | UTuple [(t,UTerm)]
   -- | UIf t UTerm UTerm UTerm
 
+typeOf :: UTerm t -> t
+typeOf = \case
+  UVar t _ -> t
+  ULam t _ _ _ -> t
+  UApp t _ _ -> t
+  UForall t _ _ _ -> t
+
 data Binding = Singleton String | Tuple [String]
 
 data Forall
@@ -1004,6 +1011,14 @@ elaborate = getEqualities . flip runState empty . go where
       -- TODO: equality constraints.
       b <- freshIMetaVar
       pure $ UApp (IVar b) f' x'
+    ULam () binding mstarType body -> do
+      a <- case mstarType of
+        Just ty -> pure $ fromSomeStarType ty
+        Nothing -> fmap IVar freshIMetaVar
+      body' <- go body
+      let ty = IFun a (typeOf body')
+      -- TODO: equality constraints.
+      pure $ ULam ty binding mstarType body'
 
 ensureIMetaVar :: TH.Uniq -> State Elaborate IMetaVar
 ensureIMetaVar s = do
