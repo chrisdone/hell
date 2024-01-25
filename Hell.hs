@@ -225,7 +225,7 @@ data UTerm t
 
   -- IRep below: The variables are poly types, they aren't metavars,
   -- and need to be instantiated.
-  | UForall t [SomeStarType] Forall (IRep TH.Uniq)
+  | UForall t [SomeStarType] Forall [TH.Uniq] (IRep TH.Uniq)
   deriving (Traversable, Functor, Foldable)
   -- -- Special constructors needed for syntax that is "polymorphic."
   -- | UBind t UTerm UTerm
@@ -238,7 +238,7 @@ typeOf = \case
   UVar t _ -> t
   ULam t _ _ _ -> t
   UApp t _ _ -> t
-  UForall t _ _ _ -> t
+  UForall t _ _ _ _ -> t
 
 data Binding = Singleton String | Tuple [String]
 
@@ -248,7 +248,7 @@ data Forall
   | Final (forall g. Typed (Term g))
 
 lit :: Type.Typeable a => a -> UTerm ()
-lit l = UForall () [] (Final (Typed (Type.typeOf l) (Lit l))) (fromSomeStarType (SomeStarType (Type.typeOf l)))
+lit l = UForall () [] (Final (Typed (Type.typeOf l) (Lit l))) [] (fromSomeStarType (SomeStarType (Type.typeOf l)))
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 deriving instance Show SomeStarType
@@ -315,7 +315,7 @@ tc (UApp _ e1 e2) env =
                      (App e1'
                           e2')
 -- Polytyped terms, must be, syntactically, fully-saturated
-tc (UForall _ reps fall _) _env = go reps fall where
+tc (UForall _ reps fall _ _) _env = go reps fall where
   go :: [SomeStarType] -> Forall -> Typed (Term g)
   go [] (Final typed) = typed
   go (SomeStarType rep:reps) (Unconstrained f) = go reps (f rep)
@@ -485,11 +485,11 @@ desugarQName globals qname [] =
 desugarQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
-      | Just (forall', irep) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
-        pure (UForall () treps forall' irep)
+      | Just (forall', vars, irep) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
+        pure (UForall () treps forall' vars irep)
     HSE.UnQual _ (HSE.Symbol _ string)
-      | Just (forall', irep) <- Map.lookup string polyLits -> do
-        pure (UForall () treps forall' irep)
+      | Just (forall', vars, irep) <- Map.lookup string polyLits -> do
+        pure (UForall () treps forall' vars irep)
     _ ->  Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, SomeStarType)
@@ -779,7 +779,7 @@ then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 --------------------------------------------------------------------------------
 -- Derive prims TH
 
-polyLits :: Map String (Forall, IRep TH.Uniq)
+polyLits :: Map String (Forall, [TH.Uniq], IRep TH.Uniq)
 polyLits = Map.fromList $
   $(let
       -- Derive well-typed primitive forms.
@@ -809,6 +809,9 @@ polyLits = Map.fromList $
       makePrim (TH.NoBindS (TH.SigE (TH.AppE (TH.LitE (TH.StringL string)) expr)
                    (TH.ForallT vars constraints typ))) =
         let constrained = foldMap getConstraint constraints
+            vars0 = map (\(TH.PlainTV v TH.SpecifiedSpec) ->
+                        TH.litE $ TH.IntegerL $ nameUnique v)
+                      vars
             builder =
               foldr
                 (\(TH.PlainTV v TH.SpecifiedSpec) rest ->
@@ -818,7 +821,7 @@ polyLits = Map.fromList $
                              rest))
                 [| Final $ typed $(TH.sigE (pure expr) (pure typ)) |]
                 vars
-        in [| (string, ($builder, $(toTy typ))) |]
+        in [| (string, ($builder, $(TH.listE vars0), $(toTy typ))) |]
       makePrim e = error $ "Should be of the form \"Some.name\" The.name :: T\ngot: " ++ show e
 
       -- Just tells us whether a given variable is constrained by a
@@ -1014,10 +1017,10 @@ elaborate = getEqualities . flip runState empty . go where
       body' <- go body
       let ty = IFun a (typeOf body')
       pure $ ULam ty binding mstarType body'
-    UForall () types forall' polyRep -> do
+    UForall () types forall' vars polyRep -> do
       ty <- instantiate polyRep
       -- TODO: equality constraints.
-      pure $ UForall ty types forall' polyRep
+      pure $ UForall ty types forall' vars polyRep
 
 instantiate :: IRep TH.Uniq -> State Elaborate (IRep IMetaVar)
 instantiate = go where
