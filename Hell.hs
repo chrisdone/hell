@@ -220,7 +220,7 @@ lookp (SVar v) (env, x) = lookp v env
 
 data UTerm t
   = UVar String
-  | ULam Binding t (UTerm t)
+  | ULam Binding (Maybe SomeStarType) (UTerm t)
   | UApp (UTerm t) (UTerm t)
 
   -- IRep below: The variables are poly types, they aren't metavars,
@@ -285,12 +285,13 @@ tc :: (UTerm SomeStarType) -> TyEnv g -> Typed (Term g)
 --       Typed (typeRep @(x,y,z)) $ App (App (App (Lit ((,,) :: x -> y -> z -> (x,y,z))) x') y') z'
 tc (UVar v) env = case lookupVar v env of
   Typed ty v -> Typed ty (Var v)
-tc (ULam s (SomeStarType bndr_ty') body) env =
+tc (ULam s (Just (SomeStarType bndr_ty')) body) env =
       case tc body (Cons s bndr_ty' env) of
         Typed body_ty' body' ->
           Typed
             (Type.Fun bndr_ty' body_ty')
             (Lam bndr_ty' body')
+tc (ULam s Nothing body) env = error $ "Lambdas presently require a type sig on the arg"
 tc (UApp e1 e2) env =
   case tc e1 env of
     Typed (Type.Fun bndr_ty body_ty) e1' ->
@@ -434,7 +435,7 @@ desugarExp globals = go where
     HSE.Lambda _ pats e -> do
       args <- traverse desugarArg pats
       e' <- go e
-      pure $ foldr (\(name,ty) inner  -> ULam name (fromSomeStarType ty) inner)  e' args
+      pure $ foldr (\(name,ty) inner  -> ULam name (Just ty) inner)  e' args
     HSE.Con _ qname ->
       case qname of
         HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
