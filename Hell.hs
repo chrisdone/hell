@@ -1015,9 +1015,17 @@ elaborate = getEqualities . flip runState empty . go where
       let ty = IFun a (typeOf body')
       pure $ ULam ty binding mstarType body'
     UForall () types forall' polyRep -> do
-      v <- freshIMetaVar
+      ty <- instantiate polyRep
       -- TODO: equality constraints.
-      pure $ UForall (IVar v) types forall' polyRep
+      pure $ UForall ty types forall' polyRep
+
+instantiate :: IRep TH.Uniq -> State Elaborate (IRep IMetaVar)
+instantiate = go where
+  go = \case
+    IVar u -> fmap IVar (ensureIMetaVar u)
+    IApp f x -> IApp <$> go f <*> go x
+    IFun a b -> IFun <$> go a <*> go b
+    ICon someTypeRep -> pure $ ICon someTypeRep
 
 equal :: IRep IMetaVar -> IRep IMetaVar -> State Elaborate ()
 equal x y = modify \elaborate -> elaborate { equalities = equalities elaborate <> Set.singleton (Equality x y) }
