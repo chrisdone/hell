@@ -1020,6 +1020,9 @@ elaborate = getEqualities . flip runState empty . go where
       -- TODO: equality constraints.
       pure $ ULam ty binding mstarType body'
 
+equal :: IRep IMetaVar -> IRep IMetaVar -> State Elaborate ()
+equal x y = modify \elaborate -> elaborate { equalities = equalities elaborate <> Set.singleton (Equality x y) }
+
 ensureIMetaVar :: TH.Uniq -> State Elaborate IMetaVar
 ensureIMetaVar s = do
   Elaborate{thMapping} <- get
