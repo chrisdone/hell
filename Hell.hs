@@ -413,7 +413,7 @@ nestedTyApps = go [] where
   go acc _ = Nothing
 
 desugarExp :: Map String (UTerm IType) -> HSE.Exp HSE.SrcSpanInfo ->
-   (Either DesugarError) (UTerm IType)
+   Either DesugarError (UTerm IType)
 desugarExp globals = go where
   go = \case
     HSE.Paren _ x -> go x
@@ -461,7 +461,7 @@ desugarExp globals = go where
     --   loop id stmts
     e -> Left $ UnsupportedSyntax $ show e
 
-desugarQName :: Map String (UTerm IType) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> (Either DesugarError) (UTerm IType)
+desugarQName :: Map String (UTerm IType) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> Either DesugarError (UTerm IType)
 desugarQName globals qname [] =
   case qname of
     HSE.UnQual _ (HSE.Ident _ string) -> pure $ UVar string
@@ -485,7 +485,7 @@ desugarQName globals qname treps =
         pure (UForall treps forall' irep)
     _ ->  Left $ InvalidVariable $ show qname
 
-desugarArg :: HSE.Pat HSE.SrcSpanInfo -> (Either DesugarError) (Binding, SomeStarType)
+desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, SomeStarType)
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) = fmap (Singleton i,) (desugarType typ)
 desugarArg (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
   | Just idents <- traverse desugarIdent idents = fmap (Tuple idents,) (desugarType typ)
@@ -499,7 +499,7 @@ desugarIdent _ = Nothing
 --------------------------------------------------------------------------------
 -- Desugar types
 
-desugarType :: HSE.Type HSE.SrcSpanInfo -> (Either DesugarError) SomeStarType
+desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
 desugarType t = do
   someRep <- go t
   case someRep of
@@ -507,7 +507,7 @@ desugarType t = do
     _ ->  Left KindError
 
   where
-  go :: HSE.Type HSE.SrcSpanInfo -> (Either DesugarError) SomeTypeRep
+  go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
   go = \case
     HSE.TyTuple _ HSE.Boxed types -> do
       tys <- traverse go types
@@ -570,9 +570,9 @@ desugarTypeSpec = do
 --------------------------------------------------------------------------------
 -- Desugar all bindings
 
-desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> (Either DesugarError) [(String, UTerm IType)]
+desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Either DesugarError [(String, UTerm IType)]
 desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stronglyConnected where
-  go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String (UTerm IType)) ((Either DesugarError)) (String, UTerm IType)
+  go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String (UTerm IType)) (Either DesugarError) (String, UTerm IType)
   go (name, expr) = do
     globals <- get
     uterm <- lift $ desugarExp globals expr
