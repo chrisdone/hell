@@ -990,7 +990,10 @@ elaborate = getEqualities . flip runState empty . go where
   empty = Elaborate{counter=0,thMapping=mempty,equalities=mempty}
   getEqualities (term, Elaborate{equalities}) = (term, equalities)
   go :: UTerm () -> State Elaborate (UTerm (IRep IMetaVar))
-  go = undefined
+  go = \case
+    UVar t string -> do
+      v <- freshIMetaVar
+      pure $ UVar (IVar v) string
 
 ensureIMetaVar :: TH.Uniq -> State Elaborate IMetaVar
 ensureIMetaVar s = do
