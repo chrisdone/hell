@@ -933,17 +933,21 @@ data IRep v
   | ICon SomeTypeRep
   deriving (Functor, Traversable, Foldable, Eq, Ord, Show)
 
+data ZonkError
+ = ZonkKindError
+ | AmbiguousMetavar
+
 -- | A complete implementation of conversion from the inferer's type
 -- rep to some star type, ready for the type checker.
-toSomeTypeRep :: IRep Void -> Either DesugarError SomeStarType
+toSomeTypeRep :: IRep Void -> Either ZonkError SomeStarType
 toSomeTypeRep t = do
   someRep <- go t
   case someRep of
     StarTypeRep t -> pure (SomeStarType t)
-    _ -> Left KindError
+    _ -> Left ZonkKindError
 
   where
-  go :: IRep Void -> Either DesugarError SomeTypeRep
+  go :: IRep Void -> Either ZonkError SomeTypeRep
   go = \case
     IVar v -> pure (absurd v)
     ICon someTypeRep -> pure someTypeRep
@@ -953,13 +957,13 @@ toSomeTypeRep t = do
       case (a', b') of
         (StarTypeRep aRep, StarTypeRep bRep) ->
           pure $ StarTypeRep (Type.Fun aRep bRep)
-        _ -> Left KindError
+        _ -> Left ZonkKindError
     IApp f a -> do
       f' <- go f
       a' <- go a
       case applyTypes f' a' of
         Just someTypeRep -> pure someTypeRep
-        _ -> Left KindError
+        _ -> Left ZonkKindError
 
 -- | Convert from a type-indexed type to an untyped type.
 fromSomeStarType :: forall void. SomeStarType -> IRep void
@@ -976,16 +980,19 @@ fromSomeStarType (SomeStarType typeRep) = go typeRep where
 newtype IMetaVar = IMetaVar0 Int
   deriving (Ord, Eq, Show)
 
-data ElaborateError = E
-  deriving (Show, Eq)
-
 data Elaborate = Elaborate {
   counter :: Int,
   equalities :: Set Equality
   }
 
 data Equality = Equality (IRep IMetaVar) (IRep IMetaVar)
-  deriving (Show, Ord, Eq)
+  deriving (Show)
+
+-- Equality/ordering that is symmetric.
+instance Eq Equality where
+  Equality a b == Equality c d = Set.fromList [a,b] == Set.fromList [c,d]
+instance Ord Equality where
+  Equality a b `compare` Equality c d = Set.fromList [a,b] `compare` Set.fromList [c,d]
 
 -- | Elaboration phase.
 --
@@ -1040,3 +1047,25 @@ freshIMetaVar = do
   Elaborate{counter} <- get
   modify \elaborate -> elaborate { counter = counter + 1 }
   pure $ IMetaVar0 counter
+
+--------------------------------------------------------------------------------
+-- Unification
+
+unify :: Set Equality -> Map IMetaVar (IRep IMetaVar)
+unify = undefined
+
+substitute :: Map IMetaVar (IRep IMetaVar) -> IMetaVar -> IMetaVar
+substitute = undefined
+
+--------------------------------------------------------------------------------
+-- Removal of metavars
+
+-- | Remove any metavars from the type.
+--
+-- <https://stackoverflow.com/questions/31889048/what-does-the-ghc-source-mean-by-zonk>
+zonk :: IRep IMetaVar -> Either ZonkError (IRep Void)
+zonk = \case
+  IVar v -> Left AmbiguousMetavar
+  ICon c -> pure $ ICon c
+  IFun a b -> IFun <$> zonk a <*> zonk b
+  IApp a b -> IApp <$> zonk a <*> zonk b
