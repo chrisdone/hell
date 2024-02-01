@@ -982,16 +982,16 @@ newtype IMetaVar = IMetaVar0 Int
 
 data Elaborate = Elaborate {
   counter :: Int,
-  equalities :: Set Equality
+  equalities :: Set (Equality (IRep IMetaVar))
   }
 
-data Equality = Equality (IRep IMetaVar) (IRep IMetaVar)
-  deriving (Show)
+data Equality a = Equality a a
+  deriving (Show, Functor)
 
 -- Equality/ordering that is symmetric.
-instance Eq Equality where
+instance (Ord a) => Eq (Equality a) where
   Equality a b == Equality c d = Set.fromList [a,b] == Set.fromList [c,d]
-instance Ord Equality where
+instance (Ord a) => Ord (Equality a) where
   Equality a b `compare` Equality c d = Set.fromList [a,b] `compare` Set.fromList [c,d]
 
 -- | Elaboration phase.
@@ -1001,7 +1001,7 @@ instance Ord Equality where
 -- metavars.
 --
 -- Output type /does/ contain meta vars.
-elaborate :: UTerm () -> (UTerm (IRep IMetaVar), Set Equality)
+elaborate :: UTerm () -> (UTerm (IRep IMetaVar), Set (Equality (IRep IMetaVar)))
 elaborate = getEqualities . flip runState empty . go where
   empty = Elaborate{counter=0,equalities=mempty}
   getEqualities (term, Elaborate{equalities}) = (term, equalities)
@@ -1051,14 +1051,52 @@ freshIMetaVar = do
 --------------------------------------------------------------------------------
 -- Unification
 
-unify :: Set Equality -> Map IMetaVar (IRep IMetaVar)
-unify = undefined
+data UnifyError = OccursCheck | TypeConMismatch SomeTypeRep SomeTypeRep
 
-substitute :: Map IMetaVar (IRep IMetaVar) -> IMetaVar -> IMetaVar
-substitute = undefined
+unify :: Set (Equality (IRep IMetaVar)) -> Either UnifyError (Map IMetaVar (IRep IMetaVar))
+unify = foldM update mempty where
+  update existing equality =
+    fmap (`extends` existing)
+         (examine (fmap (substitute existing) equality))
+  examine (Equality a b)
+   | a == b = pure mempty
+   | IVar ivar <- a = bindMetaVar ivar b
+   | IVar ivar <- b = bindMetaVar ivar a
+   | IFun a1 b1 <- a,
+     IFun a2 b2 <- b =
+       unify (Set.fromList [Equality a1 a2, Equality b1 b2])
+   | IApp a1 b1 <- a,
+     IApp a2 b2 <- b =
+       unify (Set.fromList [Equality a1 a2, Equality b1 b2])
+   | ICon x <- a, ICon y <- b =
+      if x == y then pure mempty
+                else Left $ TypeConMismatch x y
 
---------------------------------------------------------------------------------
--- Removal of metavars
+-- | Apply new substitutions to the old ones, and expand the set to old+new.
+extends :: Map IMetaVar (IRep IMetaVar) -> Map IMetaVar (IRep IMetaVar) -> Map IMetaVar (IRep IMetaVar)
+extends new old = fmap (substitute new) old <> new
+
+-- | Apply any substitutions to the type, where there are metavars.
+substitute :: Map IMetaVar (IRep IMetaVar) -> IRep IMetaVar -> IRep IMetaVar
+substitute subs = go where
+  go = \case
+    IVar v -> case Map.lookup v subs of
+      Nothing -> IVar v
+      Just ty -> ty
+    ICon c -> ICon c
+    IFun a b -> IFun (go a) (go b)
+    IApp a b -> IApp (go a) (go b)
+
+-- | Do an occurrs check, if all good, return a binding.
+bindMetaVar :: IMetaVar -> IRep IMetaVar
+            -> Either UnifyError (Map IMetaVar (IRep IMetaVar))
+bindMetaVar var typ
+  | occurs var typ = Left OccursCheck
+  | otherwise = pure $ Map.singleton var typ
+
+-- | Occurs check.
+occurs :: IMetaVar -> IRep IMetaVar -> Bool
+occurs ivar = any (==ivar)
 
 -- | Remove any metavars from the type.
 --
