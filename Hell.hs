@@ -292,13 +292,19 @@ tc :: (UTerm SomeStarType) -> TyEnv g -> Typed (Term g)
 --       Typed (typeRep @(x,y,z)) $ App (App (App (Lit ((,,) :: x -> y -> z -> (x,y,z))) x') y') z'
 tc (UVar _ v) env = case lookupVar v env of
   Typed ty v -> Typed ty (Var v)
-tc (ULam _ s (Just (SomeStarType bndr_ty')) body) env =
+ -- tc (ULam _ s (Just (SomeStarType bndr_ty')) body) env =
+tc (ULam (SomeStarType lam_ty) s _ body) env =
+  case lam_ty of
+    Type.Fun bndr_ty' body_t' |
+      Just Type.HRefl <- Type.eqTypeRep (typeRepKind bndr_ty') (typeRep @Type) ->
       case tc body (Cons s bndr_ty' env) of
         Typed body_ty' body' ->
-          Typed
-            (Type.Fun bndr_ty' body_ty')
-            (Lam bndr_ty' body')
-tc (ULam _ s Nothing body) env = error $ "Lambdas presently require a type sig on the arg"
+          let checked_ty = Type.Fun bndr_ty' body_ty'
+          in
+           case Type.eqTypeRep checked_ty lam_ty of
+             Just Type.HRefl -> Typed lam_ty (Lam bndr_ty' body')
+             Nothing -> error "Checked type of lambda didn't match inferred type. That's a bug."
+    _ -> error $ "Lambda's type should be a function, a -> b, but it's not. That's weird."
 tc (UApp _ e1 e2) env =
   case tc e1 env of
     Typed (Type.Fun bndr_ty body_ty) e1' ->
@@ -442,7 +448,7 @@ desugarExp globals = go where
     HSE.Lambda _ pats e -> do
       args <- traverse desugarArg pats
       e' <- go e
-      pure $ foldr (\(name,ty) inner  -> ULam () name (Just ty) inner)  e' args
+      pure $ foldr (\(name,ty) inner  -> ULam () name ty inner)  e' args
     HSE.Con _ qname ->
       case qname of
         HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
@@ -492,10 +498,17 @@ desugarQName globals qname treps =
         pure (UForall () treps forall' vars irep)
     _ ->  Left $ InvalidVariable $ show qname
 
-desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, SomeStarType)
-desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) = fmap (Singleton i,) (desugarType typ)
+desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
+desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) =
+  fmap (Singleton i,) (fmap Just (desugarType typ))
 desugarArg (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
-  | Just idents <- traverse desugarIdent idents = fmap (Tuple idents,) (desugarType typ)
+  | Just idents <- traverse desugarIdent idents =
+  fmap (Tuple idents,) (fmap Just (desugarType typ))
+desugarArg (HSE.PVar _ (HSE.Ident _ i)) =
+  pure (Singleton i,Nothing)
+desugarArg (HSE.PTuple _ HSE.Boxed idents)
+  | Just idents <- traverse desugarIdent idents =
+  pure (Tuple idents,Nothing)
 desugarArg (HSE.PParen _ p) = desugarArg p
 desugarArg p =  Left $ BadParameterSyntax $ show p
 
@@ -589,20 +602,23 @@ desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stron
 --------------------------------------------------------------------------------
 -- Infer
 
-data InferError = TypeMismatch SomeStarType SomeStarType
+data InferError =
+  UnifyError UnifyError | ZonkError ZonkError
   deriving Show
 
--- | Perform type inference on all definitions.
+-- TODO: remove?
 --
--- Note: Assumes reverse topological order (desugarAll does this).
-infer :: [(String, UTerm ())] -> Either InferError [(String, UTerm SomeStarType)]
-infer = flip evalStateT Map.empty . traverse go where
-  go :: (String, UTerm ()) -> StateT (Map String (UTerm SomeStarType)) (Either InferError) (String, UTerm SomeStarType)
-  go (name, expr) = do
-    globals <- get
-    uterm <- lift $ inferExp globals expr
-    modify' $ Map.insert name uterm
-    pure (name, uterm)
+-- -- | Perform type inference on all definitions.
+-- --
+-- -- Note: Assumes reverse topological order (desugarAll does this).
+-- infer :: [(String, UTerm ())] -> Either InferError [(String, UTerm SomeStarType)]
+-- infer = flip evalStateT Map.empty . traverse go where
+--   go :: (String, UTerm ()) -> StateT (Map String (UTerm SomeStarType)) (Either InferError) (String, UTerm SomeStarType)
+--   go (name, expr) = do
+--     globals <- get
+--     uterm <- lift $ inferExp globals expr
+--     modify' $ Map.insert name uterm
+--     pure (name, uterm)
 
 -- | Note: All types in the input are free of metavars. There is an
 -- intermediate phase in which there are metavars, but then they're
@@ -612,7 +628,21 @@ inferExp ::
   Map String (UTerm SomeStarType) ->
   UTerm () ->
   Either InferError (UTerm SomeStarType)
-inferExp globals = undefined
+inferExp _globals {- todo: delete? -} uterm =
+  case unify equalities of
+    Left unifyError -> Left $ UnifyError unifyError
+    Right subs ->
+      case traverse (zonkToStarType subs) iterm of
+        Left zonkError -> Left $ ZonkError $ zonkError
+        Right sterm -> pure sterm
+
+  where (iterm, equalities) = elaborate uterm
+
+-- | Zonk a type and then convert it to a type: t :: *
+zonkToStarType :: Map IMetaVar (IRep IMetaVar) -> IRep IMetaVar -> Either ZonkError SomeStarType
+zonkToStarType subs irep = do
+  zonked <- zonk (substitute subs irep)
+  toSomeTypeRep zonked
 
 --------------------------------------------------------------------------------
 -- Occurs check
@@ -936,6 +966,7 @@ data IRep v
 data ZonkError
  = ZonkKindError
  | AmbiguousMetavar
+ deriving (Show)
 
 -- | A complete implementation of conversion from the inferer's type
 -- rep to some star type, ready for the type checker.
@@ -1052,7 +1083,9 @@ freshIMetaVar = do
 -- Unification
 
 data UnifyError = OccursCheck | TypeConMismatch SomeTypeRep SomeTypeRep
+  deriving (Show)
 
+-- | Unification of equality constraints, a ~ b, to substitutions.
 unify :: Set (Equality (IRep IMetaVar)) -> Either UnifyError (Map IMetaVar (IRep IMetaVar))
 unify = foldM update mempty where
   update existing equality =
