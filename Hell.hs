@@ -8,7 +8,7 @@
 -- made some of this more ergonomic.
 
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments, NamedFieldPuns #-}
-{-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types #-}
+{-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms, TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 
@@ -56,7 +56,8 @@ import Data.Void
 import Data.Traversable
 import Data.Bifunctor
 import System.Process.Typed as Process
-import Control.Monad.State
+import Control.Monad.State.Strict
+import Control.Monad.Reader
 import System.Environment
 import Data.Map (Map)
 import Data.Set (Set)
@@ -1035,10 +1036,10 @@ instance (Ord a) => Ord (Equality a) where
 --
 -- Output type /does/ contain meta vars.
 elaborate :: UTerm () -> (UTerm (IRep IMetaVar), Set (Equality (IRep IMetaVar)))
-elaborate = getEqualities . flip runState empty . go where
+elaborate = getEqualities . flip runState empty . flip runReaderT mempty . go where
   empty = Elaborate{counter=0,equalities=mempty}
   getEqualities (term, Elaborate{equalities}) = (term, equalities)
-  go :: UTerm () -> State Elaborate (UTerm (IRep IMetaVar))
+  go :: UTerm () -> ReaderT (Map String IMetaVar) (State Elaborate) (UTerm (IRep IMetaVar))
   go = \case
     -- TODO: the following should work
     -- main =
@@ -1080,10 +1081,10 @@ elaborate = getEqualities . flip runState empty . go where
       -- Done!
       pure $ UForall monoType types forall' uniqs polyRep (map (IVar . snd) vars)
 
-equal :: IRep IMetaVar -> IRep IMetaVar -> State Elaborate ()
+equal :: MonadState Elaborate m => IRep IMetaVar -> IRep IMetaVar -> m ()
 equal x y = modify \elaborate -> elaborate { equalities = equalities elaborate <> Set.singleton (Equality x y) }
 
-freshIMetaVar :: State Elaborate IMetaVar
+freshIMetaVar :: MonadState Elaborate m => m IMetaVar
 freshIMetaVar = do
   Elaborate{counter} <- get
   modify \elaborate -> elaborate { counter = counter + 1 }
