@@ -231,7 +231,6 @@ data UTerm t
   -- -- Special constructors needed for syntax that is "polymorphic."
   -- | UList t [UTerm]
   -- | UTuple [(t,UTerm)]
-  -- | UIf t UTerm UTerm UTerm
 
 typeOf :: UTerm t -> t
 typeOf = \case
@@ -335,18 +334,6 @@ tc (UForall _ _ fall _ _ reps) _env = go reps fall where
       | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ExitCode) -> go reps (f rep)
       | otherwise -> error $ "type doesn't have enough instances " ++ show rep
   go _ _ = error "forall type arguments mismatch."
--- Special handling for `if'
--- tc (UIf i t e) env =
---   case tc i env of
---     Typed i_ty i'
---       | Just Type.HRefl <- Type.eqTypeRep i_ty (typeRep @Bool) ->
---         case (tc t env, tc e env) of
---           (Typed (t_ty :: TypeRep a) t', Typed e_ty e')
---             | Just Type.HRefl <- Type.eqTypeRep t_ty e_ty ->
---                Typed t_ty (App (App (App (Lit (Bool.bool @a)) e') t') i')
---             | otherwise ->
---               error $ "If branches types don't match: " ++ show t_ty ++ " vs " ++ show e_ty
---       | otherwise -> error $ "If's condition isn't Bool, got: " ++ show i_ty
 -- Lists
 -- 1. Empty list; we don't have anything to check, but we need a type.
 -- 2. Populated list, we don't need a type, and expect something immediately.
@@ -406,7 +393,9 @@ desugarExp :: Map String (UTerm ()) -> HSE.Exp HSE.SrcSpanInfo ->
 desugarExp globals = go where
   go = \case
     HSE.Paren _ x -> go x
-    -- HSE.If _ i t e -> UIf <$> go i <*> go t <*> go e
+    HSE.If _ i t e ->
+      (\e' t' i' -> UApp () (UApp () (UApp () bool' e') t') i')
+        <$> go e <*> go t <*> go i
     -- HSE.Tuple _ HSE.Boxed terms -> UTuple <$> traverse go terms
     -- HSE.List _ xs -> UList <$> traverse go xs <*> pure Nothing
     -- HSE.App _ (HSE.List _ xs) (HSE.TypeApp _ ty) -> UList <$> traverse go xs <*> fmap Just (desugarType ty)
@@ -854,6 +843,9 @@ polyLits = Map.fromList $
 
 --------------------------------------------------------------------------------
 -- Internal-use only, used by the desugarer
+
+bool' :: UTerm ()
+bool' = unsafeGetForall "Bool.bool"
 
 then' :: UTerm ()
 then' = unsafeGetForall "IO.then"
