@@ -229,7 +229,6 @@ data UTerm t
   | UForall t [SomeStarType] Forall [TH.Uniq] (IRep TH.Uniq) [t]
   deriving (Traversable, Functor, Foldable)
   -- -- Special constructors needed for syntax that is "polymorphic."
-  -- | UList t [UTerm]
   -- | UTuple [(t,UTerm)]
 
 typeOf :: UTerm t -> t
@@ -334,22 +333,6 @@ tc (UForall _ _ fall _ _ reps) _env = go reps fall where
       | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ExitCode) -> go reps (f rep)
       | otherwise -> error $ "type doesn't have enough instances " ++ show rep
   go _ _ = error "forall type arguments mismatch."
--- Lists
--- 1. Empty list; we don't have anything to check, but we need a type.
--- 2. Populated list, we don't need a type, and expect something immediately.
--- tc (UList [] (Just (SomeStarType (t :: TypeRep t)))) env =
---   Typed (Type.App (typeRep @[]) t) (Lit ([] :: [t]))
--- tc (UList [x] Nothing) env =
---   case tc x env of
---     Typed rep t' ->
---       Typed (Type.App (typeRep @[]) rep) (App (Lit (:[])) t')
--- tc (UList (x:xs) Nothing) env =
---   case (tc x env, tc (UList xs Nothing) env) of
---     (Typed a_rep a, Typed as_rep as) ->
---       case Type.eqTypeRep (Type.App (typeRep @[]) a_rep) as_rep of
---         Just Type.HRefl ->
---           Typed as_rep (App (App (Lit (:)) a) as)
--- tc UList{} env = error "List must either be [x,..] or [] @T"
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
 -- embedded in the untyped AST.
@@ -397,8 +380,9 @@ desugarExp globals = go where
       (\e' t' i' -> UApp () (UApp () (UApp () bool' e') t') i')
         <$> go e <*> go t <*> go i
     -- HSE.Tuple _ HSE.Boxed terms -> UTuple <$> traverse go terms
-    -- HSE.List _ xs -> UList <$> traverse go xs <*> pure Nothing
-    -- HSE.App _ (HSE.List _ xs) (HSE.TypeApp _ ty) -> UList <$> traverse go xs <*> fmap Just (desugarType ty)
+    HSE.List _ xs -> do
+      xs' <- traverse go xs
+      pure $ foldr (\x y -> UApp () (UApp () cons' x) y) nil' xs'
     HSE.Lit _ lit' -> case lit' of
       HSE.Char _ char _ -> pure $ lit char
       HSE.String _ string _ -> pure $ lit $ Text.pack string
@@ -815,6 +799,7 @@ polyLits = Map.fromList $
   "Function.id" Function.id :: forall a. a -> a
   "Function.fix" Function.fix :: forall a. (a -> a) -> a
   "List.cons" (:) :: forall a. a -> [a] -> [a]
+  "List.nil" [] :: forall a. [a]
   "List.concat" List.concat :: forall a. [[a]] -> [a]
   "List.drop" List.drop :: forall a. Int -> [a] -> [a]
   "List.take" List.take :: forall a. Int -> [a] -> [a]
@@ -843,6 +828,12 @@ polyLits = Map.fromList $
 
 --------------------------------------------------------------------------------
 -- Internal-use only, used by the desugarer
+
+cons' :: UTerm ()
+cons' = unsafeGetForall "List.cons"
+
+nil' :: UTerm ()
+nil' = unsafeGetForall "List.nil"
 
 bool' :: UTerm ()
 bool' = unsafeGetForall "Bool.bool"
