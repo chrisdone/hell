@@ -1,8 +1,8 @@
 main = do
-  env :: [(Text, Text)] <- Environment.getEnvironment
-  (out, err) :: (Text, Text) <-
+  env <- Environment.getEnvironment
+  (out, err) <-
     Text.readProcess_ (
-      Process.setEnv (List.cons @(Text,Text) ("HELL_DEMO", "wibble") env)
+      Process.setEnv (List.cons ("HELL_DEMO", "wibble") env)
         (Process.proc "env" [])
     )
   Text.hPutStr IO.stdout out

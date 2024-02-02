@@ -1,18 +1,18 @@
 main = do
   Text.putStrLn "OK"
-  (code, out, err) :: (ExitCode, ByteString, ByteString) <- ByteString.readProcess (Process.proc "ls" ["-al"])
+  (code, out, err) <- ByteString.readProcess (Process.proc "ls" ["-al"])
   ByteString.hPutStr IO.stdout out
   ByteString.hPutStr IO.stdout err
 
-  (out, err) :: (Text, Text) <- Text.readProcess_ (Process.proc "df" ["-h", "/"])
+  (out, err) <- Text.readProcess_ (Process.proc "df" ["-h", "/"])
   Text.hPutStr IO.stdout out
   Text.hPutStr IO.stdout err
 
-  code :: ExitCode <- Process.runProcess (Process.proc "false" [])
+  code <- Process.runProcess (Process.proc "false" [])
 
   Process.runProcess_ (Process.proc "echo" ["Hello, World!"])
 
   -- Explicit type signature, but you don't need this. Just for demo'ing.
-  let config :: ProcessConfig () () () = Process.proc "false" []
-  code :: ExitCode <- Process.runProcess config
+  let config = Process.proc "false" []
+  code <- Process.runProcess config
   Text.putStrLn "Done."

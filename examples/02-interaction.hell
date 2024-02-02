@@ -1,5 +1,5 @@
 main = do
   Text.putStrLn "Please enter your name and hit ENTER:"
-  name :: Text <- Text.getLine
+  name <- Text.getLine
   Text.putStrLn "Thanks, your name is: "
   Text.putStrLn name

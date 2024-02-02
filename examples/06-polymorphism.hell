@@ -1,5 +1,5 @@
 main = do
-  let x :: Text = "Hello!"
-  Text.putStrLn (Function.id @Text x)
-  let lengths :: [Int] = List.map @Text @Int Text.length ["foo", "mu"]
-  List.mapM_ @Int (\(i :: Int) -> Text.putStrLn (Int.show i)) lengths
+  let x = "Hello!"
+  Text.putStrLn (Function.id x)
+  let lengths = List.map Text.length ["foo", "mu"]
+  List.mapM_ (\i -> Text.putStrLn (Int.show i)) lengths

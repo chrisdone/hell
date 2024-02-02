@@ -1,7 +1,7 @@
 main = do
-  List.mapM_ @Text Text.putStrLn ["Hello, ", "World!"]
+  List.mapM_ Text.putStrLn ["Hello, ", "World!"]
 
-  Function.fix @(IO ()) (\(loop :: IO ()) -> do
+  Function.fix (\(loop :: IO ()) -> do
     Text.putStrLn "Ahhhhh! More?"
-    l :: Text <- Text.getLine
+    l <- Text.getLine
     loop)

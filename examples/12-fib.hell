@@ -2,10 +2,10 @@ main = do
   Text.putStrLn (Int.show (Main.fib 30))
 
 fib =
-  Function.fix @(Int -> Int)
-    (\(fib :: Int -> Int) -> \(i :: Int) ->
-      Bool.bool @Int
-        (Bool.bool @Int
+  Function.fix
+    (\fib i ->
+      Bool.bool
+        (Bool.bool
            (Int.plus (fib (Int.subtract 1 i))
                      (fib (Int.subtract 2 i)))
            1
