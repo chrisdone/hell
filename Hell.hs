@@ -609,20 +609,6 @@ data InferError =
   UnifyError UnifyError | ZonkError ZonkError
   deriving Show
 
--- TODO: remove?
---
--- -- | Perform type inference on all definitions.
--- --
--- -- Note: Assumes reverse topological order (desugarAll does this).
--- infer :: [(String, UTerm ())] -> Either InferError [(String, UTerm SomeStarType)]
--- infer = flip evalStateT Map.empty . traverse go where
---   go :: (String, UTerm ()) -> StateT (Map String (UTerm SomeStarType)) (Either InferError) (String, UTerm SomeStarType)
---   go (name, expr) = do
---     globals <- get
---     uterm <- lift $ inferExp globals expr
---     modify' $ Map.insert name uterm
---     pure (name, uterm)
-
 -- | Note: All types in the input are free of metavars. There is an
 -- intermediate phase in which there are metavars, but then they're
 -- all eliminated. By the type system, the output contains only
