@@ -1081,7 +1081,9 @@ bindingVars :: MonadState Elaborate m => IRep IMetaVar -> Binding -> m (Map Stri
 bindingVars irep (Singleton name) = pure $ Map.singleton name irep
 bindingVars tupleVar (Tuple names) = do
   varsTypes <- for names \name -> fmap (name, ) (fmap IVar freshIMetaVar)
-  equal tupleVar $ foldr IApp (ICon cons) (map snd varsTypes)
+  -- it's a left-fold:
+  -- IApp (IApp (ICon (,)) x) y
+  equal tupleVar $ foldl IApp (ICon cons) (map snd varsTypes)
   pure $ Map.fromList varsTypes
 
   where cons = case length names of
