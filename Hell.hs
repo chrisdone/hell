@@ -228,8 +228,6 @@ data UTerm t
   -- and need to be instantiated.
   | UForall t [SomeStarType] Forall [TH.Uniq] (IRep TH.Uniq) [t]
   deriving (Traversable, Functor, Foldable)
-  -- -- Special constructors needed for syntax that is "polymorphic."
-  -- | UTuple [(t,UTerm)]
 
 typeOf :: UTerm t -> t
 typeOf = \case
@@ -280,14 +278,6 @@ check = tc
 
 -- Type check a term given an environment of names.
 tc :: (UTerm SomeStarType) -> TyEnv g -> Typed (Term g)
--- tc (UTuple [x,y]) env =
---   case (tc x env, tc y env) of
---     (Typed (TypeRep @x) x', Typed (TypeRep @y) y') ->
---       Typed (typeRep @(x,y)) $ App (App (Lit ((,) :: x -> y -> (x,y))) x') y'
--- tc (UTuple [x,y,z]) env =
---   case (tc x env, tc y env, tc z env) of
---     (Typed (TypeRep @x) x', Typed (TypeRep @y) y', Typed (TypeRep @z) z') ->
---       Typed (typeRep @(x,y,z)) $ App (App (App (Lit ((,,) :: x -> y -> z -> (x,y,z))) x') y') z'
 tc (UVar _ v) env = case lookupVar v env of
   Typed ty v -> Typed ty (Var v)
  -- tc (ULam _ s (Just (SomeStarType bndr_ty')) body) env =
@@ -379,7 +369,9 @@ desugarExp globals = go where
     HSE.If _ i t e ->
       (\e' t' i' -> UApp () (UApp () (UApp () bool' e') t') i')
         <$> go e <*> go t <*> go i
-    -- HSE.Tuple _ HSE.Boxed terms -> UTuple <$> traverse go terms
+    HSE.Tuple _ HSE.Boxed xs ->  do
+      xs' <- traverse go xs
+      pure $ foldl (UApp ()) (tuple' (length xs)) xs'
     HSE.List _ xs -> do
       xs' <- traverse go xs
       pure $ foldr (\x y -> UApp () (UApp () cons' x) y) nil' xs'
@@ -763,6 +755,8 @@ polyLits = Map.fromList $
         TH.VarT a -> [| IVar $(TH.litE $ TH.IntegerL $ nameUnique a) |]
         TH.ListT -> [| ICon (SomeTypeRep (typeRep @[])) |]
         TH.TupleT 2 -> [| ICon (SomeTypeRep (typeRep @(,))) |]
+        TH.TupleT 3 -> [| ICon (SomeTypeRep (typeRep @(,,))) |]
+        TH.TupleT 4 -> [| ICon (SomeTypeRep (typeRep @(,,,))) |]
         TH.TupleT 0 -> [| ICon (SomeTypeRep (typeRep @())) |]
         t -> error $ "Uexpected type shape: " ++ show t
 
@@ -823,6 +817,10 @@ polyLits = Map.fromList $
   "Ord.gt" (Ord.>) :: forall a. Ord a => a -> a -> Bool
   "IO.bind" (Prelude.>>=) :: forall a b. IO a -> (a -> IO b) -> IO b
   "IO.then" (Prelude.>>) :: forall a b. IO a -> IO b -> IO b
+  "Tuple.(,)" (,) :: forall a b. a -> b -> (a,b)
+  "Tuple.(,)" (,) :: forall a b. a -> b -> (a,b)
+  "Tuple.(,,)" (,,) :: forall a b c. a -> b -> c -> (a,b,c)
+  "Tuple.(,,,)" (,,,) :: forall a b c d. a -> b -> c -> d -> (a,b,c,d)
 
   |])
 
@@ -843,6 +841,12 @@ then' = unsafeGetForall "IO.then"
 
 bind' :: UTerm ()
 bind' = unsafeGetForall "IO.bind"
+
+tuple' :: Int -> UTerm ()
+tuple' 0 = unsafeGetForall "Tuple.()"
+tuple' 2 = unsafeGetForall "Tuple.(,)"
+tuple' 3 = unsafeGetForall "Tuple.(,,)"
+tuple' 4 = unsafeGetForall "Tuple.(,,,)"
 
 unsafeGetForall :: String -> UTerm ()
 unsafeGetForall key = Maybe.fromJust $ do
