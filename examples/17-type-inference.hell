@@ -1,1 +1,2 @@
-main = Text.putStrLn ((\x -> x) "Hello")
+main =
+  Text.putStrLn (Text.show "Hello!")

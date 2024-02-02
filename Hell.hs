@@ -225,7 +225,7 @@ data UTerm t
 
   -- IRep below: The variables are poly types, they aren't metavars,
   -- and need to be instantiated.
-  | UForall t [SomeStarType] Forall [TH.Uniq] (IRep TH.Uniq)
+  | UForall t [SomeStarType] Forall [TH.Uniq] (IRep TH.Uniq) [t]
   deriving (Traversable, Functor, Foldable)
   -- -- Special constructors needed for syntax that is "polymorphic."
   -- | UBind t UTerm UTerm
@@ -238,7 +238,7 @@ typeOf = \case
   UVar t _ -> t
   ULam t _ _ _ -> t
   UApp t _ _ -> t
-  UForall t _ _ _ _ -> t
+  UForall t _ _ _ _ _ -> t
 
 data Binding = Singleton String | Tuple [String]
 
@@ -248,7 +248,7 @@ data Forall
   | Final (forall g. Typed (Term g))
 
 lit :: Type.Typeable a => a -> UTerm ()
-lit l = UForall () [] (Final (Typed (Type.typeOf l) (Lit l))) [] (fromSomeStarType (SomeStarType (Type.typeOf l)))
+lit l = UForall () [] (Final (Typed (Type.typeOf l) (Lit l))) [] (fromSomeStarType (SomeStarType (Type.typeOf l))) []
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 deriving instance Show SomeStarType
@@ -321,7 +321,7 @@ tc (UApp _ e1 e2) env =
                      (App e1'
                           e2')
 -- Polytyped terms, must be, syntactically, fully-saturated
-tc (UForall _ reps fall _ _) _env = go reps fall where
+tc (UForall _ _ fall _ _ reps) _env = go reps fall where
   go :: [SomeStarType] -> Forall -> Typed (Term g)
   go [] (Final typed) = typed
   go (SomeStarType rep:reps) (Unconstrained f) = go reps (f rep)
@@ -494,10 +494,10 @@ desugarPolyQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just (forall', vars, irep) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
-        pure (UForall () treps forall' vars irep)
+        pure (UForall () treps forall' vars irep [])
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just (forall', vars, irep) <- Map.lookup string polyLits -> do
-        pure (UForall () treps forall' vars irep)
+        pure (UForall () treps forall' vars irep [])
     _ ->  Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
@@ -1056,7 +1056,7 @@ elaborate = getEqualities . flip runState empty . go where
       body' <- go body
       let ty = IFun a (typeOf body')
       pure $ ULam ty binding mstarType body'
-    UForall () types forall' uniqs polyRep -> do
+    UForall () types forall' uniqs polyRep _ -> do
       -- Generate variables for each unique.
       vars <- for uniqs \uniq -> do
         v <- freshIMetaVar
@@ -1070,7 +1070,7 @@ elaborate = getEqualities . flip runState empty . go where
       for (zip vars types) \((_uniq, var), someTypeRep) ->
         equal (fromSomeStarType someTypeRep) (IVar var)
       -- Done!
-      pure $ UForall monoType types forall' uniqs polyRep
+      pure $ UForall monoType types forall' uniqs polyRep (map (IVar . snd) vars)
 
 equal :: IRep IMetaVar -> IRep IMetaVar -> State Elaborate ()
 equal x y = modify \elaborate -> elaborate { equalities = equalities elaborate <> Set.singleton (Equality x y) }
