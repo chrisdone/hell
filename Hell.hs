@@ -557,7 +557,7 @@ inferExp ::
   Map String (UTerm SomeStarType) ->
   UTerm () ->
   Either InferError (UTerm SomeStarType)
-inferExp _globals {- todo: delete? -} uterm =
+inferExp _ uterm =
   case unify equalities of
     Left unifyError -> Left $ UnifyError unifyError
     Right subs ->
