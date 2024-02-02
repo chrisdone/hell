@@ -3,6 +3,6 @@ main = do
   (out, err) :: (Text, Text) <-
     Text.readProcess_ (
       Process.setEnv (List.cons @(Text,Text) ("HELL_DEMO", "wibble") env)
-        (Process.proc "env" ([] @Text))
+        (Process.proc "env" [])
     )
   Text.hPutStr IO.stdout out
