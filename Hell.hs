@@ -229,7 +229,6 @@ data UTerm t
   | UForall t [SomeStarType] Forall [TH.Uniq] (IRep TH.Uniq) [t]
   deriving (Traversable, Functor, Foldable)
   -- -- Special constructors needed for syntax that is "polymorphic."
-  -- | UBind t UTerm UTerm
   -- | UList t [UTerm]
   -- | UTuple [(t,UTerm)]
   -- | UIf t UTerm UTerm UTerm
@@ -348,30 +347,6 @@ tc (UForall _ _ fall _ _ reps) _env = go reps fall where
 --             | otherwise ->
 --               error $ "If branches types don't match: " ++ show t_ty ++ " vs " ++ show e_ty
 --       | otherwise -> error $ "If's condition isn't Bool, got: " ++ show i_ty
--- Bind needs special type-checker handling, because do-notation lacks
--- the means to pass the types about >>=
--- tc (UBind m f) env =
---   case tc m env of
---     Typed m_ty' m'
---       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind m_ty') (typeRep @Type) ->
---        case tc f env of
---          Typed f_ty' f'
---           | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f_ty') (typeRep @Type) ->
---            -- Happy path:
---            --
---            -- m_ty' == typeRep @(IO a)
---            -- f_ty' == typeRep @(a -> IO b)
---            -- final type is: IO b
---            case (m_ty', f_ty') of
---               (Type.App io1 a1, Type.Fun a2 final@(Type.App io2 (b :: TypeRep b)))
---                 | Just Type.HRefl <- Type.eqTypeRep io1 (typeRep @IO),
---                   Just Type.HRefl <- Type.eqTypeRep io2 (typeRep @IO),
---                   Just Type.HRefl <- Type.eqTypeRep a1 a2,
---                   Just Type.HRefl <- Type.eqTypeRep (typeRepKind a1) (typeRep @Type),
---                   Just Type.HRefl <- Type.eqTypeRep (typeRepKind a2) (typeRep @Type),
---                   Just Type.HRefl <- Type.eqTypeRep (typeRepKind b) (typeRep @Type) ->
---                   Typed final (App (App (Lit (>>=)) m') f')
---               _ -> error "Bind in do-notation type mismatch."
 -- Lists
 -- 1. Empty list; we don't have anything to check, but we need a type.
 -- 2. Populated list, we don't need a type, and expect something immediately.
@@ -456,23 +431,23 @@ desugarExp globals = go where
           | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
             pure uterm
         _ -> Left $ InvalidConstructor $ show qname
-    -- HSE.Do _ stmts -> do
-    --   let loop f [HSE.Qualifier _ e] = f <$> go e
-    --       loop f (s:ss) = do
-    --         case s of
-    --           HSE.Generator _ pat e -> do
-    --              (s, rep) <- desugarArg pat
-    --              m <- go e
-    --              loop (f . (\f -> UBind m (ULam s rep f))) ss
-    --           HSE.LetStmt _ (HSE.BDecls _ [HSE.PatBind _ pat (HSE.UnGuardedRhs _ e) Nothing]) -> do
-    --              (s, rep) <- desugarArg pat
-    --              value <- go e
-    --              loop (f . (\f -> UApp (ULam s rep f) value)) ss
-    --           HSE.Qualifier _ e -> do
-    --             e' <- go e
-    --             loop (f . UApp (UApp then' e')) ss
-    --       loop _ _ = error "Malformed do-notation!"
-    --   loop id stmts
+    HSE.Do _ stmts -> do
+      let loop f [HSE.Qualifier _ e] = f <$> go e
+          loop f (s:ss) = do
+            case s of
+              HSE.Generator _ pat e -> do
+                 (s, rep) <- desugarArg pat
+                 m <- go e
+                 loop (f . (\f -> UApp () (UApp () bind' m) (ULam () s rep f))) ss
+              HSE.LetStmt _ (HSE.BDecls _ [HSE.PatBind _ pat (HSE.UnGuardedRhs _ e) Nothing]) -> do
+                 (s, rep) <- desugarArg pat
+                 value <- go e
+                 loop (f . (\f -> UApp () (ULam () s rep f) value)) ss
+              HSE.Qualifier _ e -> do
+                e' <- go e
+                loop (f . UApp () (UApp () then' e')) ss
+          loop _ _ = error "Malformed do-notation!"
+      loop id stmts
     e -> Left $ UnsupportedSyntax $ show e
 
 desugarQName :: Map String (UTerm ()) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> Either DesugarError (UTerm ())
@@ -787,13 +762,8 @@ supportedLits = Map.fromList [
    ("Process.runProcess_", lit $ runProcess_ @IO @() @() @()),
    -- Lists
    ("List.and", lit (List.and @[])),
-   ("List.or", lit (List.or @[])),
-   -- Misc
-   (">>", then')
+   ("List.or", lit (List.or @[]))
   ]
-
-then' :: UTerm ()
-then' = lit ((Prelude.>>) :: IO () -> IO () -> IO ())
 
 --------------------------------------------------------------------------------
 -- Derive prims TH
@@ -877,8 +847,24 @@ polyLits = Map.fromList $
   "Eq.eq" (Eq.==) :: forall a. Eq a => a -> a -> Bool
   "Ord.lt" (Ord.<) :: forall a. Ord a => a -> a -> Bool
   "Ord.gt" (Ord.>) :: forall a. Ord a => a -> a -> Bool
+  "IO.bind" (Prelude.>>=) :: forall a b. IO a -> (a -> IO b) -> IO b
+  "IO.then" (Prelude.>>) :: forall a b. IO a -> IO b -> IO b
 
   |])
+
+--------------------------------------------------------------------------------
+-- Internal-use only, used by the desugarer
+
+then' :: UTerm ()
+then' = unsafeGetForall "IO.then"
+
+bind' :: UTerm ()
+bind' = unsafeGetForall "IO.bind"
+
+unsafeGetForall :: String -> UTerm ()
+unsafeGetForall key = Maybe.fromJust $ do
+  (forall', vars, irep) <- Map.lookup key polyLits
+  pure (UForall () [] forall' vars irep [])
 
 --------------------------------------------------------------------------------
 -- UTF-8 specific operations without all the environment gubbins
