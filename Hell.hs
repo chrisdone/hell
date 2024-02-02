@@ -1039,19 +1039,14 @@ elaborate :: UTerm () -> (UTerm (IRep IMetaVar), Set (Equality (IRep IMetaVar)))
 elaborate = getEqualities . flip runState empty . flip runReaderT mempty . go where
   empty = Elaborate{counter=0,equalities=mempty}
   getEqualities (term, Elaborate{equalities}) = (term, equalities)
-  go :: UTerm () -> ReaderT (Map String IMetaVar) (State Elaborate) (UTerm (IRep IMetaVar))
+  go :: UTerm () -> ReaderT (Map String (IRep IMetaVar)) (State Elaborate) (UTerm (IRep IMetaVar))
   go = \case
-    -- TODO: the following should work
-    -- main =
-    --   Text.putStrLn ((\(x :: Text) -> Text.show x) "Hello!")
-    --
-    -- So if there's a type-sig, the inferer should become aware of
-    -- it. I.e. lambdas should insert into a local ReaderT the type
-    -- sigs of their vars to create that association.
-
     UVar () string -> do
-      v <- freshIMetaVar
-      pure $ UVar (IVar v) string
+      env <- ask
+      ty <- case Map.lookup string env of
+             Just typ -> pure typ
+             Nothing -> fmap IVar freshIMetaVar
+      pure $ UVar ty string
     UApp () f x -> do
       f' <- go f
       x' <- go x
@@ -1062,7 +1057,8 @@ elaborate = getEqualities . flip runState empty . flip runReaderT mempty . go wh
       a <- case mstarType of
         Just ty -> pure $ fromSomeStarType ty
         Nothing -> fmap IVar freshIMetaVar
-      body' <- go body
+      vars <- bindingVars a binding
+      body' <- local (Map.union vars) $ go body
       let ty = IFun a (typeOf body')
       pure $ ULam ty binding mstarType body'
     UForall () types forall' uniqs polyRep _ -> do
@@ -1080,6 +1076,18 @@ elaborate = getEqualities . flip runState empty . flip runReaderT mempty . go wh
         equal (fromSomeStarType someTypeRep) (IVar var)
       -- Done!
       pure $ UForall monoType types forall' uniqs polyRep (map (IVar . snd) vars)
+
+bindingVars :: MonadState Elaborate m => IRep IMetaVar -> Binding -> m (Map String (IRep IMetaVar))
+bindingVars irep (Singleton name) = pure $ Map.singleton name irep
+bindingVars tupleVar (Tuple names) = do
+  varsTypes <- for names \name -> fmap (name, ) (fmap IVar freshIMetaVar)
+  equal tupleVar $ foldr IApp (ICon cons) (map snd varsTypes)
+  pure $ Map.fromList varsTypes
+
+  where cons = case length names of
+         2 -> SomeTypeRep (typeRep @(,))
+         3 -> SomeTypeRep (typeRep @(,,))
+         4 -> SomeTypeRep (typeRep @(,,,))
 
 equal :: MonadState Elaborate m => IRep IMetaVar -> IRep IMetaVar -> m ()
 equal x y = modify \elaborate -> elaborate { equalities = equalities elaborate <> Set.singleton (Equality x y) }
