@@ -487,8 +487,10 @@ desugarQName globals qname [] =
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just uterm <- Map.lookup string supportedLits ->
         pure $ uterm
-    _ ->  Left $ InvalidVariable $ show qname
-desugarQName globals qname treps =
+    _ -> desugarPolyQName globals qname []
+desugarQName globals qname treps = desugarPolyQName globals qname treps
+
+desugarPolyQName globals qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just (forall', vars, irep) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
