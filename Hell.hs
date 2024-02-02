@@ -1040,6 +1040,14 @@ elaborate = getEqualities . flip runState empty . go where
   getEqualities (term, Elaborate{equalities}) = (term, equalities)
   go :: UTerm () -> State Elaborate (UTerm (IRep IMetaVar))
   go = \case
+    -- TODO: the following should work
+    -- main =
+    --   Text.putStrLn ((\(x :: Text) -> Text.show x) "Hello!")
+    --
+    -- So if there's a type-sig, the inferer should become aware of
+    -- it. I.e. lambdas should insert into a local ReaderT the type
+    -- sigs of their vars to create that association.
+
     UVar () string -> do
       v <- freshIMetaVar
       pure $ UVar (IVar v) string
