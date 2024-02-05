@@ -398,11 +398,7 @@ desugarExp globals = go where
       e' <- go e
       pure $ foldr (\(name,ty) inner  -> ULam () name ty inner)  e' args
     HSE.Con _ qname ->
-      case qname of
-        HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
-          | Just uterm <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
-            pure uterm
-        _ -> Left $ InvalidConstructor $ show qname
+      desugarQName mempty qname []
     HSE.Do _ stmts -> do
       let loop f [HSE.Qualifier _ e] = f <$> go e
           loop f (s:ss) = do
