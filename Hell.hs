@@ -726,6 +726,7 @@ supportedLits = Map.fromList [
    ("Directory.listDirectory", lit (fmap (fmap Text.pack) . Dir.listDirectory . Text.unpack)),
    ("Directory.setCurrentDirectory", lit (Dir.setCurrentDirectory . Text.unpack)),
    ("Directory.renameFile", lit (\x y -> Dir.renameFile (Text.unpack x) (Text.unpack y))),
+   ("Directory.copyFile", lit (\x y -> Dir.copyFile (Text.unpack x) (Text.unpack y))),
    -- Process
    ("Process.proc", lit $ \n xs -> proc (Text.unpack n) (map Text.unpack xs)),
    ("Process.setEnv", lit $ Process.setEnv @() @() @() . map (bimap Text.unpack Text.unpack)),
