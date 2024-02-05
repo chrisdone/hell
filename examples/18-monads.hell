@@ -1,0 +1,6 @@
+main = do
+  env <- Environment.getEnvironment
+  Maybe.maybe (Text.putStrLn "Oops!") Text.putStrLn
+     (do path <- List.lookup "PATH" env
+         home <- List.lookup "HOME" env
+         Maybe.Just (Text.concat [path, " and ", home]))
