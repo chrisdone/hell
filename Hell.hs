@@ -102,7 +102,7 @@ dispatch :: Command -> IO ()
 dispatch Version = putStrLn "2023-12-12"
 dispatch (Run filePath) = do
   string <- readFile filePath
-  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
+  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
     HSE.ParseFailed _ e -> error $ e
     HSE.ParseOk binds
       | anyCycles binds -> error "Cyclic bindings are not supported!"
@@ -127,7 +127,7 @@ dispatch (Run filePath) = do
                                    Nothing -> error $ "Type isn't IO (), but: " ++ show t
 dispatch (Check filePath) = do
   string <- readFile filePath
-  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
+  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
     HSE.ParseFailed _ e -> error $ e
     HSE.ParseOk binds
       | anyCycles binds -> error "Cyclic bindings are not supported!"
@@ -151,7 +151,7 @@ dispatch (Check filePath) = do
                                      in pure ()
                                    Nothing -> error $ "Type isn't IO (), but: " ++ show t
 dispatch (Exec string) = do
-  case HSE.parseExpWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.TypeApplications] } string of
+  case HSE.parseExpWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } string of
     HSE.ParseFailed _ e -> error $ e
     HSE.ParseOk e ->
             case desugarExp mempty e of
@@ -689,6 +689,7 @@ supportedLits = Map.fromList [
    ("Text.isPrefixOf", lit Text.isPrefixOf),
    ("Text.dropEnd", lit Text.dropEnd),
    ("Text.strip", lit Text.strip),
+   ("Text.replace", lit Text.replace),
    ("Text.isPrefixOf", lit Text.isPrefixOf),
    ("Text.isSuffixOf", lit Text.isSuffixOf),
    ("Text.isInfixOf", lit Text.isInfixOf),
@@ -837,6 +838,7 @@ polyLits = Map.fromList
   -- Lists
   "List.cons" (:) :: forall a. a -> [a] -> [a]
   "List.nil" [] :: forall a. [a]
+  "List.length" List.length :: forall a. [a] -> Int
   "List.concat" List.concat :: forall a. [[a]] -> [a]
   "List.drop" List.drop :: forall a. Int -> [a] -> [a]
   "List.take" List.take :: forall a. Int -> [a] -> [a]
