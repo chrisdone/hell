@@ -327,6 +327,7 @@ tc (UForall _ _ fall _ _ reps) _env = go reps fall where
     if
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @IO) -> go reps (f rep)
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Maybe) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @[]) -> go reps (f rep)
         -- | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @(Either a)) -> go reps (f rep)
         | otherwise -> error $ "type doesn't have enough instances " ++ show rep
   go _ _ = error "forall type arguments mismatch."
