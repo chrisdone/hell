@@ -1,15 +1,19 @@
 main = do
   env <- Environment.getEnvironment
+
+  -- Maybe monad works!
   Maybe.maybe (Text.putStrLn "Oops!") Text.putStrLn
      (do path <- List.lookup "PATH" env
          home <- List.lookup "HOME" env
-         Maybe.Just (Text.concat [path, " and ", home]))
+         Monad.return (Text.concat [path, " and ", home]))
+
+  -- Either monad works!
   Either.either Text.putStrLn Text.putStrLn
     (do x <- Main.parse "foo"
         y <- Main.parse "foo"
-        Either.Right (Text.concat [x,y]))
+        Monad.return (Text.concat [x,y]))
 
 parse = \s ->
   if Eq.eq s "foo"
-     then Either.Right "foooo"
+     then Either.Right "foooo :-)"
      else Either.Left "oh noes!"
