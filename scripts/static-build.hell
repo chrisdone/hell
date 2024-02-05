@@ -1,0 +1,2 @@
+main = do
+  Process.runProcess_ (Process.proc "stack" ["build","--ghc-options", "-static -optl-static -fforce-recomp", "--force-dirty"])
