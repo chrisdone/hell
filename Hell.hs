@@ -238,10 +238,11 @@ typeOf = \case
 
 data Binding = Singleton String | Tuple [String]
 
-data Forall
-  = Unconstrained (forall (a :: Type) g. TypeRep a -> Forall)
-  | Constrained (forall (a :: Type) g. (Show a, Eq a, Ord a) => TypeRep a -> Forall)
-  | Final (forall g. Typed (Term g))
+data Forall where
+  NoClass :: (forall (a :: Type). TypeRep a -> Forall) -> Forall
+  OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
+  Monadic :: (forall (m :: Type -> Type). (Monad m) => TypeRep m -> Forall) -> Forall
+  Final :: (forall g. Typed (Term g)) -> Forall
 
 lit :: Type.Typeable a => a -> UTerm ()
 lit l = UForall () [] (Final (Typed (Type.typeOf l) (Lit l))) [] (fromSomeStarType (SomeStarType (Type.typeOf l))) []
@@ -273,15 +274,15 @@ data TyEnv g where
   Cons :: Binding -> TypeRep (t :: Type) -> TyEnv h -> TyEnv (h, t)
 
 -- The top-level checker used by the main function.
-check :: (UTerm SomeStarType) -> TyEnv () -> Typed (Term ())
+check :: (UTerm SomeTypeRep) -> TyEnv () -> Typed (Term ())
 check = tc
 
 -- Type check a term given an environment of names.
-tc :: (UTerm SomeStarType) -> TyEnv g -> Typed (Term g)
+tc :: (UTerm SomeTypeRep) -> TyEnv g -> Typed (Term g)
 tc (UVar _ v) env = case lookupVar v env of
   Typed ty v -> Typed ty (Var v)
  -- tc (ULam _ s (Just (SomeStarType bndr_ty')) body) env =
-tc (ULam (SomeStarType lam_ty) s _ body) env =
+tc (ULam (StarTypeRep lam_ty) s _ body) env =
   case lam_ty of
     Type.Fun bndr_ty' body_t' |
       Just Type.HRefl <- Type.eqTypeRep (typeRepKind bndr_ty') (typeRep @Type) ->
@@ -310,18 +311,24 @@ tc (UApp _ e1 e2) env =
                           e2')
 -- Polytyped terms, must be, syntactically, fully-saturated
 tc (UForall _ _ fall _ _ reps) _env = go reps fall where
-  go :: [SomeStarType] -> Forall -> Typed (Term g)
+  go :: [SomeTypeRep] -> Forall -> Typed (Term g)
   go [] (Final typed) = typed
-  go (SomeStarType rep:reps) (Unconstrained f) = go reps (f rep)
-  go (SomeStarType rep:reps) (Constrained f) =
+  go (StarTypeRep rep:reps) (NoClass f) = go reps (f rep)
+  go (StarTypeRep rep:reps) (OrdEqShow f) =
     if
-      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
-      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Bool) -> go reps (f rep)
-      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Char) -> go reps (f rep)
-      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Text) -> go reps (f rep)
-      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ByteString) -> go reps (f rep)
-      | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ExitCode) -> go reps (f rep)
-      | otherwise -> error $ "type doesn't have enough instances " ++ show rep
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Bool) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Char) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Text) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ByteString) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ExitCode) -> go reps (f rep)
+        | otherwise -> error $ "type doesn't have enough instances " ++ show rep
+  go (SomeTypeRep rep:reps) (Monadic f) =
+    if
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @IO) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Maybe) -> go reps (f rep)
+        -- | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @(Either a)) -> go reps (f rep)
+        | otherwise -> error $ "type doesn't have enough instances " ++ show rep
   go _ _ = error "forall type arguments mismatch."
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
@@ -554,9 +561,9 @@ data InferError =
 -- all eliminated. By the type system, the output contains only
 -- determinate types.
 inferExp ::
-  Map String (UTerm SomeStarType) ->
+  Map String (UTerm SomeTypeRep) ->
   UTerm () ->
-  Either InferError (UTerm SomeStarType)
+  Either InferError (UTerm SomeTypeRep)
 inferExp _ uterm =
   case unify equalities of
     Left unifyError -> Left $ UnifyError unifyError
@@ -568,7 +575,7 @@ inferExp _ uterm =
   where (iterm, equalities) = elaborate uterm
 
 -- | Zonk a type and then convert it to a type: t :: *
-zonkToStarType :: Map IMetaVar (IRep IMetaVar) -> IRep IMetaVar -> Either ZonkError SomeStarType
+zonkToStarType :: Map IMetaVar (IRep IMetaVar) -> IRep IMetaVar -> Either ZonkError SomeTypeRep
 zonkToStarType subs irep = do
   zonked <- zonk (substitute subs irep)
   toSomeTypeRep zonked
@@ -734,7 +741,7 @@ supportedLits = Map.fromList [
 -- Derive prims TH
 
 polyLits :: Map String (Forall, [TH.Uniq], IRep TH.Uniq)
-polyLits = Map.fromList $
+polyLits = Map.fromList
   $(let
       -- Derive well-typed primitive forms.
       derivePrims :: Q TH.Exp -> Q TH.Exp
@@ -764,15 +771,21 @@ polyLits = Map.fromList $
       makePrim :: TH.Stmt -> Q TH.Exp
       makePrim (TH.NoBindS (TH.SigE (TH.AppE (TH.LitE (TH.StringL string)) expr)
                    (TH.ForallT vars constraints typ))) =
-        let constrained = foldMap getConstraint constraints
+        let constrained = foldl getConstraint mempty constraints
             vars0 = map (\(TH.PlainTV v TH.SpecifiedSpec) ->
                         TH.litE $ TH.IntegerL $ nameUnique v)
                       vars
+            ordEqShow = Set.fromList [''Ord, ''Eq, ''Show]
+            monadics = Set.fromList [''Functor, ''Applicative, ''Monad]
             builder =
               foldr
                 (\(TH.PlainTV v TH.SpecifiedSpec) rest ->
                   TH.appE
-                    (TH.conE (if Set.member v constrained then 'Constrained else 'Unconstrained))
+                    (TH.conE (case Map.lookup v constrained of
+                                Nothing -> 'NoClass
+                                Just constraints
+                                  | Set.isSubsetOf constraints ordEqShow -> 'OrdEqShow
+                                  | Set.isSubsetOf constraints monadics -> 'Monadic))
                     (TH.lamE [pure $ TH.ConP 'TypeRep [TH.VarT v] []]
                              rest))
                 [| Final $ typed $(TH.sigE (pure expr) (pure typ)) |]
@@ -782,8 +795,9 @@ polyLits = Map.fromList $
 
       -- Just tells us whether a given variable is constrained by a
       -- type-class or not.
-      getConstraint (TH.AppT (TH.ConT _cls) (TH.VarT v)) = Set.singleton v
-      getConstraint _ = error "Bad constraint!"
+      getConstraint m (TH.AppT (TH.ConT cls) (TH.VarT v)) =
+        Map.insertWith Set.union v (Set.singleton cls) m
+      getConstraint _ _ = error "Bad constraint!"
     in
     derivePrims [| do
 
@@ -942,12 +956,9 @@ data ZonkError
 
 -- | A complete implementation of conversion from the inferer's type
 -- rep to some star type, ready for the type checker.
-toSomeTypeRep :: IRep Void -> Either ZonkError SomeStarType
+toSomeTypeRep :: IRep Void -> Either ZonkError SomeTypeRep
 toSomeTypeRep t = do
-  someRep <- go t
-  case someRep of
-    StarTypeRep t -> pure (SomeStarType t)
-    _ -> Left ZonkKindError
+  go t
 
   where
   go :: IRep Void -> Either ZonkError SomeTypeRep
