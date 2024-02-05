@@ -1080,7 +1080,7 @@ freshIMetaVar = do
 --------------------------------------------------------------------------------
 -- Unification
 
-data UnifyError = OccursCheck | TypeConMismatch SomeTypeRep SomeTypeRep
+data UnifyError = OccursCheck | TypeConMismatch SomeTypeRep SomeTypeRep | TypeMismatch (IRep IMetaVar) (IRep IMetaVar)
   deriving (Show)
 
 -- | Unification of equality constraints, a ~ b, to substitutions.
@@ -1102,6 +1102,7 @@ unify = foldM update mempty where
    | ICon x <- a, ICon y <- b =
       if x == y then pure mempty
                 else Left $ TypeConMismatch x y
+   | otherwise = Left $ TypeMismatch a b
 
 -- | Apply new substitutions to the old ones, and expand the set to old+new.
 extends :: Map IMetaVar (IRep IMetaVar) -> Map IMetaVar (IRep IMetaVar) -> Map IMetaVar (IRep IMetaVar)
