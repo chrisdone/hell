@@ -810,7 +810,7 @@ polyLits = Map.fromList $
   "Either.Right" Either.Right :: forall a b. b -> Either a b
   "Async.concurrently" Async.concurrently :: forall a b. IO a -> IO b -> IO (a,b)
   "Async.race" Async.race :: forall a b. IO a -> IO b -> IO (Either a b)
-  "Text.show" (Text.pack . Show.show) :: forall a. Show a => a -> Text
+  "Show.show" (Text.pack . Show.show) :: forall a. Show a => a -> Text
   "Text.putStrLn" (t_putStrLn . Text.pack . Show.show) :: forall a. Show a => a -> IO ()
   "Eq.eq" (Eq.==) :: forall a. Eq a => a -> a -> Bool
   "Ord.lt" (Ord.<) :: forall a. Ord a => a -> a -> Bool

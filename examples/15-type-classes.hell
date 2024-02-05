@@ -1,6 +1,6 @@
 main = do
-  Text.putStrLn (Text.show 123)
-  Text.putStrLn (Text.show Bool.True)
+  Text.putStrLn (Show.show 123)
+  Text.putStrLn (Show.show Bool.True)
 
   env <- Environment.getEnvironment
   Maybe.maybe
