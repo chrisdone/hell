@@ -328,7 +328,8 @@ tc (UForall _ _ fall _ _ reps) _env = go reps fall where
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @IO) -> go reps (f rep)
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Maybe) -> go reps (f rep)
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @[]) -> go reps (f rep)
-        -- | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @(Either a)) -> go reps (f rep)
+        | Type.App either a <- rep,
+          Just Type.HRefl <- Type.eqTypeRep either (typeRep @Either) -> go reps (f rep)
         | otherwise -> error $ "type doesn't have enough instances " ++ show rep
   go _ _ = error "forall type arguments mismatch."
 
@@ -801,6 +802,7 @@ polyLits = Map.fromList
   -- Monad
   "Monad.bind" (Prelude.>>=) :: forall m a b. Monad m => m a -> (a -> m b) -> m b
   "Monad.then" (Prelude.>>) :: forall m a b. Monad m => m a -> m b -> m b
+  "Monad.return" return :: forall a m. Monad m => a -> m a
   -- IO
   "IO.mapM_" mapM_ :: forall a. (a -> IO ()) -> [a] -> IO ()
   "IO.forM_" forM_ :: forall a. [a] -> (a -> IO ()) -> IO ()
