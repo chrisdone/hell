@@ -1,0 +1,10 @@
+-- Technically you're not supposed to be able to do code re-use in
+-- Hell, but presently the desugarer inlines everything into `main`
+-- prior to type-checking, and ignores declarations that aren't
+-- reachable by main.
+
+main = do
+  Main.foo 1
+  Main.foo "blah"
+foo = \x -> Text.putStrLn (Show.show x)
+bar = Int.plus 4 "hi"
