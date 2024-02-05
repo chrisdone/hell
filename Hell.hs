@@ -801,9 +801,10 @@ polyLits = Map.fromList
     in
     derivePrims [| do
 
+  -- Monad
+  "Monad.bind" (Prelude.>>=) :: forall m a b. Monad m => m a -> (a -> m b) -> m b
+  "Monad.then" (Prelude.>>) :: forall m a b. Monad m => m a -> m b -> m b
   -- IO
-  "IO.bind" (Prelude.>>=) :: forall a b. IO a -> (a -> IO b) -> IO b
-  "IO.then" (Prelude.>>) :: forall a b. IO a -> IO b -> IO b
   "IO.mapM_" mapM_ :: forall a. (a -> IO ()) -> [a] -> IO ()
   "IO.forM_" forM_ :: forall a. [a] -> (a -> IO ()) -> IO ()
   "IO.pure" pure :: forall a. a -> IO a
@@ -861,10 +862,10 @@ bool' :: UTerm ()
 bool' = unsafeGetForall "Bool.bool"
 
 then' :: UTerm ()
-then' = unsafeGetForall "IO.then"
+then' = unsafeGetForall "Monad.then"
 
 bind' :: UTerm ()
-bind' = unsafeGetForall "IO.bind"
+bind' = unsafeGetForall "Monad.bind"
 
 tuple' :: Int -> UTerm ()
 tuple' 0 = unsafeGetForall "Tuple.()"
