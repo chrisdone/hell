@@ -787,11 +787,32 @@ polyLits = Map.fromList $
     in
     derivePrims [| do
 
-  "Error.ioError" Error.ioError :: forall a. IOError -> IO a
+  -- IO
+  "IO.bind" (Prelude.>>=) :: forall a b. IO a -> (a -> IO b) -> IO b
+  "IO.then" (Prelude.>>) :: forall a b. IO a -> IO b -> IO b
+  "IO.mapM_" mapM_ :: forall a. (a -> IO ()) -> [a] -> IO ()
+  "IO.forM_" forM_ :: forall a. [a] -> (a -> IO ()) -> IO ()
   "IO.pure" pure :: forall a. a -> IO a
+  "IO.print" (t_putStrLn . Text.pack . Show.show) :: forall a. Show a => a -> IO ()
+  -- Show
+  "Show.show" (Text.pack . Show.show) :: forall a. Show a => a -> Text
+  -- Eq/Ord
+  "Eq.eq" (Eq.==) :: forall a. Eq a => a -> a -> Bool
+  "Ord.lt" (Ord.<) :: forall a. Ord a => a -> a -> Bool
+  "Ord.gt" (Ord.>) :: forall a. Ord a => a -> a -> Bool
+  -- Tuples
+  "Tuple.(,)" (,) :: forall a b. a -> b -> (a,b)
+  "Tuple.(,)" (,) :: forall a b. a -> b -> (a,b)
+  "Tuple.(,,)" (,,) :: forall a b c. a -> b -> c -> (a,b,c)
+  "Tuple.(,,,)" (,,,) :: forall a b c d. a -> b -> c -> d -> (a,b,c,d)
+  -- Exceptions
+  "Error.ioError" Error.ioError :: forall a. IOError -> IO a
+  -- Bool
   "Bool.bool" Bool.bool :: forall a. a -> a -> Bool -> a
+  -- Function
   "Function.id" Function.id :: forall a. a -> a
   "Function.fix" Function.fix :: forall a. (a -> a) -> a
+  -- Lists
   "List.cons" (:) :: forall a. a -> [a] -> [a]
   "List.nil" [] :: forall a. [a]
   "List.concat" List.concat :: forall a. [[a]] -> [a]
@@ -799,29 +820,18 @@ polyLits = Map.fromList $
   "List.take" List.take :: forall a. Int -> [a] -> [a]
   "List.map" List.map :: forall a b. (a -> b) -> [a] -> [b]
   "List.lookup" List.lookup :: forall a b. Eq a => a -> [(a,b)] -> Maybe b
-  "List.mapM_" mapM_ :: forall a. (a -> IO ()) -> [a] -> IO ()
-  "List.forM_" forM_ :: forall a. [a] -> (a -> IO ()) -> IO ()
+  -- Maybe
   "Maybe.maybe" Maybe.maybe :: forall a b. b -> (a -> b) -> Maybe a -> b
   "Maybe.Nothing" Maybe.Nothing :: forall a. Maybe a
   "Maybe.Just" Maybe.Just :: forall a. a -> Maybe a
   "Maybe.listToMaybe" Maybe.listToMaybe :: forall a. [a] -> Maybe a
+  -- Either
   "Either.either" Either.either :: forall a b x. (a -> x) -> (b -> x) -> Either a b -> x
   "Either.Left" Either.Left :: forall a b. a -> Either a b
   "Either.Right" Either.Right :: forall a b. b -> Either a b
+  -- Async
   "Async.concurrently" Async.concurrently :: forall a b. IO a -> IO b -> IO (a,b)
   "Async.race" Async.race :: forall a b. IO a -> IO b -> IO (Either a b)
-  "Show.show" (Text.pack . Show.show) :: forall a. Show a => a -> Text
-  "Text.putStrLn" (t_putStrLn . Text.pack . Show.show) :: forall a. Show a => a -> IO ()
-  "Eq.eq" (Eq.==) :: forall a. Eq a => a -> a -> Bool
-  "Ord.lt" (Ord.<) :: forall a. Ord a => a -> a -> Bool
-  "Ord.gt" (Ord.>) :: forall a. Ord a => a -> a -> Bool
-  "IO.bind" (Prelude.>>=) :: forall a b. IO a -> (a -> IO b) -> IO b
-  "IO.then" (Prelude.>>) :: forall a b. IO a -> IO b -> IO b
-  "Tuple.(,)" (,) :: forall a b. a -> b -> (a,b)
-  "Tuple.(,)" (,) :: forall a b. a -> b -> (a,b)
-  "Tuple.(,,)" (,,) :: forall a b c. a -> b -> c -> (a,b,c)
-  "Tuple.(,,,)" (,,,) :: forall a b c d. a -> b -> c -> d -> (a,b,c,d)
-
   |])
 
 --------------------------------------------------------------------------------
