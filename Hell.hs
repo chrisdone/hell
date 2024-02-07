@@ -46,7 +46,7 @@ import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
 import qualified System.IO as IO
 import qualified System.IO.Error as Error
-import qualified Control.Concurrent.Async as Async
+import qualified UnliftIO.Async as Async
 import qualified System.Directory as Dir
 import qualified Options.Applicative as Options
 
@@ -723,6 +723,8 @@ supportedLits = Map.fromList [
    ("Environment.getEnvironment", lit $ fmap (map (bimap Text.pack Text.pack)) getEnvironment),
    ("Environment.getEnv", lit $ fmap Text.pack . getEnv . Text.unpack),
    -- Current directory
+   ("Directory.createDirectoryIfMissing", lit (\b f -> Dir.createDirectoryIfMissing b (Text.unpack f))),
+   ("Directory.createDirectory", lit (Dir.createDirectory . Text.unpack)),
    ("Directory.getCurrentDirectory", lit (fmap Text.pack Dir.getCurrentDirectory)),
    ("Directory.listDirectory", lit (fmap (fmap Text.pack) . Dir.listDirectory . Text.unpack)),
    ("Directory.setCurrentDirectory", lit (Dir.setCurrentDirectory . Text.unpack)),
@@ -856,6 +858,8 @@ polyLits = Map.fromList
   -- Async
   "Async.concurrently" Async.concurrently :: forall a b. IO a -> IO b -> IO (a,b)
   "Async.race" Async.race :: forall a b. IO a -> IO b -> IO (Either a b)
+  "Async.pooledMapConcurrently_" Async.pooledMapConcurrently_ :: forall a. (a -> IO ()) -> [a] -> IO ()
+  "Async.pooledForConcurrently_" Async.pooledForConcurrently_ :: forall a. [a] -> (a -> IO ()) -> IO ()
   |])
 
 --------------------------------------------------------------------------------

@@ -21,6 +21,7 @@ dependencies:
 - hspec
 - QuickCheck
 - template-haskell
+- unliftio
 
 executables:
   hell:
