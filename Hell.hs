@@ -844,6 +844,9 @@ polyLits = Map.fromList
   "List.take" List.take :: forall a. Int -> [a] -> [a]
   "List.map" List.map :: forall a b. (a -> b) -> [a] -> [b]
   "List.lookup" List.lookup :: forall a b. Eq a => a -> [(a,b)] -> Maybe b
+  "List.sort" List.sort :: forall a. Ord a => [a] -> [a]
+  "List.reverse" List.reverse :: forall a. [a] -> [a]
+  "List.sortOn" List.sortOn :: forall a b. Ord b => (a -> b) -> [a] -> [a]
   -- Maybe
   "Maybe.maybe" Maybe.maybe :: forall a b. b -> (a -> b) -> Maybe a -> b
   "Maybe.Nothing" Maybe.Nothing :: forall a. Maybe a
@@ -858,6 +861,8 @@ polyLits = Map.fromList
   "Async.race" Async.race :: forall a b. IO a -> IO b -> IO (Either a b)
   "Async.pooledMapConcurrently_" Async.pooledMapConcurrently_ :: forall a. (a -> IO ()) -> [a] -> IO ()
   "Async.pooledForConcurrently_" Async.pooledForConcurrently_ :: forall a. [a] -> (a -> IO ()) -> IO ()
+  "Async.pooledMapConcurrently" Async.pooledMapConcurrently :: forall a b. (a -> IO b) -> [a] -> IO [b]
+  "Async.pooledForConcurrently" Async.pooledForConcurrently :: forall a b. [a] -> (a -> IO b) -> IO [b]
   |])
 
 --------------------------------------------------------------------------------
