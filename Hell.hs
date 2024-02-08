@@ -712,8 +712,6 @@ supportedLits = Map.fromList [
    ("IO.NoBuffering", lit IO.NoBuffering),
    ("IO.LineBuffering", lit IO.LineBuffering),
    ("IO.BlockBuffering", lit IO.BlockBuffering),
-   -- Errors
-   ("Error.userError", lit Error.userError),
    -- Bool
    ("Bool.True", lit Bool.True),
    ("Bool.False", lit Bool.False),
@@ -831,7 +829,7 @@ polyLits = Map.fromList
   "Tuple.(,,)" (,,) :: forall a b c. a -> b -> c -> (a,b,c)
   "Tuple.(,,,)" (,,,) :: forall a b c d. a -> b -> c -> d -> (a,b,c,d)
   -- Exceptions
-  "Error.ioError" Error.ioError :: forall a. IOError -> IO a
+  "Error.error" (error . Text.unpack) :: forall a. Text -> a
   -- Bool
   "Bool.bool" Bool.bool :: forall a. a -> a -> Bool -> a
   -- Function
