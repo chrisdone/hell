@@ -355,6 +355,13 @@ lookupVar v (Cons (Tuple ss) ty e)
             0 -> Typed x $ ZVar \(a,_,_) -> a
             1 -> Typed y $ ZVar \(_,b,_) -> b
             2 -> Typed z $ ZVar \(_,_,c) -> c
+      Type.App (Type.App (Type.App (Type.App tup x) y) z) z'
+       | Just Type.HRefl <- Type.eqTypeRep tup (typeRep @(,,,)) ->
+          case i of
+            0 -> Typed x $ ZVar \(a,_,_,_) -> a
+            1 -> Typed y $ ZVar \(_,b,_,_) -> b
+            2 -> Typed z $ ZVar \(_,_,c,_) -> c
+            3 -> Typed z' $ ZVar \(_,_,_,d) -> d
   | otherwise = case lookupVar v e of
       Typed ty v -> Typed ty (SVar v)
 
@@ -520,6 +527,8 @@ applyTypes (SomeTypeRep f) (SomeTypeRep a) = do
    | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type)) ->
      pure $ SomeTypeRep $ Type.App f a
    | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type -> Type)) ->
+     pure $ SomeTypeRep $ Type.App f a
+   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type -> Type -> Type)) ->
      pure $ SomeTypeRep $ Type.App f a
    | otherwise -> Nothing
 
