@@ -811,6 +811,8 @@ polyLits = Map.fromList
     in
     derivePrims [| do
 
+  -- Operators
+  "$" (Function.$) :: forall a b. (a -> b) -> a -> b
   -- Monad
   "Monad.bind" (Prelude.>>=) :: forall m a b. Monad m => m a -> (a -> m b) -> m b
   "Monad.then" (Prelude.>>) :: forall m a b. Monad m => m a -> m b -> m b
