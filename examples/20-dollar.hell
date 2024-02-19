@@ -1,1 +1,1 @@
-main = Text.putStrLn $ Text.reverse "Foo"
+main = Text.putStrLn . Text.reverse $ "Foo!"

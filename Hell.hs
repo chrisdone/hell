@@ -813,6 +813,7 @@ polyLits = Map.fromList
 
   -- Operators
   "$" (Function.$) :: forall a b. (a -> b) -> a -> b
+  "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
   -- Monad
   "Monad.bind" (Prelude.>>=) :: forall m a b. Monad m => m a -> (a -> m b) -> m b
   "Monad.then" (Prelude.>>) :: forall m a b. Monad m => m a -> m b -> m b
