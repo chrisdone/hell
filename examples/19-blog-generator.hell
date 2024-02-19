@@ -22,20 +22,21 @@ main = Main.generate
 generate = do
   posts <- Main.generatePosts
   Main.generateArchive posts
+  Main.generateRSS posts
 
 -- Write out posts/$post/index.html per $post.
 --
 generatePosts = do
   posts <- Directory.listDirectory "posts"
-  Text.putStrLn (Text.concat ["Generating ", Show.show (List.length posts), " posts ..."])
+  Text.putStrLn $ Text.concat ["Generating ", Show.show (List.length posts), " posts ..."]
   Async.pooledForConcurrently posts \post -> do
-    contents <- Text.readFile (Text.concat ["posts/", post])
+    contents <- Text.readFile $ Text.concat ["posts/", post]
     Maybe.maybe
       (Error.error "Couldn't parse the article!")
       (\(date, title) -> do
-        Main.render post
-        Monad.return (post, date, title))
-      (Main.parse contents)
+        rendered <- Main.render post
+        Monad.return (post, date, title, rendered))
+      $ Main.parse contents
 
 -- Generate the /posts/ page.
 --
@@ -43,8 +44,8 @@ generateArchive = \posts -> do
   Text.putStrLn "Generating archive ..."
   let rows =
         Text.concat
-          (List.map
-            (\(post, date, title) ->
+          $ List.map
+            (\(post, date, title, content) ->
               Text.concat [
                  "<tr><td><a href='",
                  Main.filename post,
@@ -54,7 +55,9 @@ generateArchive = \posts -> do
                  date,
                  "</td></tr>"
                ])
-            (List.reverse (List.sortOn (\(post, date, title) -> date) posts)))
+            $ List.reverse
+            $ List.sortOn (\(post, date, title, content) -> date)
+            $ posts
   let table = Text.concat [
         "---\n",
         "title: Archive\n",
@@ -65,8 +68,8 @@ generateArchive = \posts -> do
         ]
   (out, err) <-
     Text.readProcess_
-      (Text.setStdin table (Process.proc "pandoc"
-         ["--standalone","--template","templates/posts.html"]))
+      $ Text.setStdin table
+      $ Process.proc "pandoc" ["--standalone","--template","templates/posts.html"]
   Text.writeFile "webroot/posts/index.html" out
 
 -- Contents of an article looks like this:
@@ -103,6 +106,7 @@ render = \post -> do
   (out, err) <- Text.readProcess_ (Process.proc "pandoc" ["--standalone","--template","templates/post.html",Text.concat ["posts/", post]])
   Directory.createDirectoryIfMissing Bool.True targetDir
   Text.writeFile targetFile out
+  Monad.return out
 
 -- Filename stripped of .md/.markdown.
 filename = \post -> Text.replace ".md" "" (Text.replace ".markdown" "" post)
@@ -112,3 +116,41 @@ strip = \title ->
   Maybe.maybe title Function.id do
     title' <- Text.stripPrefix "\"" title
     Text.stripSuffix "\"" title'
+
+-- Generate the /rss.xml page.
+--
+generateRSS = \posts0 -> do
+  let posts1 = List.reverse $ List.sortOn (\(post, date, title, content) -> date) posts0
+  posts <- Monad.forM posts1 \(post, date, title, content) -> do
+    date' <- Text.readProcessStdout_ $ Text.setStdin date $ Process.proc "date" ["-R", "-f", "/dev/stdin"]
+    Monad.return (post, date', title, content)
+  Text.putStrLn "Generating rss.xml ..."
+  let items =
+        Text.unlines
+          $ List.map
+            (\(post, date, title, content) ->
+              Text.concat [
+                 "<item>",
+                 "<title><![CDATA[", Main.strip title, "]]></title>",
+                 "<link>https://chrisdone.com/posts/", Main.filename post, "</link>",
+                 "<guid>https://chrisdone.com/posts/", Main.filename post, "</guid>",
+                 "<description><![CDATA[", content, "]]></description>",
+                 "<pubDate>", date, "</pubDate>",
+                 "<dc:creator>Chris Done</dc:creator>",
+                 "</item>"
+               ])
+            posts
+  let xml = Text.unlines [
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+        "<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">",
+        "<channel>",
+        "<title>Chris Done's Blog</title>",
+        "<link>https://chrisdone.com</link>",
+        "<description><![CDATA[Blog all about programming, especially in Haskell since 2008!]]></description>",
+        "<atom:link href=\"https://chrisdone.com/rss.xml\" rel=\"self\" type=\"application/rss+xml\" />",
+        "<lastBuildDate>Wed, 22 Dec 2021 00:00:00 UT</lastBuildDate>",
+        items,
+        "</channel>",
+        "</rss>"
+        ]
+  Text.writeFile "webroot/rss.xml" xml
