@@ -101,10 +101,10 @@ commandParser =
 dispatch :: Command -> IO ()
 dispatch Version = putStrLn "2023-12-12"
 dispatch (Run filePath) = do
-  string <- readFile filePath
-  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
-    HSE.ParseFailed _ e -> error $ e
-    HSE.ParseOk binds
+  result <- parseFile filePath
+  case result of
+    Left e -> error $ e
+    Right binds
       | anyCycles binds -> error "Cyclic bindings are not supported!"
       | otherwise ->
             case desugarAll binds of
@@ -126,10 +126,10 @@ dispatch (Run filePath) = do
                                      in action
                                    Nothing -> error $ "Type isn't IO (), but: " ++ show t
 dispatch (Check filePath) = do
-  string <- readFile filePath
-  case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } string >>= parseModule of
-    HSE.ParseFailed _ e -> error $ e
-    HSE.ParseOk binds
+  result <- parseFile filePath
+  case result of
+    Left e -> error $ e
+    Right binds
       | anyCycles binds -> error "Cyclic bindings are not supported!"
       | otherwise ->
             case desugarAll binds of
@@ -1171,3 +1171,21 @@ zonk = \case
   ICon c -> pure $ ICon c
   IFun a b -> IFun <$> zonk a <*> zonk b
   IApp a b -> IApp <$> zonk a <*> zonk b
+
+--------------------------------------------------------------------------------
+-- Parse with #!/shebangs
+
+-- Parse a file into a list of decls, but strip shebangs.
+parseFile :: String -> IO (Either String [(String, HSE.Exp HSE.SrcSpanInfo)])
+parseFile filePath = do
+  string <- ByteString.readFile filePath
+  pure $ case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
+    HSE.ParseFailed _ e -> Left e
+    HSE.ParseOk binds -> Right binds
+
+-- This should be quite efficient because it's essentially a pointer
+-- increase. It leaves the \n so that line numbers are in tact.
+dropShebang :: Text -> Text
+dropShebang t = Maybe.fromMaybe t do
+  rest <- Text.stripPrefix "#!" t
+  pure $ Text.dropWhile (/= '\n') rest

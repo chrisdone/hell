@@ -1,1 +1,2 @@
+#!/usr/bin/env hell
 main = Text.putStrLn "Hello, World!"
