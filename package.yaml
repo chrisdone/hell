@@ -23,6 +23,10 @@ dependencies:
 - template-haskell
 - unliftio
 
+ghc-options:
+  - -Wall
+  - -Wno-missing-pattern-synonym-signatures
+
 executables:
   hell:
     main: Hell.hs

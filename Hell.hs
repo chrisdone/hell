@@ -19,7 +19,7 @@ module Main (main) where
 -- guest language as such.
 
 import Data.Void
-import Data.Functor.Const
+import Data.Foldable
 import qualified Language.Haskell.TH as TH
 import qualified Language.Haskell.TH.Syntax as TH
 import Language.Haskell.TH (Q)
@@ -43,16 +43,13 @@ import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Builder as ByteString hiding (writeFile)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
-import qualified Data.Text.IO as Text
 import qualified System.IO as IO
-import qualified System.IO.Error as Error
 import qualified UnliftIO.Async as Async
 import qualified System.Directory as Dir
 import qualified Options.Applicative as Options
 
 -- Things used within the host language.
 
-import Data.Void
 import Data.Traversable
 import Data.Bifunctor
 import System.Process.Typed as Process
@@ -63,14 +60,12 @@ import Data.Map (Map)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.ByteString (ByteString)
-import Data.Constraint
 import GHC.Types
 import Type.Reflection (SomeTypeRep(..), TypeRep, typeRepKind, typeRep, pattern TypeRep)
 
 -- Testing support
 
 import Test.Hspec
-import Test.QuickCheck
 
 ------------------------------------------------------------------------------
 -- Main entry point
@@ -117,8 +112,10 @@ dispatch (Run filePath) = do
                       Left err -> error $ "Error inferring! " ++ show err
                       Right uterm ->
                         case check uterm Nil of
-                           Typed t ex ->
+                           Left err -> error $ "Type checker error: " ++ show err
+                           Right (Typed t ex) ->
                              case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
+                               Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
                                Just Type.HRefl ->
                                  case Type.eqTypeRep t (typeRep @(IO ())) of
                                    Just Type.HRefl ->
@@ -142,13 +139,13 @@ dispatch (Check filePath) = do
                       Left err -> error $ "Error inferring! " ++ show err
                       Right uterm ->
                         case check uterm Nil of
-                           Typed t ex ->
+                           Left err -> error $ "Type checker error: " ++ show err
+                           Right (Typed t _ex) ->
                              case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
+                               Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
                                Just Type.HRefl ->
                                  case Type.eqTypeRep t (typeRep @(IO ())) of
-                                   Just Type.HRefl ->
-                                     let action :: IO () = eval () ex
-                                     in pure ()
+                                   Just Type.HRefl -> pure ()
                                    Nothing -> error $ "Type isn't IO (), but: " ++ show t
 dispatch (Exec string) = do
   case HSE.parseExpWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } string of
@@ -158,11 +155,13 @@ dispatch (Exec string) = do
               Left err -> error $ "Error desugaring! " ++ show err
               Right uterm ->
                     case inferExp mempty uterm of
-                      Left err -> error $ "Error inferring! " ++ show err
-                      Right uterm ->
-                        case check uterm Nil of
-                           Typed t ex ->
+                      Left err -> error $ "Type inferer error! " ++ show err
+                      Right iterm ->
+                        case check iterm Nil of
+                           Left err -> error $ "Type checker error: " ++ show err
+                           Right (Typed t ex) ->
                              case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
+                               Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
                                Just Type.HRefl ->
                                  case Type.eqTypeRep t (typeRep @(IO ())) of
                                    Just Type.HRefl ->
@@ -179,7 +178,8 @@ parseModule (HSE.Module _ Nothing [] [] decls) =
   where
     parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
           pure (string, exp')
-    parseDecl _ = error "Can't parse that!"
+    parseDecl _ = fail "Can't parse that!"
+parseModule _ = fail "Module headers aren't supported."
 
 --------------------------------------------------------------------------------
 -- Typed AST support
@@ -211,7 +211,7 @@ eval _env (Lit a) = a
 -- a given tuple to pick out.
 lookp :: Var env t -> env -> t
 lookp (ZVar slot) (_, x) = slot x
-lookp (SVar v) (env, x) = lookp v env
+lookp (SVar v) (env, _) = lookp v env
 
 --------------------------------------------------------------------------------
 -- The "untyped" AST
@@ -265,6 +265,17 @@ toStarType (SomeTypeRep t) = do
 
 data Typed (thing :: Type -> Type) = forall ty. Typed (TypeRep (ty :: Type)) (thing ty)
 
+data TypeCheckError
+  = NotInScope String
+  | TupleTypeMismatch
+  | TypeCheckMismatch
+  | TupleTypeTooBig
+  | TypeOfApplicandIsNotFunction
+  | LambdaIsNotAFunBug
+  | InferredCheckedDisagreeBug
+  | LambdaMustBeStarBug
+  deriving (Show)
+
 typed :: Type.Typeable a => a -> Typed (Term g)
 typed l = Typed (Type.typeOf l) (Lit l)
 
@@ -274,45 +285,51 @@ data TyEnv g where
   Cons :: Binding -> TypeRep (t :: Type) -> TyEnv h -> TyEnv (h, t)
 
 -- The top-level checker used by the main function.
-check :: (UTerm SomeTypeRep) -> TyEnv () -> Typed (Term ())
+check :: (UTerm SomeTypeRep) -> TyEnv () -> Either TypeCheckError (Typed (Term ()))
 check = tc
 
 -- Type check a term given an environment of names.
-tc :: (UTerm SomeTypeRep) -> TyEnv g -> Typed (Term g)
-tc (UVar _ v) env = case lookupVar v env of
-  Typed ty v -> Typed ty (Var v)
- -- tc (ULam _ s (Just (SomeStarType bndr_ty')) body) env =
+tc :: (UTerm SomeTypeRep) -> TyEnv g -> Either TypeCheckError (Typed (Term g))
+tc (UVar _ v) env = do
+  Typed ty v' <- lookupVar v env
+  pure $ Typed ty (Var v')
 tc (ULam (StarTypeRep lam_ty) s _ body) env =
   case lam_ty of
-    Type.Fun bndr_ty' body_t' |
+    Type.Fun bndr_ty' _ |
       Just Type.HRefl <- Type.eqTypeRep (typeRepKind bndr_ty') (typeRep @Type) ->
       case tc body (Cons s bndr_ty' env) of
-        Typed body_ty' body' ->
+        Left e -> Left e
+        Right (Typed body_ty' body') ->
           let checked_ty = Type.Fun bndr_ty' body_ty'
           in
            case Type.eqTypeRep checked_ty lam_ty of
-             Just Type.HRefl -> Typed lam_ty (Lam bndr_ty' body')
-             Nothing -> error "Checked type of lambda didn't match inferred type. That's a bug."
-    _ -> error $ "Lambda's type should be a function, a -> b, but it's not. That's weird."
+             Just Type.HRefl -> Right $ Typed lam_ty (Lam bndr_ty' body')
+             Nothing -> Left InferredCheckedDisagreeBug
+    _ -> Left LambdaIsNotAFunBug
+tc (ULam (SomeTypeRep{}) _ _ _) _ =
+  Left LambdaMustBeStarBug
 tc (UApp _ e1 e2) env =
   case tc e1 env of
-    Typed (Type.Fun bndr_ty body_ty) e1' ->
+    Left e -> Left e
+    Right (Typed (Type.Fun bndr_ty body_ty) e1') ->
       case tc e2 env of
-        Typed arg_ty e2' ->
+        Left e -> Left e
+        Right (Typed arg_ty e2') ->
           case Type.eqTypeRep arg_ty bndr_ty of
-            Nothing -> error $ "Type error: " ++ show arg_ty ++ " vs " ++ show bndr_ty
+            Nothing ->
+              -- error $ "Type error: " ++ show arg_ty ++ " vs " ++ show bndr_ty
+              Left TypeCheckMismatch
             Just (Type.HRefl) ->
              let kind = typeRepKind body_ty
              in
              case Type.eqTypeRep kind (typeRep @Type) of
-               Just Type.HRefl
-                 -> Typed body_ty
-                     (App e1'
-                          e2')
+               Just Type.HRefl -> Right $ Typed body_ty (App e1' e2')
+               _ -> Left TypeCheckMismatch
+    Right{} -> Left TypeOfApplicandIsNotFunction
 -- Polytyped terms, must be, syntactically, fully-saturated
-tc (UForall _ _ fall _ _ reps) _env = go reps fall where
-  go :: [SomeTypeRep] -> Forall -> Typed (Term g)
-  go [] (Final typed) = typed
+tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
+  go :: [SomeTypeRep] -> Forall -> Either TypeCheckError (Typed (Term g))
+  go [] (Final typed') = pure typed'
   go (StarTypeRep rep:reps) (NoClass f) = go reps (f rep)
   go (StarTypeRep rep:reps) (OrdEqShow f) =
     if
@@ -328,54 +345,60 @@ tc (UForall _ _ fall _ _ reps) _env = go reps fall where
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @IO) -> go reps (f rep)
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Maybe) -> go reps (f rep)
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @[]) -> go reps (f rep)
-        | Type.App either a <- rep,
-          Just Type.HRefl <- Type.eqTypeRep either (typeRep @Either) -> go reps (f rep)
+        | Type.App either' _ <- rep,
+          Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) -> go reps (f rep)
         | otherwise -> error $ "type doesn't have enough instances " ++ show rep
   go _ _ = error "forall type arguments mismatch."
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
 -- embedded in the untyped AST.
-lookupVar :: String -> TyEnv g -> Typed (Var g)
-lookupVar str Nil = error $ "Variable not found: " ++ str
+lookupVar :: String -> TyEnv g -> Either TypeCheckError (Typed (Var g))
+lookupVar str Nil = Left $ NotInScope str
 lookupVar v (Cons (Singleton s) ty e)
-  | v == s = Typed ty (ZVar id)
-  | otherwise = case lookupVar v e of
-      Typed ty v -> Typed ty (SVar v)
+  | v == s = pure $ Typed ty (ZVar id)
+  | otherwise = do
+    Typed ty' v' <- lookupVar v e
+    pure $ Typed ty' (SVar v')
 lookupVar v (Cons (Tuple ss) ty e)
-  | Just i <- lookup v $ zip ss [0..] =
+  | Just i <- lookup v $ zip ss [0 :: Int ..] =
     case ty of
       Type.App (Type.App tup x) y
        | Just Type.HRefl <- Type.eqTypeRep tup (typeRep @(,)) ->
           case i of
-            0 -> Typed x $ ZVar \(a,_) -> a
-            1 -> Typed y $ ZVar \(_,b) -> b
+            0 -> pure $ Typed x $ ZVar \(a,_) -> a
+            1 -> pure $ Typed y $ ZVar \(_,b) -> b
+            _ -> Left TupleTypeMismatch
       Type.App (Type.App (Type.App tup x) y) z
        | Just Type.HRefl <- Type.eqTypeRep tup (typeRep @(,,)) ->
           case i of
-            0 -> Typed x $ ZVar \(a,_,_) -> a
-            1 -> Typed y $ ZVar \(_,b,_) -> b
-            2 -> Typed z $ ZVar \(_,_,c) -> c
+            0 -> pure $ Typed x $ ZVar \(a,_,_) -> a
+            1 -> pure $ Typed y $ ZVar \(_,b,_) -> b
+            2 -> pure $ Typed z $ ZVar \(_,_,c) -> c
+            _ -> Left TupleTypeMismatch
       Type.App (Type.App (Type.App (Type.App tup x) y) z) z'
        | Just Type.HRefl <- Type.eqTypeRep tup (typeRep @(,,,)) ->
           case i of
-            0 -> Typed x $ ZVar \(a,_,_,_) -> a
-            1 -> Typed y $ ZVar \(_,b,_,_) -> b
-            2 -> Typed z $ ZVar \(_,_,c,_) -> c
-            3 -> Typed z' $ ZVar \(_,_,_,d) -> d
-  | otherwise = case lookupVar v e of
-      Typed ty v -> Typed ty (SVar v)
+            0 -> pure $ Typed x $ ZVar \(a,_,_,_) -> a
+            1 -> pure $ Typed y $ ZVar \(_,b,_,_) -> b
+            2 -> pure $ Typed z $ ZVar \(_,_,c,_) -> c
+            3 -> pure $ Typed z' $ ZVar \(_,_,_,d) -> d
+            _ -> Left TupleTypeMismatch
+      _ -> Left TupleTypeTooBig
+  | otherwise = do
+     Typed ty' v' <- lookupVar v e
+     pure $ Typed ty' (SVar v')
 
 --------------------------------------------------------------------------------
 -- Desugar expressions
 
-data DesugarError = InvalidConstructor String | InvalidVariable String | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String | KindError
+data DesugarError = InvalidConstructor String | InvalidVariable String | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String | KindError | BadDoNotation | TupleTooBig | UnsupportedLiteral
   deriving (Show, Eq)
 
 nestedTyApps :: HSE.Exp HSE.SrcSpanInfo -> Maybe (HSE.QName HSE.SrcSpanInfo, [HSE.Type HSE.SrcSpanInfo])
 nestedTyApps = go [] where
   go acc (HSE.App _ (HSE.Var _ qname) (HSE.TypeApp _ ty)) = pure (qname, ty:acc)
   go acc (HSE.App _ e (HSE.TypeApp _ ty)) = go (ty:acc) e
-  go acc _ = Nothing
+  go _ _ = Nothing
 
 desugarExp :: Map String (UTerm ()) -> HSE.Exp HSE.SrcSpanInfo ->
    Either DesugarError (UTerm ())
@@ -395,6 +418,7 @@ desugarExp globals = go where
       HSE.Char _ char _ -> pure $ lit char
       HSE.String _ string _ -> pure $ lit $ Text.pack string
       HSE.Int _ int _ -> pure $ lit (fromIntegral int :: Int)
+      _ -> Left $ UnsupportedLiteral
     app@HSE.App{} | Just (qname, tys) <- nestedTyApps app -> do
       reps <- traverse desugarType tys
       desugarQName globals qname reps
@@ -413,17 +437,18 @@ desugarExp globals = go where
           loop f (s:ss) = do
             case s of
               HSE.Generator _ pat e -> do
-                 (s, rep) <- desugarArg pat
+                 (s', rep) <- desugarArg pat
                  m <- go e
-                 loop (f . (\f -> UApp () (UApp () bind' m) (ULam () s rep f))) ss
+                 loop (f . (\f' -> UApp () (UApp () bind' m) (ULam () s' rep f'))) ss
               HSE.LetStmt _ (HSE.BDecls _ [HSE.PatBind _ pat (HSE.UnGuardedRhs _ e) Nothing]) -> do
-                 (s, rep) <- desugarArg pat
+                 (s', rep) <- desugarArg pat
                  value <- go e
-                 loop (f . (\f -> UApp () (ULam () s rep f) value)) ss
+                 loop (f . (\f' -> UApp () (ULam () s' rep f') value)) ss
               HSE.Qualifier _ e -> do
                 e' <- go e
                 loop (f . UApp () (UApp () then' e')) ss
-          loop _ _ = error "Malformed do-notation!"
+              _ -> Left BadDoNotation
+          loop _ _ = Left BadDoNotation
       loop id stmts
     e -> Left $ UnsupportedSyntax $ show e
 
@@ -443,7 +468,8 @@ desugarQName globals qname [] =
     _ -> desugarPolyQName globals qname []
 desugarQName globals qname treps = desugarPolyQName globals qname treps
 
-desugarPolyQName globals qname treps =
+desugarPolyQName :: Show l => p -> HSE.QName l -> [SomeStarType] -> Either DesugarError (UTerm ())
+desugarPolyQName _ qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just (forall', vars, irep) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
@@ -457,13 +483,13 @@ desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe Som
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) =
   fmap (Singleton i,) (fmap Just (desugarType typ))
 desugarArg (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
-  | Just idents <- traverse desugarIdent idents =
-  fmap (Tuple idents,) (fmap Just (desugarType typ))
+  | Just idents' <- traverse desugarIdent idents =
+  fmap (Tuple idents',) (fmap Just (desugarType typ))
 desugarArg (HSE.PVar _ (HSE.Ident _ i)) =
   pure (Singleton i,Nothing)
 desugarArg (HSE.PTuple _ HSE.Boxed idents)
-  | Just idents <- traverse desugarIdent idents =
-  pure (Tuple idents,Nothing)
+  | Just idents' <- traverse desugarIdent idents =
+  pure (Tuple idents',Nothing)
 desugarArg (HSE.PParen _ p) = desugarArg p
 desugarArg p =  Left $ BadParameterSyntax $ show p
 
@@ -478,7 +504,7 @@ desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
 desugarType t = do
   someRep <- go t
   case someRep of
-    StarTypeRep t -> pure (SomeStarType t)
+    StarTypeRep t' -> pure (SomeStarType t')
     _ ->  Left KindError
 
   where
@@ -493,6 +519,7 @@ desugarType t = do
           pure $ StarTypeRep (Type.App (Type.App (Type.App (typeRep @(,,)) a) b) c)
         [StarTypeRep a,StarTypeRep b, StarTypeRep c, StarTypeRep d] ->
           pure $ StarTypeRep (Type.App (Type.App (Type.App (Type.App (typeRep @(,,,)) a) b) c) d)
+        _ -> Left TupleTooBig
     HSE.TyParen _ x -> go x
     HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ name))
       | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
@@ -500,22 +527,22 @@ desugarType t = do
     HSE.TyList _ inner -> do
       rep <- go inner
       case rep of
-        StarTypeRep t -> pure $ StarTypeRep $ Type.App (typeRep @[]) t
+        StarTypeRep t' -> pure $ StarTypeRep $ Type.App (typeRep @[]) t'
         _ ->  Left KindError
-    HSE.TyFun l a b -> do
+    HSE.TyFun _ a b -> do
       a' <- go a
       b' <- go b
       case (a', b') of
         (StarTypeRep aRep, StarTypeRep bRep) ->
           pure $ StarTypeRep (Type.Fun aRep bRep)
         _ ->  Left KindError
-    HSE.TyApp l f a -> do
+    HSE.TyApp _ f a -> do
       f' <- go f
       a' <- go a
       case applyTypes f' a' of
         Just someTypeRep -> pure someTypeRep
         _ ->  Left KindError
-    t ->  Left $ UnknownType $ show t
+    t' ->  Left $ UnknownType $ show t'
 
 -- | Supports up to 3-ary type functions, but not more.
 applyTypes :: SomeTypeRep -> SomeTypeRep -> Maybe SomeTypeRep
@@ -560,7 +587,7 @@ desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stron
 -- Infer
 
 data InferError =
-  UnifyError UnifyError | ZonkError ZonkError
+  UnifyError UnifyError | ZonkError ZonkError | ElabError ElaborateError
   deriving Show
 
 -- | Note: All types in the input are free of metavars. There is an
@@ -572,14 +599,15 @@ inferExp ::
   UTerm () ->
   Either InferError (UTerm SomeTypeRep)
 inferExp _ uterm =
-  case unify equalities of
-    Left unifyError -> Left $ UnifyError unifyError
-    Right subs ->
-      case traverse (zonkToStarType subs) iterm of
-        Left zonkError -> Left $ ZonkError $ zonkError
-        Right sterm -> pure sterm
-
-  where (iterm, equalities) = elaborate uterm
+  case elaborate uterm of
+    Left elabError ->  Left $ ElabError elabError
+    Right (iterm, equalities) ->
+      case unify equalities of
+        Left unifyError -> Left $ UnifyError unifyError
+        Right subs ->
+          case traverse (zonkToStarType subs) iterm of
+            Left zonkError -> Left $ ZonkError $ zonkError
+            Right sterm -> pure sterm
 
 -- | Zonk a type and then convert it to a type: t :: *
 zonkToStarType :: Map IMetaVar (IRep IMetaVar) -> IRep IMetaVar -> Either ZonkError SomeTypeRep
@@ -763,6 +791,7 @@ polyLits = Map.fromList
           _ -> error $ "Expected plain do-notation, but got: " ++ show e
 
       nameUnique (TH.Name _ (TH.NameU i)) = i
+      nameUnique _ = error "Bad TH problem in nameUnique."
 
       toTy :: TH.Type -> Q TH.Exp
       toTy = \case
@@ -782,22 +811,26 @@ polyLits = Map.fromList
       makePrim (TH.NoBindS (TH.SigE (TH.AppE (TH.LitE (TH.StringL string)) expr)
                    (TH.ForallT vars constraints typ))) =
         let constrained = foldl getConstraint mempty constraints
-            vars0 = map (\(TH.PlainTV v TH.SpecifiedSpec) ->
-                        TH.litE $ TH.IntegerL $ nameUnique v)
+            vars0 = map (\case
+                      (TH.PlainTV v TH.SpecifiedSpec) -> TH.litE $ TH.IntegerL $ nameUnique v
+                      _ -> error "The type variable isn't what I expected.")
                       vars
             ordEqShow = Set.fromList [''Ord, ''Eq, ''Show]
             monadics = Set.fromList [''Functor, ''Applicative, ''Monad]
             builder =
               foldr
-                (\(TH.PlainTV v TH.SpecifiedSpec) rest ->
-                  TH.appE
-                    (TH.conE (case Map.lookup v constrained of
-                                Nothing -> 'NoClass
-                                Just constraints
-                                  | Set.isSubsetOf constraints ordEqShow -> 'OrdEqShow
-                                  | Set.isSubsetOf constraints monadics -> 'Monadic))
-                    (TH.lamE [pure $ TH.ConP 'TypeRep [TH.VarT v] []]
-                             rest))
+                (\case
+                   (TH.PlainTV v TH.SpecifiedSpec) -> \rest ->
+                     TH.appE
+                       (TH.conE (case Map.lookup v constrained of
+                                   Nothing -> 'NoClass
+                                   Just constraints'
+                                     | Set.isSubsetOf constraints' ordEqShow -> 'OrdEqShow
+                                     | Set.isSubsetOf constraints' monadics -> 'Monadic
+                                   _ -> error "I'm not sure what to do with this variable."))
+                       (TH.lamE [pure $ TH.ConP 'TypeRep [TH.VarT v] []]
+                                rest)
+                   _ -> error "Did not expect this type of variable!")
                 [| Final $ typed $(TH.sigE (pure expr) (pure typ)) |]
                 vars
         in [| (string, ($builder, $(TH.listE vars0), $(toTy typ))) |]
@@ -805,8 +838,8 @@ polyLits = Map.fromList
 
       -- Just tells us whether a given variable is constrained by a
       -- type-class or not.
-      getConstraint m (TH.AppT (TH.ConT cls) (TH.VarT v)) =
-        Map.insertWith Set.union v (Set.singleton cls) m
+      getConstraint m (TH.AppT (TH.ConT cls') (TH.VarT v)) =
+        Map.insertWith Set.union v (Set.singleton cls') m
       getConstraint _ _ = error "Bad constraint!"
     in
     derivePrims [| do
@@ -900,9 +933,10 @@ tuple' 0 = unsafeGetForall "Tuple.()"
 tuple' 2 = unsafeGetForall "Tuple.(,)"
 tuple' 3 = unsafeGetForall "Tuple.(,,)"
 tuple' 4 = unsafeGetForall "Tuple.(,,,)"
+tuple' _ = error "Bad compile-time lookup for tuple'."
 
 unsafeGetForall :: String -> UTerm ()
-unsafeGetForall key = Maybe.fromJust $ do
+unsafeGetForall key = Maybe.fromMaybe (error $ "Bad compile-time lookup for " ++ key) $ do
   (forall', vars, irep) <- Map.lookup key polyLits
   pure (UForall () [] forall' vars irep [])
 
@@ -1010,12 +1044,12 @@ toSomeTypeRep t = do
 
 -- | Convert from a type-indexed type to an untyped type.
 fromSomeStarType :: forall void. SomeStarType -> IRep void
-fromSomeStarType (SomeStarType typeRep) = go typeRep where
+fromSomeStarType (SomeStarType r) = go r where
   go :: forall a. TypeRep a -> IRep void
   go = \case
     Type.Fun a b -> IFun (go a) (go b)
     Type.App a b -> IApp (go a) (go b)
-    typeRep@Type.Con{} -> ICon (SomeTypeRep typeRep)
+    rep@Type.Con{} -> ICon (SomeTypeRep rep)
 
 --------------------------------------------------------------------------------
 -- Inference elaboration phase
@@ -1037,6 +1071,9 @@ instance (Ord a) => Eq (Equality a) where
 instance (Ord a) => Ord (Equality a) where
   Equality a b `compare` Equality c d = Set.fromList [a,b] `compare` Set.fromList [c,d]
 
+data ElaborateError = UnsupportedTupleSize | BadInstantiationBug
+  deriving (Show)
+
 -- | Elaboration phase.
 --
 -- Note: The input term contains no metavars. There are just some
@@ -1044,11 +1081,11 @@ instance (Ord a) => Ord (Equality a) where
 -- metavars.
 --
 -- Output type /does/ contain meta vars.
-elaborate :: UTerm () -> (UTerm (IRep IMetaVar), Set (Equality (IRep IMetaVar)))
-elaborate = getEqualities . flip runState empty . flip runReaderT mempty . go where
+elaborate :: UTerm () -> Either ElaborateError (UTerm (IRep IMetaVar), Set (Equality (IRep IMetaVar)))
+elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty . go where
   empty = Elaborate{counter=0,equalities=mempty}
   getEqualities (term, Elaborate{equalities}) = (term, equalities)
-  go :: UTerm () -> ReaderT (Map String (IRep IMetaVar)) (State Elaborate) (UTerm (IRep IMetaVar))
+  go :: UTerm () -> ReaderT (Map String (IRep IMetaVar)) (StateT Elaborate (Either ElaborateError)) (UTerm (IRep IMetaVar))
   go = \case
     UVar () string -> do
       env <- ask
@@ -1066,7 +1103,7 @@ elaborate = getEqualities . flip runState empty . flip runReaderT mempty . go wh
       a <- case mstarType of
         Just ty -> pure $ fromSomeStarType ty
         Nothing -> fmap IVar freshIMetaVar
-      vars <- bindingVars a binding
+      vars <- lift $ bindingVars a binding
       body' <- local (Map.union vars) $ go body
       let ty = IFun a (typeOf body')
       pure $ ULam ty binding mstarType body'
@@ -1078,35 +1115,37 @@ elaborate = getEqualities . flip runState empty . flip runReaderT mempty . go wh
       -- Fill in the polyRep with the metavars.
       monoType <- for polyRep \uniq ->
         case List.lookup uniq vars of
-          Nothing -> error "Instantiation is broken internally."
+          Nothing -> lift $ lift $ Left $ BadInstantiationBug
           Just var -> pure var
       -- Order of types is position-dependent, apply the ones we have.
-      for (zip vars types) \((_uniq, var), someTypeRep) ->
+      for_ (zip vars types) \((_uniq, var), someTypeRep) ->
         equal (fromSomeStarType someTypeRep) (IVar var)
       -- Done!
       pure $ UForall monoType types forall' uniqs polyRep (map (IVar . snd) vars)
 
-bindingVars :: MonadState Elaborate m => IRep IMetaVar -> Binding -> m (Map String (IRep IMetaVar))
+bindingVars :: IRep IMetaVar -> Binding -> StateT Elaborate (Either ElaborateError) (Map String (IRep IMetaVar))
 bindingVars irep (Singleton name) = pure $ Map.singleton name irep
 bindingVars tupleVar (Tuple names) = do
   varsTypes <- for names \name -> fmap (name, ) (fmap IVar freshIMetaVar)
   -- it's a left-fold:
   -- IApp (IApp (ICon (,)) x) y
+  cons <- makeCons
   equal tupleVar $ foldl IApp (ICon cons) (map snd varsTypes)
   pure $ Map.fromList varsTypes
 
-  where cons = case length names of
-         2 -> SomeTypeRep (typeRep @(,))
-         3 -> SomeTypeRep (typeRep @(,,))
-         4 -> SomeTypeRep (typeRep @(,,,))
+  where makeCons = case length names of
+         2 -> pure $ SomeTypeRep (typeRep @(,))
+         3 -> pure $ SomeTypeRep (typeRep @(,,))
+         4 -> pure $ SomeTypeRep (typeRep @(,,,))
+         _ -> lift $ Left $ UnsupportedTupleSize
 
 equal :: MonadState Elaborate m => IRep IMetaVar -> IRep IMetaVar -> m ()
-equal x y = modify \elaborate -> elaborate { equalities = equalities elaborate <> Set.singleton (Equality x y) }
+equal x y = modify \elaborate' -> elaborate' { equalities = equalities elaborate' <> Set.singleton (Equality x y) }
 
 freshIMetaVar :: MonadState Elaborate m => m IMetaVar
 freshIMetaVar = do
   Elaborate{counter} <- get
-  modify \elaborate -> elaborate { counter = counter + 1 }
+  modify \elaborate' -> elaborate' { counter = counter + 1 }
   pure $ IMetaVar0 counter
 
 --------------------------------------------------------------------------------
@@ -1167,7 +1206,7 @@ occurs ivar = any (==ivar)
 -- <https://stackoverflow.com/questions/31889048/what-does-the-ghc-source-mean-by-zonk>
 zonk :: IRep IMetaVar -> Either ZonkError (IRep Void)
 zonk = \case
-  IVar v -> Left AmbiguousMetavar
+  IVar {} -> Left AmbiguousMetavar
   ICon c -> pure $ ICon c
   IFun a b -> IFun <$> zonk a <*> zonk b
   IApp a b -> IApp <$> zonk a <*> zonk b
@@ -1180,7 +1219,7 @@ parseFile :: String -> IO (Either String [(String, HSE.Exp HSE.SrcSpanInfo)])
 parseFile filePath = do
   string <- ByteString.readFile filePath
   pure $ case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
-    HSE.ParseFailed _ e -> Left e
+    HSE.ParseFailed _ e -> Left $ "Parse error: " <> e
     HSE.ParseOk binds -> Right binds
 
 -- This should be quite efficient because it's essentially a pointer
@@ -1189,3 +1228,12 @@ dropShebang :: Text -> Text
 dropShebang t = Maybe.fromMaybe t do
   rest <- Text.stripPrefix "#!" t
   pure $ Text.dropWhile (/= '\n') rest
+
+--------------------------------------------------------------------------------
+-- Spec
+
+_spec :: Spec
+_spec = do
+  freeVariablesSpec
+  anyCyclesSpec
+  desugarTypeSpec
