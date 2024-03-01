@@ -32,6 +32,7 @@ executable hell
     , mtl
     , optparse-applicative
     , syb
+    , tagged
     , template-haskell
     , text
     , typed-process
