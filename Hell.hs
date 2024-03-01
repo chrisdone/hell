@@ -7,10 +7,10 @@
 -- this is built upon, and for the Type.Reflection module, which has
 -- made some of this more ergonomic.
 
-{-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments, NamedFieldPuns #-}
+{-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments, NamedFieldPuns, DataKinds #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms, TemplateHaskell #-}
-{-# LANGUAGE OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
+{-# LANGUAGE OverloadedRecordDot, OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable, TypeOperators, UndecidableInstances, TypeFamilies, AllowAmbiguousTypes, MultiParamTypeClasses, FlexibleInstances #-}
 
 module Main (main) where
 
@@ -18,6 +18,7 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+import Data.Proxy
 import Data.Void
 import Data.Foldable
 import qualified Language.Haskell.TH as TH
@@ -240,8 +241,11 @@ data Binding = Singleton String | Tuple [String]
 
 data Forall where
   NoClass :: (forall (a :: Type). TypeRep a -> Forall) -> Forall
+  SymbolOf :: (forall (a :: Symbol). TypeRep a -> Forall) -> Forall
+  ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
   Monadic :: (forall (m :: Type -> Type). (Monad m) => TypeRep m -> Forall) -> Forall
+  GetOf :: (forall (r :: List) (k :: Symbol) (a :: Type). Proxy k -> (Tagged _t (Record r) -> a) -> Forall) -> Forall
   Final :: (forall g. Typed (Term g)) -> Forall
 
 lit :: Type.Typeable a => a -> UTerm ()
@@ -348,6 +352,13 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
         | Type.App either' _ <- rep,
           Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) -> go reps (f rep)
         | otherwise -> error $ "type doesn't have enough instances " ++ show rep
+  go (SomeTypeRep (k_rep :: TypeRep k):SomeTypeRep r_rep:StarTypeRep a_rep:reps) (GetOf f) =
+     if | Just Type.HRefl <- Type.eqTypeRep (typeRepKind k_rep) (typeRep @Symbol),
+          Just Type.HRefl <- Type.eqTypeRep (typeRepKind r_rep) (typeRep @List) -> do
+          case makeAccessor k_rep r_rep a_rep of
+            Just accessor -> go reps (f (Proxy @k) accessor)
+            Nothing -> error $ "missing field for field access"
+        | otherwise -> error $ "something is completely wrong for record/prop types. wrong order?"
   go _ _ = error "forall type arguments mismatch."
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
@@ -679,7 +690,8 @@ supportedTypeConstructors = Map.fromList [
   ("Maybe", SomeTypeRep $ typeRep @Maybe),
   ("Either", SomeTypeRep $ typeRep @Either),
   ("IO", SomeTypeRep $ typeRep @IO),
-  ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig)
+  ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig),
+  ("Tagged", SomeTypeRep $ typeRep @Tagged)
   ]
 
 --------------------------------------------------------------------------------
@@ -772,7 +784,9 @@ supportedLits = Map.fromList [
    ("Process.runProcess_", lit $ runProcess_ @IO @() @() @()),
    -- Lists
    ("List.and", lit (List.and @[])),
-   ("List.or", lit (List.or @[]))
+   ("List.or", lit (List.or @[])),
+   -- Records
+   ("Record.nil", lit nilR)
   ]
 
 --------------------------------------------------------------------------------
@@ -804,7 +818,8 @@ polyLits = Map.fromList
         TH.TupleT 3 -> [| ICon (SomeTypeRep (typeRep @(,,))) |]
         TH.TupleT 4 -> [| ICon (SomeTypeRep (typeRep @(,,,))) |]
         TH.TupleT 0 -> [| ICon (SomeTypeRep (typeRep @())) |]
-        t -> error $ "Uexpected type shape: " ++ show t
+        ty@TH.PromotedT{} ->  [| ICon (SomeTypeRep $(TH.appTypeE (TH.varE 'typeRep) (pure ty))) |]
+        t -> error $ "Unexpected type shape: " ++ show t
 
       -- Make a well-typed primitive form. Expects a very strict format.
       makePrim :: TH.Stmt -> Q TH.Exp
@@ -813,6 +828,7 @@ polyLits = Map.fromList
         let constrained = foldl getConstraint mempty constraints
             vars0 = map (\case
                       (TH.PlainTV v TH.SpecifiedSpec) -> TH.litE $ TH.IntegerL $ nameUnique v
+                      (TH.KindedTV v TH.SpecifiedSpec _k) -> TH.litE $ TH.IntegerL $ nameUnique v
                       _ -> error "The type variable isn't what I expected.")
                       vars
             ordEqShow = Set.fromList [''Ord, ''Eq, ''Show]
@@ -830,7 +846,17 @@ polyLits = Map.fromList
                                    _ -> error "I'm not sure what to do with this variable."))
                        (TH.lamE [pure $ TH.ConP 'TypeRep [TH.VarT v] []]
                                 rest)
-                   _ -> error "Did not expect this type of variable!")
+                   (TH.KindedTV v TH.SpecifiedSpec (TH.ConT v_k)) | v_k == ''Symbol -> \rest ->
+                     TH.appE
+                       (TH.conE 'SymbolOf)
+                       (TH.lamE [pure $ TH.ConP 'TypeRep [TH.SigT (TH.VarT v) (TH.ConT v_k)] []]
+                                rest)
+                   (TH.KindedTV v TH.SpecifiedSpec (TH.ConT v_k)) | v_k == ''List -> \rest ->
+                     TH.appE
+                       (TH.conE 'ListOf)
+                       (TH.lamE [pure $ TH.ConP 'TypeRep [TH.SigT (TH.VarT v) (TH.ConT v_k)] []]
+                                rest)
+                   t -> error $ "Did not expect this type of variable! " ++ show t)
                 [| Final $ typed $(TH.sigE (pure expr) (pure typ)) |]
                 vars
         in [| (string, ($builder, $(TH.listE vars0), $(toTy typ))) |]
@@ -844,6 +870,8 @@ polyLits = Map.fromList
     in
     derivePrims [| do
 
+  -- Records
+  "Record.cons" consR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
   -- Operators
   "$" (Function.$) :: forall a b. (a -> b) -> a -> b
   "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
@@ -1237,3 +1265,52 @@ _spec = do
   freeVariablesSpec
   anyCyclesSpec
   desugarTypeSpec
+
+--------------------------------------------------------------------------------
+-- Records
+
+data Tagged (s :: Symbol) a = Tagged a
+
+data List = NilL | ConsL Symbol Type List
+
+data Record (xs :: List) where
+  NilR  :: Record 'NilL
+  ConsR :: Proxy k -> a -> Record xs -> Record (ConsL k a xs)
+
+consR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
+consR = ConsR (Proxy :: Proxy k)
+
+nilR :: Record 'NilL
+nilR = NilR
+
+makeAccessor :: forall k r0 a _t.
+  TypeRep (k :: Symbol) -> TypeRep (r0 :: List) -> TypeRep a -> Maybe (Tagged _t (Record (r0 :: List)) -> a)
+makeAccessor k r0 a = do
+  accessor <- go r0
+  pure \(Tagged r) -> accessor r
+  where go :: TypeRep (r :: List) -> Maybe (Record (r :: List) -> a)
+        go r =
+          case Type.eqTypeRep r (Type.TypeRep @NilL) of
+            Just {} -> Nothing
+            Nothing ->
+              case r of
+                Type.App (Type.App (Type.App _ sym) typ) r' |
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind typ) (typeRep @Type),
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind sym) (typeRep @Symbol),
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind r') (typeRep @List)
+                    -> case (Type.eqTypeRep k sym, Type.eqTypeRep a typ) of
+                      (Just Type.HRefl, Just Type.HRefl) ->
+                        pure \(ConsR _k v _xs) -> v
+                      _ -> do
+                        accessor <- go r'
+                        pure \case
+                          ConsR _k _a xs -> accessor xs
+                _ -> Nothing
+
+{-
+demo :: Tagged "Main.X" (Record ('ConsL "bar" Int ('ConsL "foo" String 'NilL)))
+demo = Tagged (ConsR (Proxy @"bar") 123 (ConsR (Proxy @"foo") ("abc" :: String) NilR))
+foo =
+  fmap ($ demo) $
+  makeAccessor (typeRep @"bar") (typeRep @('ConsL "bar" Int ('ConsL "foo" String 'NilL))) (typeRep @Int)
+-}

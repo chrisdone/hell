@@ -19,6 +19,7 @@ dependencies:
 - typed-process
 - optparse-applicative
 - hspec
+- tagged
 - QuickCheck
 - template-haskell
 - unliftio
