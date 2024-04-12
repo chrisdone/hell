@@ -28,6 +28,8 @@ import qualified Data.Graph as Graph
 import qualified Data.Eq as Eq
 import qualified Data.Either as Either
 import qualified Data.Ord as Ord
+import qualified Control.Concurrent as Concurrent
+import qualified System.Timeout as Timeout
 import qualified Data.Bool as Bool
 import qualified Data.Map as Map
 import qualified Data.List as List
@@ -749,6 +751,8 @@ supportedLits = Map.fromList [
    ("IO.NoBuffering", lit IO.NoBuffering),
    ("IO.LineBuffering", lit IO.LineBuffering),
    ("IO.BlockBuffering", lit IO.BlockBuffering),
+   -- Concurrent stuff
+   ("Concurrent.threadDelay", lit Concurrent.threadDelay),
    -- Bool
    ("Bool.True", lit Bool.True),
    ("Bool.False", lit Bool.False),
@@ -862,6 +866,7 @@ polyLits = Map.fromList
   "IO.forM_" forM_ :: forall a. [a] -> (a -> IO ()) -> IO ()
   "IO.pure" pure :: forall a. a -> IO a
   "IO.print" (t_putStrLn . Text.pack . Show.show) :: forall a. Show a => a -> IO ()
+  "Timeout.timeout" Timeout.timeout :: forall a. Int -> IO a -> IO (Maybe a)
   -- Show
   "Show.show" (Text.pack . Show.show) :: forall a. Show a => a -> Text
   -- Eq/Ord
