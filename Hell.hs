@@ -341,6 +341,10 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
   go :: [SomeTypeRep] -> Forall -> Either TypeCheckError (Typed (Term g))
   go [] (Final typed') = pure typed'
   go (StarTypeRep rep:reps) (NoClass f) = go reps (f rep)
+  go (SomeTypeRep rep:reps) (ListOf f)
+    | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @List) = go reps (f rep)
+  go (SomeTypeRep rep:reps) (SymbolOf f)
+    | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @Symbol) = go reps (f rep)
   go (StarTypeRep rep:reps) (OrdEqShow f) =
     if
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
@@ -372,7 +376,7 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
             Just accessor -> go reps (f accessor)
             Nothing -> error $ "missing field for field access"
         | otherwise -> error $ "something is completely wrong for record/prop types. wrong order?"
-  go _ _ = error "forall type arguments mismatch."
+  go tys _ = error $ "forall type arguments mismatch: " ++ show tys
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
 -- embedded in the untyped AST.
