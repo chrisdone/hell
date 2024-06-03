@@ -573,20 +573,18 @@ desugarSomeType = go where
           pure $ Type.someTypeRep p
     t' ->  Left $ UnknownType $ show t'
 
--- | Supports up to 3-ary type functions, but not more.
+-- | Apply a type `f' with an argument `x', if it is a type function,
+-- and the input is the right kind.
 applyTypes :: SomeTypeRep -> SomeTypeRep -> Maybe SomeTypeRep
-applyTypes (SomeTypeRep f) (SomeTypeRep a) = do
-  Type.HRefl <- Type.eqTypeRep (typeRepKind a) (typeRep @Type)
-  if
-   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type)) ->
-     pure $ SomeTypeRep $ Type.App f a
-   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type)) ->
-     pure $ SomeTypeRep $ Type.App f a
-   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type -> Type)) ->
-     pure $ SomeTypeRep $ Type.App f a
-   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type -> Type -> Type)) ->
-     pure $ SomeTypeRep $ Type.App f a
-   | otherwise -> Nothing
+applyTypes (SomeTypeRep f) (SomeTypeRep x) =
+  case Type.typeRepKind f of
+    Type.App (Type.App (-->) a) _b
+      | Just Type.HRefl <- Type.eqTypeRep (-->) (TypeRep @(->)) ->
+      case Type.eqTypeRep (Type.typeRepKind x) a of
+        Just Type.HRefl ->
+          Just $ SomeTypeRep $ Type.App f x
+        _ -> Nothing
+    _ -> Nothing
 
 desugarTypeSpec :: Spec
 desugarTypeSpec = do
