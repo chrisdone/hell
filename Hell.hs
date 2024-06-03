@@ -7,6 +7,7 @@
 -- this is built upon, and for the Type.Reflection module, which has
 -- made some of this more ergonomic.
 
+{-# options_ghc -Wno-unused-foralls #-}
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments, NamedFieldPuns, DataKinds #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms, TemplateHaskell #-}
@@ -18,7 +19,6 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
-import Data.Proxy
 import Data.Void
 import Data.Foldable
 import qualified Language.Haskell.TH as TH
@@ -62,6 +62,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import Data.ByteString (ByteString)
 import GHC.Types
+import GHC.TypeLits
 import Type.Reflection (SomeTypeRep(..), TypeRep, typeRepKind, typeRep, pattern TypeRep)
 
 -- Testing support
@@ -245,7 +246,12 @@ data Forall where
   ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
   Monadic :: (forall (m :: Type -> Type). (Monad m) => TypeRep m -> Forall) -> Forall
-  GetOf :: (forall (r :: List) (k :: Symbol) (a :: Type). Proxy k -> (Tagged _t (Record r) -> a) -> Forall) -> Forall
+  GetOf ::
+    TypeRep (k :: Symbol) ->
+    TypeRep (t :: Symbol) ->
+    TypeRep (r :: List) ->
+    TypeRep (a :: Type) ->
+    ((Tagged t (Record r) -> a) -> Forall) -> Forall
   Final :: (forall g. Typed (Term g)) -> Forall
 
 lit :: Type.Typeable a => a -> UTerm ()
@@ -352,11 +358,18 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
         | Type.App either' _ <- rep,
           Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) -> go reps (f rep)
         | otherwise -> error $ "type doesn't have enough instances " ++ show rep
-  go (SomeTypeRep (k_rep :: TypeRep k):SomeTypeRep r_rep:StarTypeRep a_rep:reps) (GetOf f) =
-     if | Just Type.HRefl <- Type.eqTypeRep (typeRepKind k_rep) (typeRep @Symbol),
-          Just Type.HRefl <- Type.eqTypeRep (typeRepKind r_rep) (typeRep @List) -> do
-          case makeAccessor k_rep r_rep a_rep of
-            Just accessor -> go reps (f (Proxy @k) accessor)
+  go (SomeTypeRep (k_rep :: TypeRep k):SomeTypeRep t_rep:SomeTypeRep r_rep:StarTypeRep a_rep:reps)
+     (GetOf k0 t0 r0 a0 f) =
+     if | Just Type.HRefl <- Type.eqTypeRep (typeRepKind t_rep) (typeRep @Symbol),
+          Just Type.HRefl <- Type.eqTypeRep (typeRepKind k_rep) (typeRep @Symbol),
+          Just Type.HRefl <- Type.eqTypeRep (typeRepKind r_rep) (typeRep @List),
+          Just Type.HRefl <- Type.eqTypeRep t_rep t0,
+          Just Type.HRefl <- Type.eqTypeRep a_rep a0,
+          Just Type.HRefl <- Type.eqTypeRep k_rep k0,
+          Just Type.HRefl <- Type.eqTypeRep r_rep r0
+          ->
+          case makeAccessor k_rep r_rep a_rep t_rep of
+            Just accessor -> go reps (f accessor)
             Nothing -> error $ "missing field for field access"
         | otherwise -> error $ "something is completely wrong for record/prop types. wrong order?"
   go _ _ = error "forall type arguments mismatch."
@@ -553,6 +566,10 @@ desugarType t = do
       case applyTypes f' a' of
         Just someTypeRep -> pure someTypeRep
         _ ->  Left KindError
+    HSE.TyPromoted _ (HSE.PromotedString _ string _) ->
+      case someSymbolVal string of
+        SomeSymbol p ->
+          pure $ Type.someTypeRep p
     t' ->  Left $ UnknownType $ show t'
 
 -- | Supports up to 3-ary type functions, but not more.
@@ -786,7 +803,7 @@ supportedLits = Map.fromList [
    ("List.and", lit (List.and @[])),
    ("List.or", lit (List.or @[])),
    -- Records
-   ("Record.nil", lit nilR)
+   ("Record.nil", lit NilR)
   ]
 
 --------------------------------------------------------------------------------
@@ -823,7 +840,7 @@ polyLits = Map.fromList
 
       -- Make a well-typed primitive form. Expects a very strict format.
       makePrim :: TH.Stmt -> Q TH.Exp
-      makePrim (TH.NoBindS (TH.SigE (TH.AppE (TH.LitE (TH.StringL string)) expr)
+      makePrim (TH.NoBindS (TH.SigE (TH.AppE (TH.LitE (TH.StringL string)) expr0)
                    (TH.ForallT vars constraints typ))) =
         let constrained = foldl getConstraint mempty constraints
             vars0 = map (\case
@@ -831,8 +848,22 @@ polyLits = Map.fromList
                       (TH.KindedTV v TH.SpecifiedSpec _k) -> TH.litE $ TH.IntegerL $ nameUnique v
                       _ -> error "The type variable isn't what I expected.")
                       vars
+            vars0T = map (\case
+                      (TH.PlainTV v TH.SpecifiedSpec) -> TH.varT v
+                      (TH.KindedTV v TH.SpecifiedSpec _k) -> TH.varT v
+                      _ -> error "The type variable isn't what I expected.")
+                      vars
             ordEqShow = Set.fromList [''Ord, ''Eq, ''Show]
             monadics = Set.fromList [''Functor, ''Applicative, ''Monad]
+            finalExpr =
+              if string == "Record.get"
+                 then [| GetOf (TypeRep @($(vars0T !! 0)))
+                               (TypeRep @($(vars0T !! 1)))
+                               (TypeRep @($(vars0T !! 2)))
+                               (TypeRep @($(vars0T !! 3)))
+                               \getter -> Final $ typed $(TH.sigE (TH.varE 'getter) (pure typ))
+                 |]
+                 else [| Final $ typed $(TH.sigE (pure expr0) (pure typ)) |]
             builder =
               foldr
                 (\case
@@ -857,7 +888,7 @@ polyLits = Map.fromList
                        (TH.lamE [pure $ TH.ConP 'TypeRep [TH.SigT (TH.VarT v) (TH.ConT v_k)] []]
                                 rest)
                    t -> error $ "Did not expect this type of variable! " ++ show t)
-                [| Final $ typed $(TH.sigE (pure expr) (pure typ)) |]
+                finalExpr
                 vars
         in [| (string, ($builder, $(TH.listE vars0), $(toTy typ))) |]
       makePrim e = error $ "Should be of the form \"Some.name\" The.name :: T\ngot: " ++ show e
@@ -871,7 +902,9 @@ polyLits = Map.fromList
     derivePrims [| do
 
   -- Records
-  "Record.cons" consR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
+  "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
+  "Record.get" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. Tagged t (Record xs) -> a
+  "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
   -- Operators
   "$" (Function.$) :: forall a b. (a -> b) -> a -> b
   "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
@@ -1246,7 +1279,7 @@ zonk = \case
 parseFile :: String -> IO (Either String [(String, HSE.Exp HSE.SrcSpanInfo)])
 parseFile filePath = do
   string <- ByteString.readFile filePath
-  pure $ case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
+  pure $ case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.DataKinds, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
     HSE.ParseFailed _ e -> Left $ "Parse error: " <> e
     HSE.ParseOk binds -> Right binds
 
@@ -1275,17 +1308,11 @@ data List = NilL | ConsL Symbol Type List
 
 data Record (xs :: List) where
   NilR  :: Record 'NilL
-  ConsR :: Proxy k -> a -> Record xs -> Record (ConsL k a xs)
+  ConsR :: forall k a xs. a -> Record xs -> Record (ConsL k a xs)
 
-consR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
-consR = ConsR (Proxy :: Proxy k)
-
-nilR :: Record 'NilL
-nilR = NilR
-
-makeAccessor :: forall k r0 a _t.
-  TypeRep (k :: Symbol) -> TypeRep (r0 :: List) -> TypeRep a -> Maybe (Tagged _t (Record (r0 :: List)) -> a)
-makeAccessor k r0 a = do
+makeAccessor :: forall k r0 a t.
+  TypeRep (k :: Symbol) -> TypeRep (r0 :: List) -> TypeRep a -> TypeRep t -> Maybe (Tagged t (Record (r0 :: List)) -> a)
+makeAccessor k r0 a _ = do
   accessor <- go r0
   pure \(Tagged r) -> accessor r
   where go :: TypeRep (r :: List) -> Maybe (Record (r :: List) -> a)
@@ -1300,17 +1327,9 @@ makeAccessor k r0 a = do
                   Just Type.HRefl <- Type.eqTypeRep (typeRepKind r') (typeRep @List)
                     -> case (Type.eqTypeRep k sym, Type.eqTypeRep a typ) of
                       (Just Type.HRefl, Just Type.HRefl) ->
-                        pure \(ConsR _k v _xs) -> v
+                        pure \(ConsR v _xs) -> v
                       _ -> do
                         accessor <- go r'
                         pure \case
-                          ConsR _k _a xs -> accessor xs
+                          ConsR _a xs -> accessor xs
                 _ -> Nothing
-
-{-
-demo :: Tagged "Main.X" (Record ('ConsL "bar" Int ('ConsL "foo" String 'NilL)))
-demo = Tagged (ConsR (Proxy @"bar") 123 (ConsR (Proxy @"foo") ("abc" :: String) NilR))
-foo =
-  fmap ($ demo) $
-  makeAccessor (typeRep @"bar") (typeRep @('ConsL "bar" Int ('ConsL "foo" String 'NilL))) (typeRep @Int)
--}
