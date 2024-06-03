@@ -228,7 +228,7 @@ data UTerm t
 
   -- IRep below: The variables are poly types, they aren't metavars,
   -- and need to be instantiated.
-  | UForall t [SomeStarType] Forall [TH.Uniq] (IRep TH.Uniq) [t]
+  | UForall t [SomeTypeRep] Forall [TH.Uniq] (IRep TH.Uniq) [t]
   deriving (Traversable, Functor, Foldable)
 
 typeOf :: UTerm t -> t
@@ -444,7 +444,7 @@ desugarExp globals = go where
       HSE.Int _ int _ -> pure $ lit (fromIntegral int :: Int)
       _ -> Left $ UnsupportedLiteral
     app@HSE.App{} | Just (qname, tys) <- nestedTyApps app -> do
-      reps <- traverse desugarType tys
+      reps <- traverse desugarSomeType tys
       desugarQName globals qname reps
     HSE.Var _ qname ->
       desugarQName globals qname []
@@ -476,7 +476,7 @@ desugarExp globals = go where
       loop id stmts
     e -> Left $ UnsupportedSyntax $ show e
 
-desugarQName :: Map String (UTerm ()) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> Either DesugarError (UTerm ())
+desugarQName :: Map String (UTerm ()) -> HSE.QName HSE.SrcSpanInfo -> [SomeTypeRep] -> Either DesugarError (UTerm ())
 desugarQName globals qname [] =
   case qname of
     HSE.UnQual _ (HSE.Ident _ string) -> pure $ UVar () string
@@ -492,7 +492,7 @@ desugarQName globals qname [] =
     _ -> desugarPolyQName globals qname []
 desugarQName globals qname treps = desugarPolyQName globals qname treps
 
-desugarPolyQName :: Show l => p -> HSE.QName l -> [SomeStarType] -> Either DesugarError (UTerm ())
+desugarPolyQName :: Show l => p -> HSE.QName l -> [SomeTypeRep] -> Either DesugarError (UTerm ())
 desugarPolyQName _ qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
@@ -505,10 +505,10 @@ desugarPolyQName _ qname treps =
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) =
-  fmap (Singleton i,) (fmap Just (desugarType typ))
+  fmap (Singleton i,) (fmap Just (desugarStarType typ))
 desugarArg (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
   | Just idents' <- traverse desugarIdent idents =
-  fmap (Tuple idents',) (fmap Just (desugarType typ))
+  fmap (Tuple idents',) (fmap Just (desugarStarType typ))
 desugarArg (HSE.PVar _ (HSE.Ident _ i)) =
   pure (Singleton i,Nothing)
 desugarArg (HSE.PTuple _ HSE.Boxed idents)
@@ -524,14 +524,15 @@ desugarIdent _ = Nothing
 --------------------------------------------------------------------------------
 -- Desugar types
 
-desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
-desugarType t = do
-  someRep <- go t
+desugarStarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
+desugarStarType t = do
+  someRep <- desugarSomeType t
   case someRep of
     StarTypeRep t' -> pure (SomeStarType t')
     _ ->  Left KindError
 
-  where
+desugarSomeType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
+desugarSomeType = go where
   go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
   go = \case
     HSE.TyTuple _ HSE.Boxed types -> do
@@ -595,7 +596,7 @@ desugarTypeSpec = do
     shouldBe (try "Bool -> Int") (Right (SomeStarType $ typeRep @(Bool -> Int)))
     shouldBe (try "()") (Right (SomeStarType $ typeRep @()))
     shouldBe (try "[Int]") (Right (SomeStarType $ typeRep @[Int]))
-  where try e = case fmap (desugarType) $ HSE.parseType e of
+  where try e = case fmap (desugarStarType) $ HSE.parseType e of
            HSE.ParseOk r -> r
            _ -> error "Parse failed."
 
@@ -1105,7 +1106,10 @@ toSomeTypeRep t = do
 
 -- | Convert from a type-indexed type to an untyped type.
 fromSomeStarType :: forall void. SomeStarType -> IRep void
-fromSomeStarType (SomeStarType r) = go r where
+fromSomeStarType (SomeStarType r) = fromSomeType (SomeTypeRep r)
+
+fromSomeType :: forall void. SomeTypeRep -> IRep void
+fromSomeType (SomeTypeRep r) = go r where
   go :: forall a. TypeRep a -> IRep void
   go = \case
     Type.Fun a b -> IFun (go a) (go b)
@@ -1180,7 +1184,7 @@ elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty .
           Just var -> pure var
       -- Order of types is position-dependent, apply the ones we have.
       for_ (zip vars types) \((_uniq, var), someTypeRep) ->
-        equal (fromSomeStarType someTypeRep) (IVar var)
+        equal (fromSomeType someTypeRep) (IVar var)
       -- Done!
       pure $ UForall monoType types forall' uniqs polyRep (map (IVar . snd) vars)
 
