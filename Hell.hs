@@ -582,6 +582,9 @@ desugarSomeType = go where
       case someSymbolVal string of
         SomeSymbol p ->
           pure $ Type.someTypeRep p
+    -- TODO: Remove later.
+    HSE.TyPromoted _ (HSE.PromotedCon _ _bool (HSE.UnQual _ (HSE.Ident _ name)))
+      | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
     t' ->  Left $ UnknownType $ show t'
 
 -- | Apply a type `f' with an argument `x', if it is a type function,
@@ -718,7 +721,10 @@ supportedTypeConstructors = Map.fromList [
   ("Either", SomeTypeRep $ typeRep @Either),
   ("IO", SomeTypeRep $ typeRep @IO),
   ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig),
-  ("Tagged", SomeTypeRep $ typeRep @Tagged)
+  ("Tagged", SomeTypeRep $ typeRep @Tagged),
+  ("Record", SomeTypeRep $ typeRep @Record),
+  ("NilL", SomeTypeRep $ typeRep @('NilL)),
+  ("ConsL", SomeTypeRep $ typeRep @('ConsL))
   ]
 
 --------------------------------------------------------------------------------

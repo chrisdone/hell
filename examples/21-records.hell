@@ -1,0 +1,19 @@
+-- main =
+--   Text.putStrLn $
+--      (Record.get @"name" (Tagged.tagged @"Wibble" Record.nil))
+
+-- main =
+--   Text.putStrLn $
+--      (Record.get @"name" Record.nil)
+
+-- data Person = Person { name :: Text, age :: Int }
+
+main =
+  Text.putStrLn $
+     (Record.get @"name"
+      (Tagged.tagged @"Wibble" @(Record (ConsL "name" Text (ConsL "age" Int NilL)))
+       (Record.cons @"name" "Chris" (Record.cons @"age" 23 Record.nil))))
+
+-- main =
+--   Text.putStrLn $
+--      (\x -> "Yay...") (Tagged.tagged @"Wibble" "Chris")
