@@ -362,21 +362,28 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
         | Type.App either' _ <- rep,
           Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) -> go reps (f rep)
         | otherwise -> error $ "type doesn't have enough instances " ++ show rep
-  go (SomeTypeRep (k_rep :: TypeRep k):SomeTypeRep t_rep:SomeTypeRep r_rep:StarTypeRep a_rep:reps)
-     (GetOf k0 t0 r0 a0 f) =
-     if | Just Type.HRefl <- Type.eqTypeRep (typeRepKind t_rep) (typeRep @Symbol),
-          Just Type.HRefl <- Type.eqTypeRep (typeRepKind k_rep) (typeRep @Symbol),
-          Just Type.HRefl <- Type.eqTypeRep (typeRepKind r_rep) (typeRep @List),
-          Just Type.HRefl <- Type.eqTypeRep t_rep t0,
-          Just Type.HRefl <- Type.eqTypeRep a_rep a0,
-          Just Type.HRefl <- Type.eqTypeRep k_rep k0,
-          Just Type.HRefl <- Type.eqTypeRep r_rep r0
-          ->
-          case makeAccessor k_rep r_rep a_rep t_rep of
+  go reps (GetOf k0 t0 r0 a0 f) =
+     -- if | Just Type.HRefl <- Type.eqTypeRep (typeRepKind t_rep) (typeRep @Symbol),
+     --      Just Type.HRefl <- Type.eqTypeRep (typeRepKind k_rep) (typeRep @Symbol),
+     --      Just Type.HRefl <- Type.eqTypeRep (typeRepKind r_rep) (typeRep @List),
+     --      Just Type.HRefl <- Type.eqTypeRep t_rep t0,
+     --      Just Type.HRefl <- Type.eqTypeRep a_rep a0,
+     --      Just Type.HRefl <- Type.eqTypeRep k_rep k0,
+     --      Just Type.HRefl <- Type.eqTypeRep r_rep r0
+     --      ->
+          case makeAccessor k0 r0 a0 t0 of
             Just accessor -> go reps (f accessor)
             Nothing -> error $ "missing field for field access"
-        | otherwise -> error $ "something is completely wrong for record/prop types. wrong order?"
-  go tys _ = error $ "forall type arguments mismatch: " ++ show tys
+        -- | otherwise -> error $ "something is completely wrong for record/prop types. wrong order?"
+  go tys r = error $ "forall type arguments mismatch: " ++ show tys ++ " for " ++ showR r
+    where showR = \case
+             NoClass{} -> "NoClass"
+             SymbolOf{} -> "SymbolOf"
+             ListOf{} -> "ListOf"
+             OrdEqShow{} -> "OrdEqShow"
+             Monadic{} -> "Monadic"
+             GetOf{} -> "GetOf"
+             Final{} -> "Final"
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
 -- embedded in the untyped AST.
@@ -904,10 +911,11 @@ polyLits = Map.fromList
     in
     derivePrims [| do
 
-  -- Records
+  -- Records ;
   "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
+
   "Record.get" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. Tagged t (Record xs) -> a
-  "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
+  "Tagged.tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
   -- Operators
   "$" (Function.$) :: forall a b. (a -> b) -> a -> b
   "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
