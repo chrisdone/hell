@@ -1,19 +1,15 @@
--- main =
---   Text.putStrLn $
---      (Record.get @"name" (Tagged.tagged @"Wibble" Record.nil))
-
--- main =
---   Text.putStrLn $
---      (Record.get @"name" Record.nil)
-
 -- data Person = Person { name :: Text, age :: Int }
+--
+-- Ideally, generates:
+--
+-- Main.Person =
+--   Tagged.tagged @"Wibble" @(Record (ConsL "name" Text (ConsL "age" Int NilL)))
 
 main =
-  Text.putStrLn $
-     (Record.get @"name"
-      (Tagged.tagged @"Wibble" @(Record (ConsL "name" Text (ConsL "age" Int NilL)))
-       (Record.cons @"name" "Chris" (Record.cons @"age" 23 Record.nil))))
+  Text.putStrLn $ Record.get @"name" Main.person
 
--- main =
---   Text.putStrLn $
---      (\x -> "Yay...") (Tagged.tagged @"Wibble" "Chris")
+person =
+ Tagged.tagged
+   @"Wibble"
+   @(Record (ConsL "name" Text (ConsL "age" Int NilL)))
+   (Record.cons @"name" "Chris" (Record.cons @"age" 23 Record.nil))
