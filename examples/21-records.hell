@@ -1,15 +1,23 @@
--- data Person = Person { name :: Text, age :: Int }
+--   data Person = Person { name :: Text, age :: Int }
 --
 -- Ideally, generates:
 --
--- Main.Person =
---   Tagged.tagged @"Wibble" @(Record (ConsL "name" Text (ConsL "age" Int NilL)))
+--   Main.Person =
+--     Tagged.tagged @"Wibble" @(Record (ConsL "name" Text (ConsL "age" Int NilL)))
+--
+makePerson = Tagged.tagged
+   @"Main.Person"
+   @(Record (ConsL "name" Text (ConsL "age" Int NilL)))
 
+-- Main.person.name
+--
+-- ideally generates the below:
 main =
   Text.putStrLn $ Record.get @"name" Main.person
-
+--
+-- Main.Person { name = "Chris", age = "23" }
+--
+-- ideally generates the below:
 person =
- Tagged.tagged
-   @"Wibble"
-   @(Record (ConsL "name" Text (ConsL "age" Int NilL)))
-   (Record.cons @"name" "Chris" (Record.cons @"age" 23 Record.nil))
+ Main.makePerson
+   $ Record.cons @"name" "Chris" (Record.cons @"age" 23 Record.nil)
