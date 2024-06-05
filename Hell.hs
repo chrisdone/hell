@@ -180,6 +180,8 @@ parseModule (HSE.Module _ Nothing [] [] decls) =
   where
     parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
           pure (string, exp')
+    parseDecl (HSE.DataDecl _ HSE.DataType{} Nothing (HSE.DHead _ name) [qualConDecl] []) =
+          parseDataDecl name qualConDecl
     parseDecl _ = fail "Can't parse that!"
 parseModule _ = fail "Module headers aren't supported."
 
