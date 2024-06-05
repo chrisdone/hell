@@ -185,6 +185,42 @@ parseModule (HSE.Module _ Nothing [] [] decls) =
     parseDecl _ = fail "Can't parse that!"
 parseModule _ = fail "Module headers aren't supported."
 
+parseDataDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> HSE.QualConDecl l -> HSE.ParseResult (String, HSE.Exp HSE.SrcSpanInfo)
+parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDecl _ (HSE.Ident _ consName) fields)) = do
+  -- Note: the fields are sorted by name.
+  fields' <- fmap (List.sortBy (Ord.comparing fst) . concat) $ traverse getField fields
+  pure (consName, makeConstructor tyname fields')
+  where getField (HSE.FieldDecl _ names typ) = do
+          names' <- for names \case
+            (HSE.Ident _ n) -> pure n
+            _ -> fail "Invalid field name."
+          pure $ map (, typ) names'
+parseDataDecl _ _ =
+  fail "Data declaration not in supported format."
+
+makeConstructor :: String -> [(String, HSE.Type HSE.SrcSpanInfo)] -> HSE.Exp HSE.SrcSpanInfo
+makeConstructor name = appTagged . desugarRecordType where
+  appTagged ty =
+    HSE.App l
+      (HSE.App l
+        (HSE.Con l (HSE.Qual l (HSE.ModuleName l "Tagged") (HSE.Ident l "Tagged")))
+        (HSE.TypeApp l (tySym name)))
+      (HSE.TypeApp l ty)
+  tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+  l = HSE.noSrcSpan
+
+desugarRecordType :: [(String, HSE.Type HSE.SrcSpanInfo)] -> HSE.Type HSE.SrcSpanInfo
+desugarRecordType = appRecord . foldr appCons nilL where
+  appCons (name, typ) rest =
+    HSE.TyApp l (HSE.TyApp l (HSE.TyApp l consL (tySym name)) typ) rest
+  appRecord x =
+    HSE.TyApp l recordT x
+  tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+  nilL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "NilL"))
+  consL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "ConsL"))
+  recordT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Record"))
+  l = HSE.noSrcSpan
+
 --------------------------------------------------------------------------------
 -- Typed AST support
 --
@@ -434,6 +470,7 @@ data DesugarError = InvalidConstructor String | InvalidVariable String | Unknown
 nestedTyApps :: HSE.Exp HSE.SrcSpanInfo -> Maybe (HSE.QName HSE.SrcSpanInfo, [HSE.Type HSE.SrcSpanInfo])
 nestedTyApps = go [] where
   go acc (HSE.App _ (HSE.Var _ qname) (HSE.TypeApp _ ty)) = pure (qname, ty:acc)
+  go acc (HSE.App _ (HSE.Con _ qname) (HSE.TypeApp _ ty)) = pure (qname, ty:acc)
   go acc (HSE.App _ e (HSE.TypeApp _ ty)) = go (ty:acc) e
   go _ _ = Nothing
 
@@ -468,7 +505,7 @@ desugarExp globals = go where
       e' <- go e
       pure $ foldr (\(name,ty) inner  -> ULam () name ty inner)  e' args
     HSE.Con _ qname ->
-      desugarQName mempty qname []
+      desugarQName globals qname []
     HSE.Do _ stmts -> do
       let loop f [HSE.Qualifier _ e] = f <$> go e
           loop f (s:ss) = do
@@ -703,7 +740,7 @@ freeVariables =
 
 freeVariablesSpec :: Spec
 freeVariablesSpec = do
- it "freeVariables" $ shouldBe (try "\\z -> Main.x * Z.y") ["x"]
+ it "freeVariables" $ shouldBe (try "\\z -> Main.x * Z.y / Main.P") ["x", "P"]
   where try e = case fmap freeVariables $ HSE.parseExp e of
            HSE.ParseOk names -> names
            _ -> error "Parse failed."
@@ -923,7 +960,7 @@ polyLits = Map.fromList
   "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
 
   "Record.get" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. Tagged t (Record xs) -> a
-  "Tagged.tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
+  "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
   -- Operators
   "$" (Function.$) :: forall a b. (a -> b) -> a -> b
   "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c

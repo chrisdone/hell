@@ -1,14 +1,7 @@
---   data Person = Person { name :: Text, age :: Int }
---
--- Ideally, generates:
---
+data Person = Person { age :: Int, name :: Text }
+-- Generates
 --   Main.Person =
 --     Tagged.tagged @"Wibble" @(Record (ConsL "name" Text (ConsL "age" Int NilL)))
-makePerson = Tagged.tagged
-   @"Main.Person"
-   @(Record (ConsL "name" Text (ConsL "age" Int NilL)))
---
--- And it should store the order of the fields for R { x=a, y=b } order-independence.
 
 -- Main.person.name
 --
@@ -20,5 +13,5 @@ main =
 --
 -- ideally generates the below:
 person =
- Main.makePerson
-   $ Record.cons @"name" "Chris" (Record.cons @"age" 23 Record.nil)
+ Main.Person
+   $ Record.cons @"age" 23 $ Record.cons @"name" "Chris" Record.nil
