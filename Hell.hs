@@ -209,6 +209,27 @@ makeConstructor name = appTagged . desugarRecordType where
   tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
   l = HSE.noSrcSpan
 
+makeConstructRecord :: HSE.QName HSE.SrcSpanInfo -> [HSE.FieldUpdate HSE.SrcSpanInfo] -> HSE.Exp HSE.SrcSpanInfo
+makeConstructRecord qname fields =
+  HSE.App l (HSE.Con l qname) $
+    foldr (\(name, expr) rest ->
+                   let tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+                   in HSE.App l
+                       (HSE.App l
+                        (HSE.App l
+                          (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Record") (HSE.Ident l "cons")))
+                          (HSE.TypeApp l (tySym name)))
+                        expr)
+                        rest
+                   )
+                (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Record") (HSE.Ident l "nil")))
+                $ List.sortBy (Ord.comparing fst) $ map (\case
+                   HSE.FieldUpdate _ (HSE.UnQual _ (HSE.Ident _ i)) expr -> (i, expr)
+                   f -> error $ "Invalid field: " ++ show f
+                   )
+                     fields
+  where   l = HSE.noSrcSpan
+
 desugarRecordType :: [(String, HSE.Type HSE.SrcSpanInfo)] -> HSE.Type HSE.SrcSpanInfo
 desugarRecordType = appRecord . foldr appCons nilL where
   appCons (name, typ) rest =
@@ -524,6 +545,7 @@ desugarExp globals = go where
               _ -> Left BadDoNotation
           loop _ _ = Left BadDoNotation
       loop id stmts
+    HSE.RecConstr _ qname fields -> desugarExp globals $ makeConstructRecord qname fields
     e -> Left $ UnsupportedSyntax $ show e
 
 desugarQName :: Map String (UTerm ()) -> HSE.QName HSE.SrcSpanInfo -> [SomeTypeRep] -> Either DesugarError (UTerm ())
