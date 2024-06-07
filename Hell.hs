@@ -19,11 +19,14 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+import Language.Haskell.Exts.Lexer
 import Data.Void
 import Data.Foldable
 import qualified Language.Haskell.TH as TH
 import qualified Language.Haskell.TH.Syntax as TH
 import Language.Haskell.TH (Q)
+import Control.Applicative
+import qualified Text.Regex.Applicative as RE
 
 import qualified Data.Graph as Graph
 import qualified Data.Eq as Eq
@@ -1224,8 +1227,8 @@ data ElaborateError = UnsupportedTupleSize | BadInstantiationBug
 --
 -- Output type /does/ contain meta vars.
 elaborate :: UTerm () -> Either ElaborateError (UTerm (IRep IMetaVar), Set (Equality (IRep IMetaVar)))
-elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty . go where
-  empty = Elaborate{counter=0,equalities=mempty}
+elaborate = fmap getEqualities . flip runStateT empty' . flip runReaderT mempty . go where
+  empty' = Elaborate{counter=0,equalities=mempty}
   getEqualities (term, Elaborate{equalities}) = (term, equalities)
   go :: UTerm () -> ReaderT (Map String (IRep IMetaVar)) (StateT Elaborate (Either ElaborateError)) (UTerm (IRep IMetaVar))
   go = \case
@@ -1447,3 +1450,35 @@ _makeModify k0 r0 a0 t0 = do
   getter <- makeAccessor k0 r0 a0 t0
   setter <- makeSetter k0 r0 a0 t0
   pure \f record -> setter (f (getter record)) record
+
+--------------------------------------------------------------------------------
+-- OverloadedRecordDot
+
+-- | Lex the file with HSE's lexer, scan the tokens for Foo.bar.mu or
+-- abc.def.
+--
+-- > collectOverloadedRecordDot "abc foo.bar Foo.Bar abc A.B.c.d.e"
+-- ParseOk [(["bar"],[SrcSpan "<unknown>.hs" 1 5 1 8,SrcSpan "<unknown>.hs" 1 8 1 9,SrcSpan "<unknown>.hs" 1 9 1 12]),
+--          (["d","e"],[SrcSpan "<unknown>.hs" 1 25 1 30,SrcSpan "<unknown>.hs" 1 30 1 31,SrcSpan "<unknown>.hs" 1 31 1 32,SrcSpan "<unknown>.hs" 1 32 1 33,SrcSpan "<unknown>.hs" 1 33 1 34])]
+--
+_collectOverloadedRecordDot :: String -> HSE.ParseResult [([String], [HSE.SrcSpan])]
+_collectOverloadedRecordDot s = do
+  tokens <- lexTokenStream s
+  case RE.match regex tokens of
+    Nothing -> pure []
+    Just edits -> pure edits
+  where
+    regex = many $
+      fmap (second (map (.loc))) $
+      RE.few RE.anySym *>
+      RE.withMatched (qident *> some (dot *> ident))
+    dot = RE.psym ((== VarSym ".") . (.unLoc))
+    ident = RE.msym \loc ->
+       case loc.unLoc of
+         VarId str -> pure str
+         _ -> Nothing
+    qident = RE.msym \loc ->
+       case loc.unLoc of
+         VarId str -> pure str
+         QVarId (x,str) -> pure $ x ++ "." ++ str
+         _ -> Nothing

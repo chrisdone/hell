@@ -30,6 +30,7 @@ executable hell
     , hspec
     , mtl
     , optparse-applicative
+    , regex-applicative
     , syb
     , tagged
     , template-haskell
