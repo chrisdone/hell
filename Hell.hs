@@ -1414,3 +1414,26 @@ makeAccessor k r0 a _ = do
                         pure \case
                           ConsR _a xs -> accessor xs
                 _ -> Nothing
+
+makeSetter :: forall k r0 a t.
+  TypeRep (k :: Symbol) -> TypeRep (r0 :: List) -> TypeRep a -> TypeRep t -> Maybe (a -> Tagged t (Record (r0 :: List)) -> Tagged t (Record (r0 :: List)))
+makeSetter k r0 a _ = do
+  setter <- go r0
+  pure \a' (Tagged r) -> Tagged (setter a' r)
+  where go :: TypeRep (r :: List) -> Maybe (a -> Record (r :: List) -> Record (r :: List))
+        go r =
+          case Type.eqTypeRep r (Type.TypeRep @NilL) of
+            Just {} -> Nothing
+            Nothing ->
+              case r of
+                Type.App (Type.App (Type.App _ sym) typ) r' |
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind typ) (typeRep @Type),
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind sym) (typeRep @Symbol),
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind r') (typeRep @List)
+                    -> case (Type.eqTypeRep k sym, Type.eqTypeRep a typ) of
+                      (Just Type.HRefl, Just Type.HRefl) ->
+                        pure \a' (ConsR _a xs) -> ConsR a' xs
+                      _ -> do
+                        setter <- go r'
+                        pure \a' (ConsR a0 xs) -> ConsR a0 (setter a' xs)
+                _ -> Nothing
