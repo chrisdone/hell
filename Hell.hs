@@ -1453,6 +1453,12 @@ _makeModify k0 r0 a0 t0 = do
 
 --------------------------------------------------------------------------------
 -- OverloadedRecordDot
+--
+-- 1. Parse file and collect instances of foo.bar or X.foo.bar
+-- 2. Produce a set of edits for the file at the locations to be either:
+--
+--    a. Record.get @"foo"
+--    b. foo__bar -- or some other character to indicate to the desugarer.
 
 -- | Lex the file with HSE's lexer, scan the tokens for Foo.bar.mu or
 -- abc.def.
