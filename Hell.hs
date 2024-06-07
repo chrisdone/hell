@@ -1458,7 +1458,7 @@ _makeModify k0 r0 a0 t0 = do
 -- 2. Produce a set of edits for the file at the locations to be either:
 --
 --    a. Record.get @"foo"
---    b. X_foo_bar_mu -- and then the parser "applies dots" to identifiers
+--    b. X_foo_bar_mu - and then the parser "applies dots" to identifiers
 --       based on location info.
 
 -- | Lex the file with HSE's lexer, scan the tokens for Foo.bar.mu or
@@ -1489,3 +1489,5 @@ _collectOverloadedRecordDot s = do
          VarId str -> pure str
          QVarId (x,str) -> pure $ x ++ "." ++ str
          _ -> Nothing
+
+-- TODO: force matches to be on a single line.
