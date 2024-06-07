@@ -1391,6 +1391,7 @@ data Record (xs :: List) where
   NilR  :: Record 'NilL
   ConsR :: forall k a xs. a -> Record xs -> Record (ConsL k a xs)
 
+-- | Build up a type-safe getter.
 makeAccessor :: forall k r0 a t.
   TypeRep (k :: Symbol) -> TypeRep (r0 :: List) -> TypeRep a -> TypeRep t -> Maybe (Tagged t (Record (r0 :: List)) -> a)
 makeAccessor k r0 a _ = do
@@ -1415,6 +1416,7 @@ makeAccessor k r0 a _ = do
                           ConsR _a xs -> accessor xs
                 _ -> Nothing
 
+-- | Build up a type-safe setter.
 makeSetter :: forall k r0 a t.
   TypeRep (k :: Symbol) -> TypeRep (r0 :: List) -> TypeRep a -> TypeRep t -> Maybe (a -> Tagged t (Record (r0 :: List)) -> Tagged t (Record (r0 :: List)))
 makeSetter k r0 a _ = do
@@ -1437,3 +1439,11 @@ makeSetter k r0 a _ = do
                         setter <- go r'
                         pure \a' (ConsR a0 xs) -> ConsR a0 (setter a' xs)
                 _ -> Nothing
+
+-- | Simply re-uses makeAccessor and makeSetter.
+_makeModify :: forall k r0 a t.
+  TypeRep (k :: Symbol) -> TypeRep (r0 :: List) -> TypeRep a -> TypeRep t -> Maybe ((a -> a) -> Tagged t (Record (r0 :: List)) -> Tagged t (Record (r0 :: List)))
+_makeModify k0 r0 a0 t0 = do
+  getter <- makeAccessor k0 r0 a0 t0
+  setter <- makeSetter k0 r0 a0 t0
+  pure \f record -> setter (f (getter record)) record
