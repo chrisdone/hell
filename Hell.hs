@@ -1459,16 +1459,28 @@ data Token =
 lexer :: ByteString -> FP.Result LexError (Vector Token)
 lexer = FP.runParser (whitespace *> tokens <* FP.eof) where
  tokens = fmap V.fromList $ FP.many $ token <* whitespace
- token = do
+ token =
+   qnameTok FP.<|>
+   fmap NameTok nameTok
+ qnameTok = do
+   qual <- FP.byteStringOf do
+     FP.skipSatisfy \c -> FP.isLatinLetter c && c >= 'A'
+     FP.skipSome $ FP.skipSatisfy FP.isLatinLetter
+   $(FP.char '.')
+   name <- nameTok
+   pure $ QNameTok (Text.decodeUtf8 qual) name
+ nameTok = do
    bytes <- FP.byteStringOf $ FP.skipSome $ FP.skipSatisfy FP.isLatinLetter
-   pure $ NameTok $ Text.decodeUtf8 bytes
+   pure $ Text.decodeUtf8 bytes
  whitespace =
    FP.skipMany $ FP.skipSatisfy \c -> c == '\n' || c == ' '
 
 _lexSpec :: Spec
 _lexSpec = do
-  it "tokens" do
+  it "NameTok" do
     shouldBe (lx " abc def ") (Just (V.fromList [NameTok "abc",NameTok "def"]))
+  it "QNameTok" do
+    shouldBe (lx " Foo.abc def ") (Just (V.fromList [QNameTok "Foo" "abc",NameTok "def"]))
 
   where lx s = case lexer s of
           FP.OK a "" -> Just a
