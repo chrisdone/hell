@@ -24,6 +24,9 @@ dependencies:
 - QuickCheck
 - template-haskell
 - unliftio
+- flatparse
+- vector
+- reparsec
 
 ghc-options:
   - -Wall

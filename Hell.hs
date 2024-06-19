@@ -24,6 +24,8 @@ import Data.Foldable
 import qualified Language.Haskell.TH as TH
 import qualified Language.Haskell.TH.Syntax as TH
 import Language.Haskell.TH (Q)
+-- import qualified Data.Reparsec as Re
+import qualified FlatParse.Basic as FP
 
 import qualified Data.Graph as Graph
 import qualified Data.Eq as Eq
@@ -31,6 +33,7 @@ import qualified Data.Either as Either
 import qualified Data.Ord as Ord
 import qualified Data.Bool as Bool
 import qualified Data.Map as Map
+import qualified Data.Vector as V
 import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified Text.Show as Show
@@ -58,6 +61,7 @@ import Control.Monad.State.Strict
 import Control.Monad.Reader
 import System.Environment
 import Data.Map (Map)
+import Data.Vector (Vector)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.ByteString (ByteString)
@@ -1438,3 +1442,37 @@ _makeModify k0 r0 a0 t0 = do
   getter <- makeAccessor k0 r0 a0 t0
   setter <- makeSetter k0 r0 a0 t0
   pure \f record -> setter (f (getter record)) record
+
+--------------------------------------------------------------------------------
+-- Lexer
+
+data LexError = X
+ deriving Show
+
+data Token =
+    QNameTok Text Text
+  | NameTok Text
+  deriving (Show, Eq)
+
+-- | Lex the source into a series of tokens, ignoring comments and
+-- whitespace.
+lexer :: ByteString -> FP.Result LexError (Vector Token)
+lexer = FP.runParser (whitespace *> tokens <* FP.eof) where
+ tokens = fmap V.fromList $ FP.many $ token <* whitespace
+ token = do
+   bytes <- FP.byteStringOf $ FP.skipSome $ FP.skipSatisfy FP.isLatinLetter
+   pure $ NameTok $ Text.decodeUtf8 bytes
+ whitespace =
+   FP.skipMany $ FP.skipSatisfy \c -> c == '\n' || c == ' '
+
+_lexSpec :: Spec
+_lexSpec = do
+  it "tokens" do
+    shouldBe (lx " abc def ") (Just (V.fromList [NameTok "abc",NameTok "def"]))
+
+  where lx s = case lexer s of
+          FP.OK a "" -> Just a
+          _ -> Nothing
+
+--------------------------------------------------------------------------------
+-- Parser

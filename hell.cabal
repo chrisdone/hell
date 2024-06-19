@@ -25,16 +25,19 @@ executable hell
     , constraints
     , containers
     , directory
+    , flatparse
     , ghc-prim
     , haskell-src-exts
     , hspec
     , mtl
     , optparse-applicative
     , regex-applicative
+    , reparsec
     , syb
     , tagged
     , template-haskell
     , text
     , typed-process
     , unliftio
+    , vector
   default-language: Haskell2010

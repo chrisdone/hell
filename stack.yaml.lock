@@ -3,7 +3,18 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    commit: 9fde10a583b50487564992e952b5b39ed987f573
+    git: https://github.com/chrisdone/reparsec.git
+    name: reparsec
+    pantry-tree:
+      sha256: c724eed5d0077071c5199dd020b79945cf83d3a0cd677dfb611cca0c7c8d77ee
+      size: 474
+    version: 0.0.0
+  original:
+    commit: 9fde10a583b50487564992e952b5b39ed987f573
+    git: https://github.com/chrisdone/reparsec.git
 snapshots:
 - completed:
     sha256: abcc4a65c15c7c2313f1a87f01bfd4d910516e1930b99653eef1d2d006515916
