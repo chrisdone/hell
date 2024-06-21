@@ -1503,13 +1503,13 @@ lexer = FP.runParser (tokens <* whitespace <* FP.eof) where
  qnameTok = do
    qual <- FP.byteStringOf do
      FP.skipSatisfy \c -> FP.isLatinLetter c && c >= 'A'
-     FP.skipSome $ FP.skipSatisfy ((||) <$> FP.isLatinLetter <*> FP.isDigit)
+     FP.skipMany $ FP.skipSatisfy ((||) <$> FP.isLatinLetter <*> FP.isDigit)
    $(FP.char '.')
    name <- nameTok
    pure $ QNameTok (Text.decodeUtf8 qual) name
  nameTok = do
    bytes <- FP.byteStringOf $ do
-    FP.skipSatisfy \c -> FP.isLatinLetter c && c < 'A'
+    FP.skipSatisfy \c -> FP.isLatinLetter c && c <= 'z'
     FP.skipMany $
      FP.skipSatisfy ((||) <$> FP.isLatinLetter <*> FP.isDigit) FP.<|>
      $(FP.char '_')
