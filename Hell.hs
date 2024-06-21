@@ -1452,16 +1452,25 @@ data LexError = X
 data Token =
     QNameTok Text Text
   | NameTok Text
+  | EqTok
+  | StringTok Text
   deriving (Show, Eq)
 
 -- | Lex the source into a series of tokens, ignoring comments and
 -- whitespace.
 lexer :: ByteString -> FP.Result LexError (Vector Token)
-lexer = FP.runParser (whitespace *> tokens <* FP.eof) where
- tokens = fmap V.fromList $ FP.many $ token <* whitespace
+lexer = FP.runParser (tokens <* whitespace <* FP.eof) where
+ tokens = fmap V.fromList $ FP.many $ whitespace *> token
  token =
    qnameTok FP.<|>
-   fmap NameTok nameTok
+   fmap NameTok nameTok FP.<|>
+   (EqTok <$ FP.byteString "=") FP.<|>
+   stringTok
+ -- TODO: Proper string lexer. Doesn't handle backslash.
+ stringTok = fmap (StringTok . Text.pack . read . Text.unpack . Text.decodeUtf8) $ FP.byteStringOf do
+   $(FP.char '"')
+   FP.skipMany $ FP.skipSatisfy (/='"')
+   $(FP.char '"')
  qnameTok = do
    qual <- FP.byteStringOf do
      FP.skipSatisfy \c -> FP.isLatinLetter c && c >= 'A'
@@ -1472,15 +1481,19 @@ lexer = FP.runParser (whitespace *> tokens <* FP.eof) where
  nameTok = do
    bytes <- FP.byteStringOf $ FP.skipSome $ FP.skipSatisfy FP.isLatinLetter
    pure $ Text.decodeUtf8 bytes
- whitespace =
-   FP.skipMany $ FP.skipSatisfy \c -> c == '\n' || c == ' '
+ whitespace = FP.skipMany $ FP.skipSatisfy \c -> c == '\n' || c == ' '
 
 _lexSpec :: Spec
 _lexSpec = do
-  it "NameTok" do
-    shouldBe (lx " abc def ") (Just (V.fromList [NameTok "abc",NameTok "def"]))
-  it "QNameTok" do
-    shouldBe (lx " Foo.abc def ") (Just (V.fromList [QNameTok "Foo" "abc",NameTok "def"]))
+  describe "Sanity checks" do
+    it "NameTok" do
+      shouldBe (lx " abc def ") (Just (V.fromList [NameTok "abc",NameTok "def"]))
+    it "QNameTok" do
+      shouldBe (lx " Foo.abc def ") (Just (V.fromList [QNameTok "Foo" "abc",NameTok "def"]))
+  describe "Examples" do
+    it "Hello, World!" do
+      shouldBe (lx "main = Text.putStrLn \"Hello, World!\"")
+        $ Just (V.fromList [NameTok "main",EqTok,QNameTok "Text" "putStrLn",StringTok "Hello, World!"])
 
   where lx s = case lexer s of
           FP.OK a "" -> Just a
