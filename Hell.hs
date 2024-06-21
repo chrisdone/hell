@@ -1454,6 +1454,17 @@ data Token =
   | NameTok Text
   | EqTok
   | StringTok Text
+  | LArrTok | RArrTok
+  | DoTok
+  | LetTok
+  | LParTok | RParTok
+  | LBraTok | RBraTok
+  | CommaTok
+  | DollarTok
+  | DotTok
+  | BSlashTok
+  | IfTok | ThenTok | ElseTok
+  | IntegerTok Integer
   deriving (Show, Eq)
 
 -- | Lex the source into a series of tokens, ignoring comments and
@@ -1462,26 +1473,49 @@ lexer :: ByteString -> FP.Result LexError (Vector Token)
 lexer = FP.runParser (tokens <* whitespace <* FP.eof) where
  tokens = fmap V.fromList $ FP.many $ whitespace *> token
  token =
+   (EqTok <$ FP.byteString "=") FP.<|>
+   (CommaTok <$ FP.byteString ",") FP.<|>
+   (DollarTok <$ FP.byteString "$") FP.<|>
+   (DotTok <$ FP.byteString ".") FP.<|>
+   (DoTok <$ FP.byteString "do") FP.<|>
+   (IfTok <$ FP.byteString "if") FP.<|>
+   (ThenTok <$ FP.byteString "then") FP.<|>
+   (ElseTok <$ FP.byteString "else") FP.<|>
+   (LetTok <$ FP.byteString "let") FP.<|>
+   (LArrTok <$ FP.byteString "<-") FP.<|>
+   (RArrTok <$ FP.byteString "->") FP.<|>
+   (BSlashTok <$ FP.byteString "\\") FP.<|>
+   (LParTok <$ FP.byteString "(") FP.<|>
+   (RParTok <$ FP.byteString ")") FP.<|>
+   (LBraTok <$ FP.byteString "[") FP.<|>
+   (RBraTok <$ FP.byteString "]") FP.<|>
    qnameTok FP.<|>
    fmap NameTok nameTok FP.<|>
-   (EqTok <$ FP.byteString "=") FP.<|>
-   stringTok
+   stringTok FP.<|>
+   fmap IntegerTok FP.anyAsciiDecimalInteger
  -- TODO: Proper string lexer. Doesn't handle backslash.
  stringTok = fmap (StringTok . Text.pack . read . Text.unpack . Text.decodeUtf8) $ FP.byteStringOf do
    $(FP.char '"')
-   FP.skipMany $ FP.skipSatisfy (/='"')
+   FP.skipMany $
+     FP.byteString "\\\"" FP.<|>
+     FP.skipSatisfy (/='"')
    $(FP.char '"')
  qnameTok = do
    qual <- FP.byteStringOf do
      FP.skipSatisfy \c -> FP.isLatinLetter c && c >= 'A'
-     FP.skipSome $ FP.skipSatisfy FP.isLatinLetter
+     FP.skipSome $ FP.skipSatisfy ((||) <$> FP.isLatinLetter <*> FP.isDigit)
    $(FP.char '.')
    name <- nameTok
    pure $ QNameTok (Text.decodeUtf8 qual) name
  nameTok = do
-   bytes <- FP.byteStringOf $ FP.skipSome $ FP.skipSatisfy FP.isLatinLetter
+   bytes <- FP.byteStringOf $ do
+    FP.skipSatisfy \c -> FP.isLatinLetter c && c < 'A'
+    FP.skipMany $
+     FP.skipSatisfy ((||) <$> FP.isLatinLetter <*> FP.isDigit) FP.<|>
+     $(FP.char '_')
    pure $ Text.decodeUtf8 bytes
- whitespace = FP.skipMany $ FP.skipSatisfy \c -> c == '\n' || c == ' '
+ whitespace = do
+   FP.skipMany $ FP.skipSatisfy \c -> c == '\n' || c == ' '
 
 _lexSpec :: Spec
 _lexSpec = do
@@ -1491,13 +1525,21 @@ _lexSpec = do
     it "QNameTok" do
       shouldBe (lx " Foo.abc def ") (Just (V.fromList [QNameTok "Foo" "abc",NameTok "def"]))
   describe "Examples" do
-    it "Hello, World!" do
-      shouldBe (lx "main = Text.putStrLn \"Hello, World!\"")
-        $ Just (V.fromList [NameTok "main",EqTok,QNameTok "Text" "putStrLn",StringTok "Hello, World!"])
+    it "examples/" do
+      files <- Dir.listDirectory "examples/"
+      for_ files \file ->
+        shouldReturn (fmap (file,) (lxBoolFile $ "examples/" ++ file))
+                 (file,True)
 
-  where lx s = case lexer s of
+  where lxBoolFile fp = do
+          bytes <- ByteString.readFile fp
+          pure $ lxBool $ Text.encodeUtf8 $ dropShebang $ Text.decodeUtf8 $ bytes
+        lx s = case lexer s of
           FP.OK a "" -> Just a
           _ -> Nothing
+        lxBool s = case lexer s of
+          FP.OK _ "" -> True
+          _ -> False
 
 --------------------------------------------------------------------------------
 -- Parser
