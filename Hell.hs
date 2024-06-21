@@ -1454,17 +1454,20 @@ data Token =
   | NameTok Text
   | EqTok
   | StringTok Text
+  | SigTok
   | LArrTok | RArrTok
   | DoTok
   | LetTok
   | LParTok | RParTok
   | LBraTok | RBraTok
+  | LCurlTok | RCurlTok
   | CommaTok
   | DollarTok
   | DotTok
   | BSlashTok
   | IfTok | ThenTok | ElseTok
   | IntegerTok Integer
+  | AtTok
   deriving (Show, Eq)
 
 -- | Lex the source into a series of tokens, ignoring comments and
@@ -1475,6 +1478,8 @@ lexer = FP.runParser (tokens <* whitespace <* FP.eof) where
  token =
    (EqTok <$ FP.byteString "=") FP.<|>
    (CommaTok <$ FP.byteString ",") FP.<|>
+   (SigTok <$ FP.byteString "::") FP.<|>
+   (AtTok <$ FP.byteString "@") FP.<|>
    (DollarTok <$ FP.byteString "$") FP.<|>
    (DotTok <$ FP.byteString ".") FP.<|>
    (DoTok <$ FP.byteString "do") FP.<|>
@@ -1489,6 +1494,8 @@ lexer = FP.runParser (tokens <* whitespace <* FP.eof) where
    (RParTok <$ FP.byteString ")") FP.<|>
    (LBraTok <$ FP.byteString "[") FP.<|>
    (RBraTok <$ FP.byteString "]") FP.<|>
+   (LCurlTok <$ FP.byteString "{") FP.<|>
+   (RCurlTok <$ FP.byteString "}") FP.<|>
    qnameTok FP.<|>
    fmap NameTok nameTok FP.<|>
    stringTok FP.<|>
@@ -1509,19 +1516,24 @@ lexer = FP.runParser (tokens <* whitespace <* FP.eof) where
    pure $ QNameTok (Text.decodeUtf8 qual) name
  nameTok = do
    bytes <- FP.byteStringOf $ do
-    FP.skipSatisfy \c -> FP.isLatinLetter c && c <= 'z'
+    FP.skipSatisfy \c -> (FP.isLatinLetter c && c <= 'z') || c == '_'
     FP.skipMany $
      FP.skipSatisfy ((||) <$> FP.isLatinLetter <*> FP.isDigit) FP.<|>
-     $(FP.char '_')
+     $(FP.char '_') FP.<|>
+     $(FP.char '\'')
    pure $ Text.decodeUtf8 bytes
  whitespace = do
    FP.skipMany $ FP.skipSatisfy \c -> c == '\n' || c == ' '
+   bytes <- FP.lookahead $ FP.takeRest
+   when (ByteString.isPrefixOf "--" bytes) do
+      FP.skipMany $ FP.skipSatisfy (/='\n')
+      whitespace
 
 _lexSpec :: Spec
 _lexSpec = do
   describe "Sanity checks" do
     it "NameTok" do
-      shouldBe (lx " abc def ") (Just (V.fromList [NameTok "abc",NameTok "def"]))
+      shouldBe (lx "  abc def ") (Just (V.fromList [NameTok "abc",NameTok "def"]))
     it "QNameTok" do
       shouldBe (lx " Foo.abc def ") (Just (V.fromList [QNameTok "Foo" "abc",NameTok "def"]))
   describe "Examples" do
