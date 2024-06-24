@@ -19,6 +19,7 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+import Debug.Trace
 import Data.Functor.Identity
 import Data.Void
 import Data.Foldable
@@ -1475,8 +1476,10 @@ data Token =
   deriving (Show, Eq)
 
 data Located p a = Located { pos :: p, located :: a }
+  deriving (Eq, Show)
 
 data Loc = Loc { line :: !Int, col :: !Int }
+  deriving (Eq, Show)
 
 -- | Lex the source into a series of tokens, ignoring comments and
 -- whitespace.
@@ -1485,7 +1488,7 @@ lexer s = do
  fmap thread (FP.runParser (tokens <* whitespace <* FP.eof) s)
  where
    thread toks =
-     V.zipWith (\tok (line,col) -> tok { pos = Loc{line,col=col+1} })
+     V.zipWith (\tok (line,col) -> tok { pos = Loc{line,col} })
        toks $ V.fromList $ FP.posLineCols s $ V.toList $ fmap (.pos) toks
    tokens = fmap V.fromList $ FP.many $ whitespace *> addPos token
    addPos p = do
@@ -1584,7 +1587,8 @@ data ParseError
   = NoMoreInput
   | ExpectedEndOfInput
   | ExpectedTokenButGot Token Token
-  | OutsideOfLayout Token Int Int
+  | ExpectedButGot Text (Located Loc Token)
+  | OutsideOfLayout (Located Loc Token) Layout
   deriving (Eq, Show)
 
 instance Reparsec.NoMoreInput ParseErrors where
@@ -1593,12 +1597,21 @@ instance Reparsec.NoMoreInput ParseErrors where
 instance Reparsec.ExpectedEndOfInput ParseErrors where
   expectedEndOfInputError = ParseErrors . pure $ ExpectedEndOfInput
 
-data Layout = Layout { column :: Int }
+data Layout =
+    ExactlyThis Int
+  | MoreThanThis (Located Loc Token) Int
+  deriving (Eq, Show)
 
 type Parser a = Reparsec.ParserT (Vector (Located Loc Token)) ParseErrors (Reader Layout) a
 
 next :: Parser Token
 next = Reparsec.Vector.nextElement >>= checkLayout
+
+nextL :: Parser (Located Loc Token)
+nextL = do
+  el <- Reparsec.Vector.nextElement
+  void $ checkLayout el
+  pure el
 
 lookAhead :: Parser Token
 lookAhead = Reparsec.Vector.lookAhead >>= checkLayout
@@ -1606,14 +1619,22 @@ lookAhead = Reparsec.Vector.lookAhead >>= checkLayout
 checkLayout :: Located Loc Token -> Parser Token
 checkLayout el = do
   layout <- lift ask
-  if el.pos.col > layout.column
-     then pure el.located
-     else Reparsec.failWith $ ParseErrors $ pure $ OutsideOfLayout el.located el.pos.col layout.column
+  case layout of
+    ExactlyThis col | el.pos.col == col -> pure el.located
+    MoreThanThis _ col | el.pos.col > col -> pure el.located
+    _ -> Reparsec.failWith $ ParseErrors $ pure $ OutsideOfLayout el layout
 
 expect :: Token -> Parser ()
 expect tok = do
   el <- next
   unless (el == tok) $ failWith $ ExpectedTokenButGot tok el
+
+parseL :: Text -> (Located Loc Token -> Maybe a) -> Parser a
+parseL msg get = do
+  el <- nextL
+  case get el of
+    Nothing -> failWith $ ExpectedButGot msg el
+    Just a -> pure a
 
 manyTill :: Token -> Parser b -> Parser [b]
 manyTill endToken elementParser = go
@@ -1626,21 +1647,41 @@ manyTill endToken elementParser = go
           element <- elementParser
           fmap (element :) go
 
+layout :: Located Loc Token -> Parser a -> Parser a
+layout i p = do
+  local (const (MoreThanThis i i.pos.col)) do
+    p
+
+nameL = parseL "Name" \case
+  Located { located = NameTok t, pos } -> pure (t, pos)
+  _ -> Nothing
+
+nameP = fmap fst nameL
+
 file :: Parser ()
-file = void $ manyTill DotTok (expect DoTok)
+file = void $ def *> def where
+  def = do
+      k <- ask
+      (name, pos) <- nameL
+      layout (Located pos (NameTok name)) do
+        expect EqTok
+        _ <- nameP
+        pure ()
 
 _parseSpec :: Spec
 _parseSpec = do
   describe "Sanity checks" do
-    xit "test" do
-      shouldBe (px "do") $ Right ()
-    it "test2" do
-      shouldBe (px "do\ndo .") $ Right ()
+    it "Layout fails when not indented" do
+      shouldBe (px "main =\nabc\nx = y") $
+        Left "ParseErrors (OutsideOfLayout (Located {pos = Loc {line = 1, col = 0}, located = NameTok \"abc\"}) (MoreThanThis 0) :| [])"
+    it "Layout works at definitions" do
+      shouldBe (px "main =\n abc\nokp = y") $
+        Right ()
 
   where
         px s = case lexer s of
           FP.OK a "" ->
-            case runReader (Reparsec.parseOnlyT file a) Layout { column = 0 } of
+            case runReader (Reparsec.parseOnlyT file a) (ExactlyThis 0) of
               Left e -> Left $ show e
               Right k -> Right k
           _ -> Left "bad lex"
