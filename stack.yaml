@@ -4,6 +4,8 @@ ghc-options:
   "$everything": "-split-sections -j"
 packages:
 - '.'
+# - reparsec
+
 extra-deps:
 - git: https://github.com/chrisdone/reparsec.git
-  commit: 9fde10a583b50487564992e952b5b39ed987f573
+  commit: b2591d517edf131eb95ec19d83e2341d0d9dc882

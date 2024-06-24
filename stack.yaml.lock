@@ -5,15 +5,15 @@
 
 packages:
 - completed:
-    commit: 9fde10a583b50487564992e952b5b39ed987f573
+    commit: b2591d517edf131eb95ec19d83e2341d0d9dc882
     git: https://github.com/chrisdone/reparsec.git
     name: reparsec
     pantry-tree:
-      sha256: c724eed5d0077071c5199dd020b79945cf83d3a0cd677dfb611cca0c7c8d77ee
-      size: 474
+      sha256: 9ae157b051eb059974b50c6cd1cd37b5342018a092ec68f5e9074b456dcc8c31
+      size: 544
     version: 0.0.0
   original:
-    commit: 9fde10a583b50487564992e952b5b39ed987f573
+    commit: b2591d517edf131eb95ec19d83e2341d0d9dc882
     git: https://github.com/chrisdone/reparsec.git
 snapshots:
 - completed:

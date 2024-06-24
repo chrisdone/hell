@@ -25,8 +25,8 @@ import Data.Foldable
 import qualified Language.Haskell.TH as TH
 import qualified Language.Haskell.TH.Syntax as TH
 import Language.Haskell.TH (Q)
-import qualified Data.Reparsec as Re
-import qualified Data.Reparsec.Vector as Re
+import qualified Data.Reparsec as Reparsec
+import qualified Data.Reparsec.Vector as Reparsec.Vector
 import qualified FlatParse.Basic as FP
 
 import qualified Data.Graph as Graph
@@ -1485,7 +1485,7 @@ lexer s = do
  fmap thread (FP.runParser (tokens <* whitespace <* FP.eof) s)
  where
    thread toks =
-     V.zipWith (\tok (line,col) -> tok { pos = Loc{line,col} })
+     V.zipWith (\tok (line,col) -> tok { pos = Loc{line,col=col+1} })
        toks $ V.fromList $ FP.posLineCols s $ V.toList $ fmap (.pos) toks
    tokens = fmap V.fromList $ FP.many $ whitespace *> addPos token
    addPos p = do
@@ -1577,21 +1577,70 @@ newtype ParseErrors =
   ParseErrors (NonEmpty ParseError)
   deriving (Eq, Show, Semigroup)
 
-liftError :: ParseError -> ParseErrors
-liftError = ParseErrors . pure
+failWith :: ParseError -> Parser a
+failWith = Reparsec.failWith . ParseErrors . pure
 
 data ParseError
   = NoMoreInput
   | ExpectedEndOfInput
-  | ExpectedToken Text
+  | ExpectedTokenButGot Token Token
+  | OutsideOfLayout Token Int Int
   deriving (Eq, Show)
 
-instance Re.NoMoreInput ParseErrors where
-  noMoreInputError = liftError NoMoreInput
+instance Reparsec.NoMoreInput ParseErrors where
+  noMoreInputError = ParseErrors . pure $ NoMoreInput
 
-instance Re.ExpectedEndOfInput ParseErrors where
-  expectedEndOfInputError = liftError ExpectedEndOfInput
+instance Reparsec.ExpectedEndOfInput ParseErrors where
+  expectedEndOfInputError = ParseErrors . pure $ ExpectedEndOfInput
 
-data Layout = Layout { minColumn :: Int }
+data Layout = Layout { column :: Int }
 
-type Parser a = Re.ParserT (Vector Token) ParseErrors (Reader Layout) a
+type Parser a = Reparsec.ParserT (Vector (Located Loc Token)) ParseErrors (Reader Layout) a
+
+next :: Parser Token
+next = Reparsec.Vector.nextElement >>= checkLayout
+
+lookAhead :: Parser Token
+lookAhead = Reparsec.Vector.lookAhead >>= checkLayout
+
+checkLayout :: Located Loc Token -> Parser Token
+checkLayout el = do
+  layout <- lift ask
+  if el.pos.col > layout.column
+     then pure el.located
+     else Reparsec.failWith $ ParseErrors $ pure $ OutsideOfLayout el.located el.pos.col layout.column
+
+expect :: Token -> Parser ()
+expect tok = do
+  el <- next
+  unless (el == tok) $ failWith $ ExpectedTokenButGot tok el
+
+manyTill :: Token -> Parser b -> Parser [b]
+manyTill endToken elementParser = go
+  where
+    go = do
+      next <- lookAhead
+      if next == endToken
+        then pure []
+        else do
+          element <- elementParser
+          fmap (element :) go
+
+file :: Parser ()
+file = void $ manyTill DotTok (expect DoTok)
+
+_parseSpec :: Spec
+_parseSpec = do
+  describe "Sanity checks" do
+    xit "test" do
+      shouldBe (px "do") $ Right ()
+    it "test2" do
+      shouldBe (px "do\ndo .") $ Right ()
+
+  where
+        px s = case lexer s of
+          FP.OK a "" ->
+            case runReader (Reparsec.parseOnlyT file a) Layout { column = 0 } of
+              Left e -> Left $ show e
+              Right k -> Right k
+          _ -> Left "bad lex"
