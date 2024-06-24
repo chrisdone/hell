@@ -1686,5 +1686,6 @@ _parseSpec = do
               Right k -> Right k
           _ -> Left "bad lex"
 
--- Next step to play around with: add a 'layout' combinator that
--- increases the reader within local scope
+-- reparsec does not implement a correct ReaderT. I can't use reparsec
+-- for this task! Or I have to fix reparsec, but I don't feel like
+-- doing that.
