@@ -11,7 +11,7 @@
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments, NamedFieldPuns, DataKinds #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms, TemplateHaskell #-}
-{-# LANGUAGE OverloadedRecordDot, OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable, TypeOperators, UndecidableInstances, TypeFamilies, AllowAmbiguousTypes, MultiParamTypeClasses, FlexibleInstances #-}
+{-# LANGUAGE OverloadedRecordDot, OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable, GeneralizedNewtypeDeriving, TypeOperators, UndecidableInstances, TypeFamilies, AllowAmbiguousTypes, MultiParamTypeClasses, FlexibleInstances #-}
 
 module Main (main) where
 
@@ -19,12 +19,14 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+import Data.Functor.Identity
 import Data.Void
 import Data.Foldable
 import qualified Language.Haskell.TH as TH
 import qualified Language.Haskell.TH.Syntax as TH
 import Language.Haskell.TH (Q)
--- import qualified Data.Reparsec as Re
+import qualified Data.Reparsec as Re
+import qualified Data.Reparsec.Vector as Re
 import qualified FlatParse.Basic as FP
 
 import qualified Data.Graph as Graph
@@ -35,6 +37,7 @@ import qualified Data.Bool as Bool
 import qualified Data.Map as Map
 import qualified Data.Vector as V
 import qualified Data.List as List
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Set as Set
 import qualified Text.Show as Show
 import qualified Data.Function as Function
@@ -62,6 +65,7 @@ import Control.Monad.Reader
 import System.Environment
 import Data.Map (Map)
 import Data.Vector (Vector)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.ByteString (ByteString)
@@ -1555,3 +1559,24 @@ _lexSpec = do
 
 --------------------------------------------------------------------------------
 -- Parser
+
+newtype ParseErrors =
+  ParseErrors (NonEmpty ParseError)
+  deriving (Eq, Show, Semigroup)
+
+liftError :: ParseError -> ParseErrors
+liftError = ParseErrors . pure
+
+data ParseError
+  = NoMoreInput
+  | ExpectedEndOfInput
+  | ExpectedToken Text
+  deriving (Eq, Show)
+
+instance Re.NoMoreInput ParseErrors where
+  noMoreInputError = liftError NoMoreInput
+
+instance Re.ExpectedEndOfInput ParseErrors where
+  expectedEndOfInputError = liftError ExpectedEndOfInput
+
+type Parser a = Re.ParserT (Vector Token) ParseErrors Identity a
