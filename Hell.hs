@@ -317,6 +317,12 @@ data Forall where
     TypeRep (r :: List) ->
     TypeRep (a :: Type) ->
     ((a -> Tagged t (Record r) -> Tagged t (Record r)) -> Forall) -> Forall
+  ModifyOf ::
+    TypeRep (k :: Symbol) ->
+    TypeRep (t :: Symbol) ->
+    TypeRep (r :: List) ->
+    TypeRep (a :: Type) ->
+    (((a -> a) -> Tagged t (Record r) -> Tagged t (Record r)) -> Forall) -> Forall
   Final :: (forall g. Typed (Term g)) -> Forall
 
 lit :: Type.Typeable a => a -> UTerm ()
@@ -435,6 +441,10 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
           case makeSetter k0 r0 a0 t0 of
             Just accessor -> go reps (f accessor)
             Nothing -> error $ "missing field for field set"
+  go reps (ModifyOf k0 t0 r0 a0 f) =
+          case makeModify k0 r0 a0 t0 of
+            Just accessor -> go reps (f accessor)
+            Nothing -> error $ "missing field for field modify"
   go tys r = error $ "forall type arguments mismatch: " ++ show tys ++ " for " ++ showR r
     where showR = \case
              NoClass{} -> "NoClass"
@@ -444,6 +454,7 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
              Monadic{} -> "Monadic"
              GetOf{} -> "GetOf"
              SetOf{} -> "SetOf"
+             ModifyOf{} -> "ModifyOf"
              Final{} -> "Final"
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
@@ -949,6 +960,13 @@ polyLits = Map.fromList
                                (TypeRep @($(vars0T !! 3)))
                                \setter -> Final $ typed $(TH.sigE (TH.varE 'setter) (pure typ))
                   |]
+                 | string == "Record.modify" ->
+                  [| ModifyOf (TypeRep @($(vars0T !! 0)))
+                               (TypeRep @($(vars0T !! 1)))
+                               (TypeRep @($(vars0T !! 2)))
+                               (TypeRep @($(vars0T !! 3)))
+                               \modif -> Final $ typed $(TH.sigE (TH.varE 'modif) (pure typ))
+                  |]
                  | otherwise -> [| Final $ typed $(TH.sigE (pure expr0) (pure typ)) |]
             builder =
               foldr
@@ -991,6 +1009,7 @@ polyLits = Map.fromList
   "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
   "Record.get" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. Tagged t (Record xs) -> a
   "Record.set" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. a -> Tagged t (Record xs) -> Tagged t (Record xs)
+  "Record.modify" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
   "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
   -- Operators
   "$" (Function.$) :: forall a b. (a -> b) -> a -> b
@@ -1450,9 +1469,9 @@ makeSetter k r0 a _ = do
                 _ -> Nothing
 
 -- | Simply re-uses makeAccessor and makeSetter.
-_makeModify :: forall k r0 a t.
+makeModify :: forall k r0 a t.
   TypeRep (k :: Symbol) -> TypeRep (r0 :: List) -> TypeRep a -> TypeRep t -> Maybe ((a -> a) -> Tagged t (Record (r0 :: List)) -> Tagged t (Record (r0 :: List)))
-_makeModify k0 r0 a0 t0 = do
+makeModify k0 r0 a0 t0 = do
   getter <- makeAccessor k0 r0 a0 t0
   setter <- makeSetter k0 r0 a0 t0
   pure \f record -> setter (f (getter record)) record
