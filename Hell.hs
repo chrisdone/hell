@@ -422,18 +422,9 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
           Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) -> go reps (f rep)
         | otherwise -> error $ "type doesn't have enough instances " ++ show rep
   go reps (GetOf k0 t0 r0 a0 f) =
-     -- if | Just Type.HRefl <- Type.eqTypeRep (typeRepKind t_rep) (typeRep @Symbol),
-     --      Just Type.HRefl <- Type.eqTypeRep (typeRepKind k_rep) (typeRep @Symbol),
-     --      Just Type.HRefl <- Type.eqTypeRep (typeRepKind r_rep) (typeRep @List),
-     --      Just Type.HRefl <- Type.eqTypeRep t_rep t0,
-     --      Just Type.HRefl <- Type.eqTypeRep a_rep a0,
-     --      Just Type.HRefl <- Type.eqTypeRep k_rep k0,
-     --      Just Type.HRefl <- Type.eqTypeRep r_rep r0
-     --      ->
           case makeAccessor k0 r0 a0 t0 of
             Just accessor -> go reps (f accessor)
             Nothing -> error $ "missing field for field access"
-        -- | otherwise -> error $ "something is completely wrong for record/prop types. wrong order?"
   go tys r = error $ "forall type arguments mismatch: " ++ show tys ++ " for " ++ showR r
     where showR = \case
              NoClass{} -> "NoClass"
