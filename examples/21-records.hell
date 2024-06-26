@@ -1,7 +1,8 @@
 data Person = Person { age :: Int, name :: Text }
 
-main =
+main = do
   Text.putStrLn $ Record.get @"name" Main.person
+  Text.putStrLn $ Record.get @"name" $ Record.set @"name" "Mary" Main.person
 
 person =
  Main.Person { name = "Chris", age = 23 }

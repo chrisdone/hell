@@ -311,6 +311,12 @@ data Forall where
     TypeRep (r :: List) ->
     TypeRep (a :: Type) ->
     ((Tagged t (Record r) -> a) -> Forall) -> Forall
+  SetOf ::
+    TypeRep (k :: Symbol) ->
+    TypeRep (t :: Symbol) ->
+    TypeRep (r :: List) ->
+    TypeRep (a :: Type) ->
+    ((a -> Tagged t (Record r) -> Tagged t (Record r)) -> Forall) -> Forall
   Final :: (forall g. Typed (Term g)) -> Forall
 
 lit :: Type.Typeable a => a -> UTerm ()
@@ -425,6 +431,10 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
           case makeAccessor k0 r0 a0 t0 of
             Just accessor -> go reps (f accessor)
             Nothing -> error $ "missing field for field access"
+  go reps (SetOf k0 t0 r0 a0 f) =
+          case makeSetter k0 r0 a0 t0 of
+            Just accessor -> go reps (f accessor)
+            Nothing -> error $ "missing field for field set"
   go tys r = error $ "forall type arguments mismatch: " ++ show tys ++ " for " ++ showR r
     where showR = \case
              NoClass{} -> "NoClass"
@@ -433,6 +443,7 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
              OrdEqShow{} -> "OrdEqShow"
              Monadic{} -> "Monadic"
              GetOf{} -> "GetOf"
+             SetOf{} -> "SetOf"
              Final{} -> "Final"
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
@@ -924,14 +935,21 @@ polyLits = Map.fromList
             ordEqShow = Set.fromList [''Ord, ''Eq, ''Show]
             monadics = Set.fromList [''Functor, ''Applicative, ''Monad]
             finalExpr =
-              if string == "Record.get"
-                 then [| GetOf (TypeRep @($(vars0T !! 0)))
+              if | string == "Record.get" ->
+                  [| GetOf (TypeRep @($(vars0T !! 0)))
                                (TypeRep @($(vars0T !! 1)))
                                (TypeRep @($(vars0T !! 2)))
                                (TypeRep @($(vars0T !! 3)))
                                \getter -> Final $ typed $(TH.sigE (TH.varE 'getter) (pure typ))
-                 |]
-                 else [| Final $ typed $(TH.sigE (pure expr0) (pure typ)) |]
+                  |]
+                 | string == "Record.set" ->
+                  [| SetOf (TypeRep @($(vars0T !! 0)))
+                               (TypeRep @($(vars0T !! 1)))
+                               (TypeRep @($(vars0T !! 2)))
+                               (TypeRep @($(vars0T !! 3)))
+                               \setter -> Final $ typed $(TH.sigE (TH.varE 'setter) (pure typ))
+                  |]
+                 | otherwise -> [| Final $ typed $(TH.sigE (pure expr0) (pure typ)) |]
             builder =
               foldr
                 (\case
@@ -971,8 +989,8 @@ polyLits = Map.fromList
 
   -- Records ;
   "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
-
   "Record.get" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. Tagged t (Record xs) -> a
+  "Record.set" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. a -> Tagged t (Record xs) -> Tagged t (Record xs)
   "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
   -- Operators
   "$" (Function.$) :: forall a b. (a -> b) -> a -> b
