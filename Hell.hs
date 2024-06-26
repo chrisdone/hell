@@ -1005,7 +1005,7 @@ polyLits = Map.fromList
     in
     derivePrims [| do
 
-  -- Records ;
+  -- Records
   "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
   "Record.get" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. Tagged t (Record xs) -> a
   "Record.set" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. a -> Tagged t (Record xs) -> Tagged t (Record xs)
