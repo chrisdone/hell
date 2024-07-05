@@ -1,3 +1,8 @@
 main = do
+  let is = List.iterate' (Int.plus 1) 0
   let xs = ["Hello, ", "World!"]
   Text.putStrLn "OK!"
+  Monad.forM_ (List.zip is xs) \(i,x) -> do
+    IO.print i
+    Text.putStrLn x
+  IO.print $ List.foldl' Int.plus 0 $ List.take 10 is

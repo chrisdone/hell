@@ -893,6 +893,11 @@ polyLits = Map.fromList
   "List.drop" List.drop :: forall a. Int -> [a] -> [a]
   "List.take" List.take :: forall a. Int -> [a] -> [a]
   "List.map" List.map :: forall a b. (a -> b) -> [a] -> [b]
+  "List.iterate'" List.iterate' :: forall a. (a -> a) -> a -> [a]
+  "List.filter" List.filter :: forall a. (a -> Bool) -> [a] -> [a]
+  "List.foldl'" List.foldl' :: forall a b. (b -> a -> b) -> b -> [a] -> b
+  "List.zip" List.zip :: forall a b. [a] -> [b] -> [(a,b)]
+  "List.zipWith" List.zipWith :: forall a b c. (a -> b -> c) -> [a] -> [b] -> [c]
   "List.lookup" List.lookup :: forall a b. Eq a => a -> [(a,b)] -> Maybe b
   "List.sort" List.sort :: forall a. Ord a => [a] -> [a]
   "List.reverse" List.reverse :: forall a. [a] -> [a]
@@ -902,6 +907,7 @@ polyLits = Map.fromList
   "Maybe.Nothing" Maybe.Nothing :: forall a. Maybe a
   "Maybe.Just" Maybe.Just :: forall a. a -> Maybe a
   "Maybe.listToMaybe" Maybe.listToMaybe :: forall a. [a] -> Maybe a
+  "Maybe.mapMaybe" Maybe.mapMaybe :: forall a b. (a -> Maybe b) -> [a] -> [b]
   -- Either
   "Either.either" Either.either :: forall a b x. (a -> x) -> (b -> x) -> Either a b -> x
   "Either.Left" Either.Left :: forall a b. a -> Either a b
