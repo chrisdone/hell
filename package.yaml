@@ -22,6 +22,7 @@ dependencies:
 - QuickCheck
 - template-haskell
 - unliftio
+- vector
 
 ghc-options:
   - -Wall

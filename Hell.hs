@@ -34,6 +34,7 @@ import qualified Data.Bool as Bool
 import qualified Data.Map as Map
 import qualified Data.List as List
 import qualified Data.Set as Set
+import qualified Data.Vector as Vector
 import qualified Text.Show as Show
 import qualified Data.Function as Function
 import qualified Data.Generics.Schemes as SYB
@@ -60,6 +61,7 @@ import Control.Monad.Reader
 import System.Environment
 import Data.Map (Map)
 import Data.Set (Set)
+import Data.Vector (Vector)
 import Data.Text (Text)
 import Data.ByteString (ByteString)
 import GHC.Types
@@ -681,6 +683,7 @@ supportedTypeConstructors = Map.fromList [
   ("Maybe", SomeTypeRep $ typeRep @Maybe),
   ("Either", SomeTypeRep $ typeRep @Either),
   ("IO", SomeTypeRep $ typeRep @IO),
+  ("Vector", SomeTypeRep $ typeRep @Vector),
   ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig)
   ]
 
@@ -902,6 +905,9 @@ polyLits = Map.fromList
   "List.sort" List.sort :: forall a. Ord a => [a] -> [a]
   "List.reverse" List.reverse :: forall a. [a] -> [a]
   "List.sortOn" List.sortOn :: forall a b. Ord b => (a -> b) -> [a] -> [a]
+  -- Vector
+  "Vector.fromList" Vector.fromList :: forall a. [a] -> Vector a
+  "Vector.toList" Vector.toList :: forall a. Vector a -> [a]
   -- Maybe
   "Maybe.maybe" Maybe.maybe :: forall a b. b -> (a -> b) -> Maybe a -> b
   "Maybe.Nothing" Maybe.Nothing :: forall a. Maybe a
