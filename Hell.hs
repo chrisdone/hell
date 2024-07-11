@@ -693,6 +693,7 @@ supportedTypeConstructors = Map.fromList [
   ("Either", SomeTypeRep $ typeRep @Either),
   ("IO", SomeTypeRep $ typeRep @IO),
   ("Vector", SomeTypeRep $ typeRep @Vector),
+  ("Set", SomeTypeRep $ typeRep @Set),
   ("Value", SomeTypeRep $ typeRep @Value),
   ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig)
   ]
@@ -918,6 +919,14 @@ polyLits = Map.fromList
   -- Function
   "Function.id" Function.id :: forall a. a -> a
   "Function.fix" Function.fix :: forall a. (a -> a) -> a
+  -- Set
+  "Set.fromList" Set.fromList :: forall a. Ord a => [a] -> Set a
+  "Set.insert" Set.insert :: forall a. Ord a => a -> Set a -> Set a
+  "Set.member" Set.member :: forall a. Ord a => a -> Set a -> Bool
+  "Set.delete" Set.delete :: forall a. Ord a => a -> Set a -> Set a
+  "Set.union" Set.union :: forall a. Ord a => Set a -> Set a -> Set a
+  "Set.toList" Set.toList :: forall a. Set a -> [a]
+  "Set.size" Set.size :: forall a. Set a -> Int
   -- Lists
   "List.cons" (:) :: forall a. a -> [a] -> [a]
   "List.nil" [] :: forall a. [a]
@@ -943,6 +952,8 @@ polyLits = Map.fromList
   "Map.fromList" Map.fromList :: forall k a. Ord k => [(k,a)] -> Map k a
   "Map.lookup" Map.lookup :: forall k a. Ord k => k -> Map k a -> Maybe a
   "Map.insert" Map.insert :: forall k a. Ord k => k -> a -> Map k a -> Map k a
+  "Map.delete" Map.delete :: forall k a. Ord k => k -> Map k a -> Map k a
+  "Map.size" Map.size :: forall k a. Map k a -> Int
   "Map.any" any :: forall k a. (a -> Bool) -> Map k a -> Bool
   "Map.all" all :: forall k a. (a -> Bool) -> Map k a -> Bool
   "Map.insertWith" Map.insertWith :: forall k a. Ord k => (a -> a -> a) -> k -> a -> Map k a -> Map k a
