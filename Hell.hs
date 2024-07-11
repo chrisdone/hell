@@ -759,6 +759,8 @@ supportedLits = Map.fromList [
    -- Bytes I/O
    ("ByteString.hGet", lit ByteString.hGet),
    ("ByteString.hPutStr", lit ByteString.hPutStr),
+   ("ByteString.writeFile", lit bytestring_writeFile),
+   ("ByteString.readFile", lit bytestring_readFile),
    ("ByteString.readProcess", lit b_readProcess),
    ("ByteString.readProcess_", lit b_readProcess_),
    ("ByteString.readProcessStdout_", lit b_readProcessStdout_),
@@ -788,6 +790,7 @@ supportedLits = Map.fromList [
    ("Directory.setCurrentDirectory", lit (Dir.setCurrentDirectory . Text.unpack)),
    ("Directory.renameFile", lit (\x y -> Dir.renameFile (Text.unpack x) (Text.unpack y))),
    ("Directory.copyFile", lit (\x y -> Dir.copyFile (Text.unpack x) (Text.unpack y))),
+   ("Directory.removeFile", lit (\x -> Dir.removeFile (Text.unpack x))),
    -- Process
    ("Process.proc", lit $ \n xs -> proc (Text.unpack n) (map Text.unpack xs)),
    ("Process.setEnv", lit $ Process.setEnv @() @() @() . map (bimap Text.unpack Text.unpack)),
@@ -996,6 +999,12 @@ unsafeGetForall key = Maybe.fromMaybe (error $ "Bad compile-time lookup for " ++
 -- UTF-8 specific operations without all the environment gubbins
 --
 -- Much better than what Data.Text.IO provides
+
+bytestring_readFile :: Text -> IO ByteString
+bytestring_readFile = ByteString.readFile . Text.unpack
+
+bytestring_writeFile :: Text -> ByteString -> IO ()
+bytestring_writeFile = ByteString.writeFile . Text.unpack
 
 t_setStdin :: Text -> ProcessConfig () () () -> ProcessConfig () () ()
 t_setStdin text = setStdin (byteStringInput (L.fromStrict (Text.encodeUtf8 text)))
