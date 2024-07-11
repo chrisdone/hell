@@ -904,6 +904,7 @@ polyLits = Map.fromList
   "List.zipWith" List.zipWith :: forall a b c. (a -> b -> c) -> [a] -> [b] -> [c]
   "List.lookup" List.lookup :: forall a b. Eq a => a -> [(a,b)] -> Maybe b
   "List.sort" List.sort :: forall a. Ord a => [a] -> [a]
+  "List.groupBy" List.groupBy :: forall a. (a -> a -> Bool) -> [a] -> [[a]]
   "List.reverse" List.reverse :: forall a. [a] -> [a]
   "List.sortOn" List.sortOn :: forall a b. Ord b => (a -> b) -> [a] -> [a]
   -- Vector
