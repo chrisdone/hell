@@ -956,6 +956,7 @@ polyLits = Map.fromList
   "Map.delete" Map.delete :: forall k a. Ord k => k -> Map k a -> Map k a
   "Map.singleton" Map.singleton :: forall k a. Ord k => k -> a -> Map k a
   "Map.size" Map.size :: forall k a. Map k a -> Int
+  "Map.filter" Map.filter :: forall k a. (a -> Bool) -> Map k a -> Map k a
   "Map.any" any :: forall k a. (a -> Bool) -> Map k a -> Bool
   "Map.all" all :: forall k a. (a -> Bool) -> Map k a -> Bool
   "Map.insertWith" Map.insertWith :: forall k a. Ord k => (a -> a -> a) -> k -> a -> Map k a -> Map k a
