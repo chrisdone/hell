@@ -32,8 +32,10 @@ import qualified Control.Concurrent as Concurrent
 import qualified System.Timeout as Timeout
 import qualified Data.Bool as Bool
 import qualified Data.Map as Map
+import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.List as List
 import qualified Data.Set as Set
+import qualified Data.Aeson as Json
 import qualified Data.Vector as Vector
 import qualified Text.Show as Show
 import qualified Data.Function as Function
@@ -62,6 +64,7 @@ import System.Environment
 import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.Vector (Vector)
+import Data.Aeson (Value)
 import Data.Text (Text)
 import Data.ByteString (ByteString)
 import GHC.Types
@@ -686,6 +689,7 @@ supportedTypeConstructors = Map.fromList [
   ("Either", SomeTypeRep $ typeRep @Either),
   ("IO", SomeTypeRep $ typeRep @IO),
   ("Vector", SomeTypeRep $ typeRep @Vector),
+  ("Value", SomeTypeRep $ typeRep @Value),
   ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig)
   ]
 
@@ -787,7 +791,16 @@ supportedLits = Map.fromList [
    ("Process.runProcess_", lit $ runProcess_ @IO @() @() @()),
    -- Lists
    ("List.and", lit (List.and @[])),
-   ("List.or", lit (List.or @[]))
+   ("List.or", lit (List.or @[])),
+   -- Json
+   ("Json.decode", lit (Json.decode . L.fromStrict :: ByteString -> Maybe Value)),
+   ("Json.encode", lit (L.toStrict . Json.encode :: Value -> ByteString)),
+   ("Json.Number", lit (Json.toJSON :: Double -> Value)),
+   ("Json.String", lit (Json.toJSON :: Text -> Value)),
+   ("Json.Bool", lit (Json.toJSON :: Bool -> Value)),
+   ("Json.Null", lit Json.Null),
+   ("Json.Array", lit (Json.toJSON :: Vector Value -> Value)),
+   ("Json.Object", lit (Json.toJSON :: Map Text Value -> Value))
   ]
 
 --------------------------------------------------------------------------------
@@ -941,6 +954,8 @@ polyLits = Map.fromList
   "Async.pooledForConcurrently_" Async.pooledForConcurrently_ :: forall a. [a] -> (a -> IO ()) -> IO ()
   "Async.pooledMapConcurrently" Async.pooledMapConcurrently :: forall a b. (a -> IO b) -> [a] -> IO [b]
   "Async.pooledForConcurrently" Async.pooledForConcurrently :: forall a b. [a] -> (a -> IO b) -> IO [b]
+  -- JSON
+  "Json.value" json_value  :: forall a. a -> (Bool -> a) -> (Text -> a) -> (Double -> a) -> (Vector Value -> a) -> (Map Text Value -> a) -> Value -> a
   |])
 
 --------------------------------------------------------------------------------
@@ -1016,6 +1031,28 @@ t_appendFile fp t = ByteString.appendFile (Text.unpack fp) (Text.encodeUtf8 t)
 
 t_readFile :: Text -> IO Text
 t_readFile fp = fmap Text.decodeUtf8 (ByteString.readFile (Text.unpack fp))
+
+--------------------------------------------------------------------------------
+-- JSON operations
+
+-- Accessor for JSON.
+json_value :: forall a.
+  a -- Null
+  -> (Bool -> a) -- Bool
+  -> (Text -> a) -- String
+  -> (Double -> a) -- Number
+  -> (Vector Value -> a) -- Array
+  -> (Map Text Value -> a) -- Object
+  -> Value
+  -> a
+json_value null' bool string number array object =
+  \case
+    Json.Null -> null'
+    Json.Bool s -> bool s
+    Json.String s -> string s
+    Json.Number s -> number (realToFrac s)
+    Json.Array s -> array s
+    Json.Object s -> object $ KeyMap.toMapText $ s
 
 --------------------------------------------------------------------------------
 -- ByteString operations
