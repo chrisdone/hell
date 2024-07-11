@@ -715,6 +715,8 @@ supportedLits = Map.fromList [
    ("Text.readProcessStdout_", lit t_readProcessStdout_),
    ("Text.setStdin", lit t_setStdin),
    -- Text operations
+   ("Text.decodeUtf8", lit Text.decodeUtf8),
+   ("Text.encodeUtf8", lit Text.encodeUtf8),
    ("Text.eq", lit ((==) @Text)),
    ("Text.length", lit Text.length),
    ("Text.concat", lit Text.concat),
