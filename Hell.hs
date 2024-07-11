@@ -38,6 +38,7 @@ import qualified Data.Set as Set
 import qualified Data.Aeson as Json
 import qualified Data.Vector as Vector
 import qualified Text.Show as Show
+import qualified Text.Read as Read
 import qualified Data.Function as Function
 import qualified Data.Generics.Schemes as SYB
 import qualified Type.Reflection as Type
@@ -341,6 +342,7 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
   go (StarTypeRep rep:reps) (OrdEqShow f) =
     if
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Double) -> go reps (f rep)
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Bool) -> go reps (f rep)
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Char) -> go reps (f rep)
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Text) -> go reps (f rep)
@@ -425,6 +427,8 @@ desugarExp globals = go where
       HSE.Char _ char _ -> pure $ lit char
       HSE.String _ string _ -> pure $ lit $ Text.pack string
       HSE.Int _ int _ -> pure $ lit (fromIntegral int :: Int)
+      HSE.Frac _ _ str | Just dub <- Read.readMaybe str
+        -> pure $ lit (dub :: Double)
       _ -> Left $ UnsupportedLiteral
     app@HSE.App{} | Just (qname, tys) <- nestedTyApps app -> do
       reps <- traverse desugarType tys
