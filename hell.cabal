@@ -19,6 +19,7 @@ executable hell
   ghc-options: -Wall -Wno-missing-pattern-synonym-signatures -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       QuickCheck
+    , aeson
     , async
     , base >=4.17.2.1
     , bytestring

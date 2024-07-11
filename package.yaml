@@ -23,6 +23,7 @@ dependencies:
 - template-haskell
 - unliftio
 - vector
+- aeson
 
 ghc-options:
   - -Wall
