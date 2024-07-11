@@ -927,6 +927,7 @@ polyLits = Map.fromList
   "Set.union" Set.union :: forall a. Ord a => Set a -> Set a -> Set a
   "Set.toList" Set.toList :: forall a. Set a -> [a]
   "Set.size" Set.size :: forall a. Set a -> Int
+  "Set.singleton" Set.singleton :: forall a. Ord a => a -> Set a
   -- Lists
   "List.cons" (:) :: forall a. a -> [a] -> [a]
   "List.nil" [] :: forall a. [a]
@@ -953,6 +954,7 @@ polyLits = Map.fromList
   "Map.lookup" Map.lookup :: forall k a. Ord k => k -> Map k a -> Maybe a
   "Map.insert" Map.insert :: forall k a. Ord k => k -> a -> Map k a -> Map k a
   "Map.delete" Map.delete :: forall k a. Ord k => k -> Map k a -> Map k a
+  "Map.singleton" Map.singleton :: forall k a. Ord k => k -> a -> Map k a
   "Map.size" Map.size :: forall k a. Map k a -> Int
   "Map.any" any :: forall k a. (a -> Bool) -> Map k a -> Bool
   "Map.all" all :: forall k a. (a -> Bool) -> Map k a -> Bool
