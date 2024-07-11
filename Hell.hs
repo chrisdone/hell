@@ -959,6 +959,7 @@ polyLits = Map.fromList
   "Map.any" any :: forall k a. (a -> Bool) -> Map k a -> Bool
   "Map.all" all :: forall k a. (a -> Bool) -> Map k a -> Bool
   "Map.insertWith" Map.insertWith :: forall k a. Ord k => (a -> a -> a) -> k -> a -> Map k a -> Map k a
+  "Map.adjust" Map.adjust :: forall k a. Ord k => (a -> a) -> k -> Map k a -> Map k a
   "Map.unionWith" Map.unionWith :: forall k a. Ord k => (a -> a -> a) -> Map k a -> Map k a -> Map k a
   "Map.map" Map.map :: forall a b k. (a -> b) -> Map k a -> Map k b
   "Map.toList" Map.toList :: forall k a. Map k a -> [(k,a)]
