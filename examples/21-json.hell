@@ -1,0 +1,10 @@
+main = do
+  ByteString.writeFile "demo.json" $
+    Json.encode $
+      Json.Object $ Map.fromList [
+        ("name", Json.String "Chris"),
+        ("age", Json.Number 99.123)
+       ]
+  bytes <- ByteString.readFile "demo.json"
+  ByteString.hPutStr IO.stdout bytes
+  Directory.removeFile "demo.json"
