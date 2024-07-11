@@ -1,4 +1,4 @@
 main = do
   Process.runProcess_ (Process.proc "docker" ["exec", "hell", "stack", "build","--ghc-options", "-static -optl-static -fforce-recomp", "--force-dirty"])
-  Directory.renameFile ".stack-work/dist/x86_64-linux/ghc-9.4.8/build/hell/hell" "hell"
-  Process.runProcess_ (Process.proc "strip" ["./hell"])
+  Directory.renameFile ".stack-work/dist/x86_64-linux/ghc-9.4.8/build/hell/hell" "hell-linux-x86-64bit"
+  Process.runProcess_ (Process.proc "strip" ["hell-linux-x86-64bit"])
