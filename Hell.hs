@@ -59,7 +59,7 @@ import System.Process.Typed as Process
 import Control.Monad.State.Strict
 import Control.Monad.Reader
 import System.Environment
-import Data.Map (Map)
+import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.Vector (Vector)
 import Data.Text (Text)
@@ -678,6 +678,7 @@ supportedTypeConstructors = Map.fromList [
   ("Int", SomeTypeRep $ typeRep @Int),
   ("Char", SomeTypeRep $ typeRep @Char),
   ("Text", SomeTypeRep $ typeRep @Text),
+  ("Map", SomeTypeRep $ typeRep @Map),
   ("ByteString", SomeTypeRep $ typeRep @ByteString),
   ("ExitCode", SomeTypeRep $ typeRep @ExitCode),
   ("Maybe", SomeTypeRep $ typeRep @Maybe),
@@ -908,6 +909,13 @@ polyLits = Map.fromList
   -- Vector
   "Vector.fromList" Vector.fromList :: forall a. [a] -> Vector a
   "Vector.toList" Vector.toList :: forall a. Vector a -> [a]
+  -- Map
+  "Map.fromList" Map.fromList :: forall k a. Ord k => [(k,a)] -> Map k a
+  "Map.lookup" Map.lookup :: forall k a. Ord k => k -> Map k a -> Maybe a
+  "Map.insert" Map.insert :: forall k a. Ord k => k -> a -> Map k a -> Map k a
+  "Map.unionWith" Map.unionWith :: forall k a. Ord k => (a -> a -> a) -> Map k a -> Map k a -> Map k a
+  "Map.map" Map.map :: forall a b k. (a -> b) -> Map k a -> Map k b
+  "Map.toList" Map.toList :: forall k a. Map k a -> [(k,a)]
   -- Maybe
   "Maybe.maybe" Maybe.maybe :: forall a b. b -> (a -> b) -> Maybe a -> b
   "Maybe.Nothing" Maybe.Nothing :: forall a. Maybe a
