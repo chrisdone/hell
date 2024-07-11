@@ -943,6 +943,7 @@ polyLits = Map.fromList
   "Map.fromList" Map.fromList :: forall k a. Ord k => [(k,a)] -> Map k a
   "Map.lookup" Map.lookup :: forall k a. Ord k => k -> Map k a -> Maybe a
   "Map.insert" Map.insert :: forall k a. Ord k => k -> a -> Map k a -> Map k a
+  "Map.insertWith" Map.insertWith :: forall k a. Ord k => (a -> a -> a) -> k -> a -> Map k a -> Map k a
   "Map.unionWith" Map.unionWith :: forall k a. Ord k => (a -> a -> a) -> Map k a -> Map k a -> Map k a
   "Map.map" Map.map :: forall a b k. (a -> b) -> Map k a -> Map k b
   "Map.toList" Map.toList :: forall k a. Map k a -> [(k,a)]
