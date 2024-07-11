@@ -7,4 +7,14 @@ main = do
        ]
   bytes <- ByteString.readFile "demo.json"
   ByteString.hPutStr IO.stdout bytes
+  Text.putStrLn $
+    Maybe.maybe "Bad parse."
+      (Json.value
+        "null"
+        (\str -> Text.concat ["bool", Show.show str])
+        (\str -> Text.concat ["str", Show.show str])
+        (\dub -> Text.concat ["dub", Show.show dub])
+        (\arr -> "Array!")
+        (\obj -> "Object."))
+       $ Json.decode bytes
   Directory.removeFile "demo.json"
