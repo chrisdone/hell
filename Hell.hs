@@ -102,7 +102,7 @@ commandParser =
   ]
 
 dispatch :: Command -> IO ()
-dispatch Version = putStrLn "2024-07-11"
+dispatch Version = putStrLn "2024-07-15"
 dispatch (Run filePath) = do
   result <- parseFile filePath
   case result of
@@ -714,6 +714,7 @@ supportedLits = Map.fromList [
    ("Text.readProcess", lit t_readProcess),
    ("Text.readProcess_", lit t_readProcess_),
    ("Text.readProcessStdout_", lit t_readProcessStdout_),
+   ("Text.getContents", lit (fmap Text.decodeUtf8 ByteString.getContents)),
    ("Text.setStdin", lit t_setStdin),
    -- Text operations
    ("Text.decodeUtf8", lit Text.decodeUtf8),
@@ -748,6 +749,7 @@ supportedLits = Map.fromList [
    ("Text.isPrefixOf", lit Text.isPrefixOf),
    ("Text.isSuffixOf", lit Text.isSuffixOf),
    ("Text.isInfixOf", lit Text.isInfixOf),
+   ("Text.interact", lit (\f -> ByteString.interact (Text.encodeUtf8 . f. Text.decodeUtf8))),
    -- Int operations
    ("Int.show", lit (Text.pack . show @Int)),
    ("Int.eq", lit ((==) @Int)),
@@ -767,6 +769,8 @@ supportedLits = Map.fromList [
    ("ByteString.readProcess", lit b_readProcess),
    ("ByteString.readProcess_", lit b_readProcess_),
    ("ByteString.readProcessStdout_", lit b_readProcessStdout_),
+   ("ByteString.interact", lit ByteString.interact),
+   ("ByteString.getContents", lit ByteString.getContents),
    -- Handles, buffering
    ("IO.stdout", lit IO.stdout),
    ("IO.stderr", lit IO.stderr),
