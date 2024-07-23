@@ -7,10 +7,11 @@
 -- this is built upon, and for the Type.Reflection module, which has
 -- made some of this more ergonomic.
 
-{-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments, NamedFieldPuns #-}
+{-# options_ghc -Wno-unused-foralls #-}
+{-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments, NamedFieldPuns, DataKinds #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms, TemplateHaskell #-}
-{-# LANGUAGE OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
+{-# LANGUAGE OverloadedRecordDot, OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable, TypeOperators, UndecidableInstances, TypeFamilies, AllowAmbiguousTypes, MultiParamTypeClasses, FlexibleInstances #-}
 
 module Main (main) where
 
@@ -69,6 +70,7 @@ import Data.Aeson (Value)
 import Data.Text (Text)
 import Data.ByteString (ByteString)
 import GHC.Types
+import GHC.TypeLits
 import Type.Reflection (SomeTypeRep(..), TypeRep, typeRepKind, typeRep, pattern TypeRep)
 
 -- Testing support
@@ -186,8 +188,73 @@ parseModule (HSE.Module _ Nothing [] [] decls) =
   where
     parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
           pure (string, exp')
+    parseDecl (HSE.DataDecl _ HSE.DataType{} Nothing (HSE.DHead _ name) [qualConDecl] []) =
+          parseDataDecl name qualConDecl
     parseDecl _ = fail "Can't parse that!"
 parseModule _ = fail "Module headers aren't supported."
+
+parseDataDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> HSE.QualConDecl l -> HSE.ParseResult (String, HSE.Exp HSE.SrcSpanInfo)
+parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDecl _ (HSE.Ident _ consName) fields)) = do
+  -- Note: the fields are sorted by name.
+  fields' <- fmap (List.sortBy (Ord.comparing fst) . concat) $ traverse getField fields
+  let names = map fst fields'
+  -- Technically the type checker is quite capable of handling this in
+  -- a sound manner, but it's weird and Haskell disallows it, so we
+  -- turn it off.
+  when (List.nub names /= names) $
+    fail "Field names cannot be repeated."
+  pure (consName, makeConstructor tyname fields')
+  where getField (HSE.FieldDecl _ names typ) = do
+          names' <- for names \case
+            (HSE.Ident _ n) -> pure n
+            _ -> fail "Invalid field name."
+          pure $ map (, typ) names'
+parseDataDecl _ _ =
+  fail "Data declaration not in supported format."
+
+makeConstructor :: String -> [(String, HSE.Type HSE.SrcSpanInfo)] -> HSE.Exp HSE.SrcSpanInfo
+makeConstructor name = appTagged . desugarRecordType where
+  appTagged ty =
+    HSE.App l
+      (HSE.App l
+        (HSE.Con l (HSE.Qual l (HSE.ModuleName l "Tagged") (HSE.Ident l "Tagged")))
+        (HSE.TypeApp l (tySym name)))
+      (HSE.TypeApp l ty)
+  tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+  l = HSE.noSrcSpan
+
+makeConstructRecord :: HSE.QName HSE.SrcSpanInfo -> [HSE.FieldUpdate HSE.SrcSpanInfo] -> HSE.Exp HSE.SrcSpanInfo
+makeConstructRecord qname fields =
+  HSE.App l (HSE.Con l qname) $
+    foldr (\(name, expr) rest ->
+                   let tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+                   in HSE.App l
+                       (HSE.App l
+                        (HSE.App l
+                          (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Record") (HSE.Ident l "cons")))
+                          (HSE.TypeApp l (tySym name)))
+                        expr)
+                        rest
+                   )
+                (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Record") (HSE.Ident l "nil")))
+                $ List.sortBy (Ord.comparing fst) $ map (\case
+                   HSE.FieldUpdate _ (HSE.UnQual _ (HSE.Ident _ i)) expr -> (i, expr)
+                   f -> error $ "Invalid field: " ++ show f
+                   )
+                     fields
+  where   l = HSE.noSrcSpan
+
+desugarRecordType :: [(String, HSE.Type HSE.SrcSpanInfo)] -> HSE.Type HSE.SrcSpanInfo
+desugarRecordType = appRecord . foldr appCons nilL where
+  appCons (name, typ) rest =
+    HSE.TyApp l (HSE.TyApp l (HSE.TyApp l consL (tySym name)) typ) rest
+  appRecord x =
+    HSE.TyApp l recordT x
+  tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+  nilL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "NilL"))
+  consL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "ConsL"))
+  recordT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Record"))
+  l = HSE.noSrcSpan
 
 --------------------------------------------------------------------------------
 -- Typed AST support
@@ -234,7 +301,7 @@ data UTerm t
 
   -- IRep below: The variables are poly types, they aren't metavars,
   -- and need to be instantiated.
-  | UForall t [SomeStarType] Forall [TH.Uniq] (IRep TH.Uniq) [t]
+  | UForall t [SomeTypeRep] Forall [TH.Uniq] (IRep TH.Uniq) [t]
   deriving (Traversable, Functor, Foldable)
 
 typeOf :: UTerm t -> t
@@ -248,8 +315,28 @@ data Binding = Singleton String | Tuple [String]
 
 data Forall where
   NoClass :: (forall (a :: Type). TypeRep a -> Forall) -> Forall
+  SymbolOf :: (forall (a :: Symbol). TypeRep a -> Forall) -> Forall
+  ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
   Monadic :: (forall (m :: Type -> Type). (Monad m) => TypeRep m -> Forall) -> Forall
+  GetOf ::
+    TypeRep (k :: Symbol) ->
+    TypeRep (t :: Symbol) ->
+    TypeRep (r :: List) ->
+    TypeRep (a :: Type) ->
+    ((Tagged t (Record r) -> a) -> Forall) -> Forall
+  SetOf ::
+    TypeRep (k :: Symbol) ->
+    TypeRep (t :: Symbol) ->
+    TypeRep (r :: List) ->
+    TypeRep (a :: Type) ->
+    ((a -> Tagged t (Record r) -> Tagged t (Record r)) -> Forall) -> Forall
+  ModifyOf ::
+    TypeRep (k :: Symbol) ->
+    TypeRep (t :: Symbol) ->
+    TypeRep (r :: List) ->
+    TypeRep (a :: Type) ->
+    (((a -> a) -> Tagged t (Record r) -> Tagged t (Record r)) -> Forall) -> Forall
   Final :: (forall g. Typed (Term g)) -> Forall
 
 lit :: Type.Typeable a => a -> UTerm ()
@@ -339,6 +426,10 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
   go :: [SomeTypeRep] -> Forall -> Either TypeCheckError (Typed (Term g))
   go [] (Final typed') = pure typed'
   go (StarTypeRep rep:reps) (NoClass f) = go reps (f rep)
+  go (SomeTypeRep rep:reps) (ListOf f)
+    | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @List) = go reps (f rep)
+  go (SomeTypeRep rep:reps) (SymbolOf f)
+    | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @Symbol) = go reps (f rep)
   go (StarTypeRep rep:reps) (OrdEqShow f) =
     if
         | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
@@ -357,7 +448,29 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
         | Type.App either' _ <- rep,
           Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) -> go reps (f rep)
         | otherwise -> error $ "type doesn't have enough instances " ++ show rep
-  go _ _ = error "forall type arguments mismatch."
+  go reps (GetOf k0 t0 r0 a0 f) =
+          case makeAccessor k0 r0 a0 t0 of
+            Just accessor -> go reps (f accessor)
+            Nothing -> error $ "missing field for field access"
+  go reps (SetOf k0 t0 r0 a0 f) =
+          case makeSetter k0 r0 a0 t0 of
+            Just accessor -> go reps (f accessor)
+            Nothing -> error $ "missing field for field set"
+  go reps (ModifyOf k0 t0 r0 a0 f) =
+          case makeModify k0 r0 a0 t0 of
+            Just accessor -> go reps (f accessor)
+            Nothing -> error $ "missing field for field modify"
+  go tys r = error $ "forall type arguments mismatch: " ++ show tys ++ " for " ++ showR r
+    where showR = \case
+             NoClass{} -> "NoClass"
+             SymbolOf{} -> "SymbolOf"
+             ListOf{} -> "ListOf"
+             OrdEqShow{} -> "OrdEqShow"
+             Monadic{} -> "Monadic"
+             GetOf{} -> "GetOf"
+             SetOf{} -> "SetOf"
+             ModifyOf{} -> "ModifyOf"
+             Final{} -> "Final"
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
 -- embedded in the untyped AST.
@@ -406,6 +519,7 @@ data DesugarError = InvalidConstructor String | InvalidVariable String | Unknown
 nestedTyApps :: HSE.Exp HSE.SrcSpanInfo -> Maybe (HSE.QName HSE.SrcSpanInfo, [HSE.Type HSE.SrcSpanInfo])
 nestedTyApps = go [] where
   go acc (HSE.App _ (HSE.Var _ qname) (HSE.TypeApp _ ty)) = pure (qname, ty:acc)
+  go acc (HSE.App _ (HSE.Con _ qname) (HSE.TypeApp _ ty)) = pure (qname, ty:acc)
   go acc (HSE.App _ e (HSE.TypeApp _ ty)) = go (ty:acc) e
   go _ _ = Nothing
 
@@ -431,7 +545,7 @@ desugarExp globals = go where
         -> pure $ lit (dub :: Double)
       _ -> Left $ UnsupportedLiteral
     app@HSE.App{} | Just (qname, tys) <- nestedTyApps app -> do
-      reps <- traverse desugarType tys
+      reps <- traverse desugarSomeType tys
       desugarQName globals qname reps
     HSE.Var _ qname ->
       desugarQName globals qname []
@@ -442,7 +556,7 @@ desugarExp globals = go where
       e' <- go e
       pure $ foldr (\(name,ty) inner  -> ULam () name ty inner)  e' args
     HSE.Con _ qname ->
-      desugarQName mempty qname []
+      desugarQName globals qname []
     HSE.Do _ stmts -> do
       let loop f [HSE.Qualifier _ e] = f <$> go e
           loop f (s:ss) = do
@@ -461,9 +575,10 @@ desugarExp globals = go where
               _ -> Left BadDoNotation
           loop _ _ = Left BadDoNotation
       loop id stmts
+    HSE.RecConstr _ qname fields -> desugarExp globals $ makeConstructRecord qname fields
     e -> Left $ UnsupportedSyntax $ show e
 
-desugarQName :: Map String (UTerm ()) -> HSE.QName HSE.SrcSpanInfo -> [SomeStarType] -> Either DesugarError (UTerm ())
+desugarQName :: Map String (UTerm ()) -> HSE.QName HSE.SrcSpanInfo -> [SomeTypeRep] -> Either DesugarError (UTerm ())
 desugarQName globals qname [] =
   case qname of
     HSE.UnQual _ (HSE.Ident _ string) -> pure $ UVar () string
@@ -479,7 +594,7 @@ desugarQName globals qname [] =
     _ -> desugarPolyQName globals qname []
 desugarQName globals qname treps = desugarPolyQName globals qname treps
 
-desugarPolyQName :: Show l => p -> HSE.QName l -> [SomeStarType] -> Either DesugarError (UTerm ())
+desugarPolyQName :: Show l => p -> HSE.QName l -> [SomeTypeRep] -> Either DesugarError (UTerm ())
 desugarPolyQName _ qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
@@ -492,10 +607,10 @@ desugarPolyQName _ qname treps =
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) =
-  fmap (Singleton i,) (fmap Just (desugarType typ))
+  fmap (Singleton i,) (fmap Just (desugarStarType typ))
 desugarArg (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
   | Just idents' <- traverse desugarIdent idents =
-  fmap (Tuple idents',) (fmap Just (desugarType typ))
+  fmap (Tuple idents',) (fmap Just (desugarStarType typ))
 desugarArg (HSE.PVar _ (HSE.Ident _ i)) =
   pure (Singleton i,Nothing)
 desugarArg (HSE.PTuple _ HSE.Boxed idents)
@@ -511,14 +626,15 @@ desugarIdent _ = Nothing
 --------------------------------------------------------------------------------
 -- Desugar types
 
-desugarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
-desugarType t = do
-  someRep <- go t
+desugarStarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
+desugarStarType t = do
+  someRep <- desugarSomeType t
   case someRep of
     StarTypeRep t' -> pure (SomeStarType t')
     _ ->  Left KindError
 
-  where
+desugarSomeType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
+desugarSomeType = go where
   go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
   go = \case
     HSE.TyTuple _ HSE.Boxed types -> do
@@ -553,22 +669,27 @@ desugarType t = do
       case applyTypes f' a' of
         Just someTypeRep -> pure someTypeRep
         _ ->  Left KindError
+    HSE.TyPromoted _ (HSE.PromotedString _ string _) ->
+      case someSymbolVal string of
+        SomeSymbol p ->
+          pure $ Type.someTypeRep p
+    -- TODO: Remove later.
+    HSE.TyPromoted _ (HSE.PromotedCon _ _bool (HSE.UnQual _ (HSE.Ident _ name)))
+      | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
     t' ->  Left $ UnknownType $ show t'
 
--- | Supports up to 3-ary type functions, but not more.
+-- | Apply a type `f' with an argument `x', if it is a type function,
+-- and the input is the right kind.
 applyTypes :: SomeTypeRep -> SomeTypeRep -> Maybe SomeTypeRep
-applyTypes (SomeTypeRep f) (SomeTypeRep a) = do
-  Type.HRefl <- Type.eqTypeRep (typeRepKind a) (typeRep @Type)
-  if
-   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type)) ->
-     pure $ SomeTypeRep $ Type.App f a
-   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type)) ->
-     pure $ SomeTypeRep $ Type.App f a
-   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type -> Type)) ->
-     pure $ SomeTypeRep $ Type.App f a
-   | Just Type.HRefl <- Type.eqTypeRep (typeRepKind f) (typeRep @(Type -> Type -> Type -> Type -> Type)) ->
-     pure $ SomeTypeRep $ Type.App f a
-   | otherwise -> Nothing
+applyTypes (SomeTypeRep f) (SomeTypeRep x) =
+  case Type.typeRepKind f of
+    Type.App (Type.App (-->) a) _b
+      | Just Type.HRefl <- Type.eqTypeRep (-->) (TypeRep @(->)) ->
+      case Type.eqTypeRep (Type.typeRepKind x) a of
+        Just Type.HRefl ->
+          Just $ SomeTypeRep $ Type.App f x
+        _ -> Nothing
+    _ -> Nothing
 
 desugarTypeSpec :: Spec
 desugarTypeSpec = do
@@ -578,7 +699,7 @@ desugarTypeSpec = do
     shouldBe (try "Bool -> Int") (Right (SomeStarType $ typeRep @(Bool -> Int)))
     shouldBe (try "()") (Right (SomeStarType $ typeRep @()))
     shouldBe (try "[Int]") (Right (SomeStarType $ typeRep @[Int]))
-  where try e = case fmap (desugarType) $ HSE.parseType e of
+  where try e = case fmap (desugarStarType) $ HSE.parseType e of
            HSE.ParseOk r -> r
            _ -> error "Parse failed."
 
@@ -671,7 +792,7 @@ freeVariables =
 
 freeVariablesSpec :: Spec
 freeVariablesSpec = do
- it "freeVariables" $ shouldBe (try "\\z -> Main.x * Z.y") ["x"]
+ it "freeVariables" $ shouldBe (try "\\z -> Main.x * Z.y / Main.P") ["x", "P"]
   where try e = case fmap freeVariables $ HSE.parseExp e of
            HSE.ParseOk names -> names
            _ -> error "Parse failed."
@@ -695,7 +816,11 @@ supportedTypeConstructors = Map.fromList [
   ("Vector", SomeTypeRep $ typeRep @Vector),
   ("Set", SomeTypeRep $ typeRep @Set),
   ("Value", SomeTypeRep $ typeRep @Value),
-  ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig)
+  ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig),
+  ("Tagged", SomeTypeRep $ typeRep @Tagged),
+  ("Record", SomeTypeRep $ typeRep @Record),
+  ("NilL", SomeTypeRep $ typeRep @('NilL)),
+  ("ConsL", SomeTypeRep $ typeRep @('ConsL))
   ]
 
 --------------------------------------------------------------------------------
@@ -814,7 +939,9 @@ supportedLits = Map.fromList [
    ("Json.Bool", lit (Json.toJSON :: Bool -> Value)),
    ("Json.Null", lit Json.Null),
    ("Json.Array", lit (Json.toJSON :: Vector Value -> Value)),
-   ("Json.Object", lit (Json.toJSON :: Map Text Value -> Value))
+   ("Json.Object", lit (Json.toJSON :: Map Text Value -> Value)),
+   -- Records
+   ("Record.nil", lit NilR)
   ]
 
 --------------------------------------------------------------------------------
@@ -846,19 +973,49 @@ polyLits = Map.fromList
         TH.TupleT 3 -> [| ICon (SomeTypeRep (typeRep @(,,))) |]
         TH.TupleT 4 -> [| ICon (SomeTypeRep (typeRep @(,,,))) |]
         TH.TupleT 0 -> [| ICon (SomeTypeRep (typeRep @())) |]
-        t -> error $ "Uexpected type shape: " ++ show t
+        ty@TH.PromotedT{} ->  [| ICon (SomeTypeRep $(TH.appTypeE (TH.varE 'typeRep) (pure ty))) |]
+        t -> error $ "Unexpected type shape: " ++ show t
 
       -- Make a well-typed primitive form. Expects a very strict format.
       makePrim :: TH.Stmt -> Q TH.Exp
-      makePrim (TH.NoBindS (TH.SigE (TH.AppE (TH.LitE (TH.StringL string)) expr)
+      makePrim (TH.NoBindS (TH.SigE (TH.AppE (TH.LitE (TH.StringL string)) expr0)
                    (TH.ForallT vars constraints typ))) =
         let constrained = foldl getConstraint mempty constraints
             vars0 = map (\case
                       (TH.PlainTV v TH.SpecifiedSpec) -> TH.litE $ TH.IntegerL $ nameUnique v
+                      (TH.KindedTV v TH.SpecifiedSpec _k) -> TH.litE $ TH.IntegerL $ nameUnique v
+                      _ -> error "The type variable isn't what I expected.")
+                      vars
+            vars0T = map (\case
+                      (TH.PlainTV v TH.SpecifiedSpec) -> TH.varT v
+                      (TH.KindedTV v TH.SpecifiedSpec _k) -> TH.varT v
                       _ -> error "The type variable isn't what I expected.")
                       vars
             ordEqShow = Set.fromList [''Ord, ''Eq, ''Show]
             monadics = Set.fromList [''Functor, ''Applicative, ''Monad]
+            finalExpr =
+              if | string == "Record.get" ->
+                  [| GetOf (TypeRep @($(vars0T !! 0)))
+                               (TypeRep @($(vars0T !! 1)))
+                               (TypeRep @($(vars0T !! 2)))
+                               (TypeRep @($(vars0T !! 3)))
+                               \getter -> Final $ typed $(TH.sigE (TH.varE 'getter) (pure typ))
+                  |]
+                 | string == "Record.set" ->
+                  [| SetOf (TypeRep @($(vars0T !! 0)))
+                               (TypeRep @($(vars0T !! 1)))
+                               (TypeRep @($(vars0T !! 2)))
+                               (TypeRep @($(vars0T !! 3)))
+                               \setter -> Final $ typed $(TH.sigE (TH.varE 'setter) (pure typ))
+                  |]
+                 | string == "Record.modify" ->
+                  [| ModifyOf (TypeRep @($(vars0T !! 0)))
+                               (TypeRep @($(vars0T !! 1)))
+                               (TypeRep @($(vars0T !! 2)))
+                               (TypeRep @($(vars0T !! 3)))
+                               \modif -> Final $ typed $(TH.sigE (TH.varE 'modif) (pure typ))
+                  |]
+                 | otherwise -> [| Final $ typed $(TH.sigE (pure expr0) (pure typ)) |]
             builder =
               foldr
                 (\case
@@ -872,8 +1029,18 @@ polyLits = Map.fromList
                                    _ -> error "I'm not sure what to do with this variable."))
                        (TH.lamE [pure $ TH.ConP 'TypeRep [TH.VarT v] []]
                                 rest)
-                   _ -> error "Did not expect this type of variable!")
-                [| Final $ typed $(TH.sigE (pure expr) (pure typ)) |]
+                   (TH.KindedTV v TH.SpecifiedSpec (TH.ConT v_k)) | v_k == ''Symbol -> \rest ->
+                     TH.appE
+                       (TH.conE 'SymbolOf)
+                       (TH.lamE [pure $ TH.ConP 'TypeRep [TH.SigT (TH.VarT v) (TH.ConT v_k)] []]
+                                rest)
+                   (TH.KindedTV v TH.SpecifiedSpec (TH.ConT v_k)) | v_k == ''List -> \rest ->
+                     TH.appE
+                       (TH.conE 'ListOf)
+                       (TH.lamE [pure $ TH.ConP 'TypeRep [TH.SigT (TH.VarT v) (TH.ConT v_k)] []]
+                                rest)
+                   t -> error $ "Did not expect this type of variable! " ++ show t)
+                finalExpr
                 vars
         in [| (string, ($builder, $(TH.listE vars0), $(toTy typ))) |]
       makePrim e = error $ "Should be of the form \"Some.name\" The.name :: T\ngot: " ++ show e
@@ -886,6 +1053,12 @@ polyLits = Map.fromList
     in
     derivePrims [| do
 
+  -- Records
+  "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
+  "Record.get" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. Tagged t (Record xs) -> a
+  "Record.set" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. a -> Tagged t (Record xs) -> Tagged t (Record xs)
+  "Record.modify" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
+  "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
   -- Operators
   "$" (Function.$) :: forall a b. (a -> b) -> a -> b
   "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
@@ -1152,7 +1325,10 @@ toSomeTypeRep t = do
 
 -- | Convert from a type-indexed type to an untyped type.
 fromSomeStarType :: forall void. SomeStarType -> IRep void
-fromSomeStarType (SomeStarType r) = go r where
+fromSomeStarType (SomeStarType r) = fromSomeType (SomeTypeRep r)
+
+fromSomeType :: forall void. SomeTypeRep -> IRep void
+fromSomeType (SomeTypeRep r) = go r where
   go :: forall a. TypeRep a -> IRep void
   go = \case
     Type.Fun a b -> IFun (go a) (go b)
@@ -1227,7 +1403,7 @@ elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty .
           Just var -> pure var
       -- Order of types is position-dependent, apply the ones we have.
       for_ (zip vars types) \((_uniq, var), someTypeRep) ->
-        equal (fromSomeStarType someTypeRep) (IVar var)
+        equal (fromSomeType someTypeRep) (IVar var)
       -- Done!
       pure $ UForall monoType types forall' uniqs polyRep (map (IVar . snd) vars)
 
@@ -1326,7 +1502,7 @@ zonk = \case
 parseFile :: String -> IO (Either String [(String, HSE.Exp HSE.SrcSpanInfo)])
 parseFile filePath = do
   string <- ByteString.readFile filePath
-  pure $ case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
+  pure $ case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.DataKinds, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
     HSE.ParseFailed _ e -> Left $ "Parse error: " <> e
     HSE.ParseOk binds -> Right binds
 
@@ -1345,3 +1521,71 @@ _spec = do
   freeVariablesSpec
   anyCyclesSpec
   desugarTypeSpec
+
+--------------------------------------------------------------------------------
+-- Records
+
+data Tagged (s :: Symbol) a = Tagged a
+
+data List = NilL | ConsL Symbol Type List
+
+data Record (xs :: List) where
+  NilR  :: Record 'NilL
+  ConsR :: forall k a xs. a -> Record xs -> Record (ConsL k a xs)
+
+-- | Build up a type-safe getter.
+makeAccessor :: forall k r0 a t.
+  TypeRep (k :: Symbol) -> TypeRep (r0 :: List) -> TypeRep a -> TypeRep t -> Maybe (Tagged t (Record (r0 :: List)) -> a)
+makeAccessor k r0 a _ = do
+  accessor <- go r0
+  pure \(Tagged r) -> accessor r
+  where go :: TypeRep (r :: List) -> Maybe (Record (r :: List) -> a)
+        go r =
+          case Type.eqTypeRep r (Type.TypeRep @NilL) of
+            Just {} -> Nothing
+            Nothing ->
+              case r of
+                Type.App (Type.App (Type.App _ sym) typ) r' |
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind typ) (typeRep @Type),
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind sym) (typeRep @Symbol),
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind r') (typeRep @List)
+                    -> case (Type.eqTypeRep k sym, Type.eqTypeRep a typ) of
+                      (Just Type.HRefl, Just Type.HRefl) ->
+                        pure \(ConsR v _xs) -> v
+                      _ -> do
+                        accessor <- go r'
+                        pure \case
+                          ConsR _a xs -> accessor xs
+                _ -> Nothing
+
+-- | Build up a type-safe setter.
+makeSetter :: forall k r0 a t.
+  TypeRep (k :: Symbol) -> TypeRep (r0 :: List) -> TypeRep a -> TypeRep t -> Maybe (a -> Tagged t (Record (r0 :: List)) -> Tagged t (Record (r0 :: List)))
+makeSetter k r0 a _ = do
+  setter <- go r0
+  pure \a' (Tagged r) -> Tagged (setter a' r)
+  where go :: TypeRep (r :: List) -> Maybe (a -> Record (r :: List) -> Record (r :: List))
+        go r =
+          case Type.eqTypeRep r (Type.TypeRep @NilL) of
+            Just {} -> Nothing
+            Nothing ->
+              case r of
+                Type.App (Type.App (Type.App _ sym) typ) r' |
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind typ) (typeRep @Type),
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind sym) (typeRep @Symbol),
+                  Just Type.HRefl <- Type.eqTypeRep (typeRepKind r') (typeRep @List)
+                    -> case (Type.eqTypeRep k sym, Type.eqTypeRep a typ) of
+                      (Just Type.HRefl, Just Type.HRefl) ->
+                        pure \a' (ConsR _a xs) -> ConsR a' xs
+                      _ -> do
+                        setter <- go r'
+                        pure \a' (ConsR a0 xs) -> ConsR a0 (setter a' xs)
+                _ -> Nothing
+
+-- | Simply re-uses makeAccessor and makeSetter.
+makeModify :: forall k r0 a t.
+  TypeRep (k :: Symbol) -> TypeRep (r0 :: List) -> TypeRep a -> TypeRep t -> Maybe ((a -> a) -> Tagged t (Record (r0 :: List)) -> Tagged t (Record (r0 :: List)))
+makeModify k0 r0 a0 t0 = do
+  getter <- makeAccessor k0 r0 a0 t0
+  setter <- makeSetter k0 r0 a0 t0
+  pure \f record -> setter (f (getter record)) record

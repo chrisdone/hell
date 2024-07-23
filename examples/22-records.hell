@@ -1,0 +1,9 @@
+data Person = Person { age :: Int, name :: Text }
+
+main = do
+  Text.putStrLn $ Record.get @"name" Main.person
+  Text.putStrLn $ Record.get @"name" $ Record.set @"name" "Mary" Main.person
+  Text.putStrLn $ Record.get @"name" $ Record.modify @"name" Text.reverse Main.person
+
+person =
+ Main.Person { name = "Chris", age = 23 }
