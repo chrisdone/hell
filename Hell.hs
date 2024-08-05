@@ -113,16 +113,16 @@ dispatch (Run filePath) = do
       | anyCycles binds -> error "Cyclic bindings are not supported!"
       | otherwise ->
             case desugarAll binds of
-              Left err -> error $ "Error desugaring! " ++ show err
+              Left err -> error $ prettyString err
               Right terms ->
                 case lookup "main" terms of
                   Nothing -> error "No main declaration!"
                   Just main' ->
                     case inferExp mempty main' of
-                      Left err -> error $ "Error inferring! " ++ show err
+                      Left err -> error $ prettyString err
                       Right uterm ->
                         case check uterm Nil of
-                           Left err -> error $ "Type checker error: " ++ show err
+                           Left err -> error $ prettyString err
                            Right (Typed t ex) ->
                              case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
                                Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
@@ -140,35 +140,35 @@ dispatch (Check filePath) = do
       | anyCycles binds -> error "Cyclic bindings are not supported!"
       | otherwise ->
             case desugarAll binds of
-              Left err -> error $ "Error desugaring! " ++ show err
+              Left err -> error $ prettyString err
               Right terms ->
                 case lookup "main" terms of
                   Nothing -> error "No main declaration!"
                   Just main' ->
                     case inferExp mempty main' of
-                      Left err -> error $ "Error inferring! " ++ show err
+                      Left err -> error $ prettyString err
                       Right uterm ->
                         case check uterm Nil of
-                           Left err -> error $ "Type checker error: " ++ show err
+                           Left err -> error $ prettyString err
                            Right (Typed t _ex) ->
                              case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
                                Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
                                Just Type.HRefl ->
                                  case Type.eqTypeRep t (typeRep @(IO ())) of
                                    Just Type.HRefl -> pure ()
-                                   Nothing -> error $ "Type isn't IO (), but: " ++ show t
+                                   Nothing -> error $ "Type isn't IO (), but: " ++ prettyString t
 dispatch (Exec string) = do
   case HSE.parseExpWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } string of
     HSE.ParseFailed _ e -> error $ e
     HSE.ParseOk e ->
             case desugarExp mempty e of
-              Left err -> error $ "Error desugaring! " ++ show err
+              Left err -> error $ prettyString err
               Right uterm ->
                     case inferExp mempty uterm of
-                      Left err -> error $ "Type inferer error! " ++ show err
+                      Left err -> error $ prettyString err
                       Right iterm ->
                         case check iterm Nil of
-                           Left err -> error $ "Type checker error: " ++ show err
+                           Left err -> error $ prettyString err
                            Right (Typed t ex) ->
                              case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
                                Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
@@ -177,7 +177,7 @@ dispatch (Exec string) = do
                                    Just Type.HRefl ->
                                      let action :: IO () = eval () ex
                                      in action
-                                   Nothing -> error $ "Type isn't IO (), but: " ++ show t
+                                   Nothing -> error $ "Type isn't IO (), but: " ++ prettyString t
 
 --------------------------------------------------------------------------------
 -- Get declarations from the module
@@ -513,7 +513,16 @@ lookupVar v (Cons (Tuple ss) ty e)
 --------------------------------------------------------------------------------
 -- Desugar expressions
 
-data DesugarError = InvalidConstructor String | InvalidVariable String | UnknownType String | UnsupportedSyntax String | BadParameterSyntax String | KindError | BadDoNotation | TupleTooBig | UnsupportedLiteral
+data DesugarError =
+  InvalidConstructor String |
+  InvalidVariable String |
+  UnknownType String |
+  UnsupportedSyntax String |
+  BadParameterSyntax String |
+  KindError |
+  BadDoNotation |
+  TupleTooBig |
+  UnsupportedLiteral
   deriving (Show, Eq)
 
 nestedTyApps :: HSE.Exp HSE.SrcSpanInfo -> Maybe (HSE.QName HSE.SrcSpanInfo, [HSE.Type HSE.SrcSpanInfo])
@@ -603,7 +612,7 @@ desugarPolyQName _ qname treps =
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just (forall', vars, irep) <- Map.lookup string polyLits -> do
         pure (UForall () treps forall' vars irep [])
-    _ ->  Left $ InvalidVariable $ show qname
+    _ ->  Left $ InvalidVariable $ HSE.prettyPrint qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) =
@@ -617,7 +626,7 @@ desugarArg (HSE.PTuple _ HSE.Boxed idents)
   | Just idents' <- traverse desugarIdent idents =
   pure (Tuple idents',Nothing)
 desugarArg (HSE.PParen _ p) = desugarArg p
-desugarArg p =  Left $ BadParameterSyntax $ show p
+desugarArg p =  Left $ BadParameterSyntax $ HSE.prettyPrint p
 
 desugarIdent :: HSE.Pat HSE.SrcSpanInfo -> Maybe String
 desugarIdent (HSE.PVar _ (HSE.Ident _ s)) = Just s
@@ -719,7 +728,9 @@ desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stron
 -- Infer
 
 data InferError =
-  UnifyError UnifyError | ZonkError ZonkError | ElabError ElaborateError
+  UnifyError UnifyError
+  | ZonkError ZonkError
+  | ElabError ElaborateError
   deriving Show
 
 -- | Note: All types in the input are free of metavars. There is an
@@ -1435,7 +1446,10 @@ freshIMetaVar = do
 --------------------------------------------------------------------------------
 -- Unification
 
-data UnifyError = OccursCheck | TypeConMismatch SomeTypeRep SomeTypeRep | TypeMismatch (IRep IMetaVar) (IRep IMetaVar)
+data UnifyError =
+    OccursCheck
+  | TypeConMismatch SomeTypeRep SomeTypeRep
+  | TypeMismatch (IRep IMetaVar) (IRep IMetaVar)
   deriving (Show)
 
 -- | Unification of equality constraints, a ~ b, to substitutions.
@@ -1503,7 +1517,7 @@ parseFile :: String -> IO (Either String [(String, HSE.Exp HSE.SrcSpanInfo)])
 parseFile filePath = do
   string <- ByteString.readFile filePath
   pure $ case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.DataKinds, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
-    HSE.ParseFailed _ e -> Left $ "Parse error: " <> e
+    HSE.ParseFailed l e -> Left $ "Parse error: " <> HSE.prettyPrint l <> ": " <> e
     HSE.ParseOk binds -> Right binds
 
 -- This should be quite efficient because it's essentially a pointer
@@ -1589,3 +1603,89 @@ makeModify k0 r0 a0 t0 = do
   getter <- makeAccessor k0 r0 a0 t0
   setter <- makeSetter k0 r0 a0 t0
   pure \f record -> setter (f (getter record)) record
+
+--------------------------------------------------------------------------------
+-- Pretty printing
+
+-- | Convenience.
+prettyString :: Pretty a => a -> String
+prettyString =
+  Text.unpack . Text.decodeUtf8 . L.toStrict . ByteString.toLazyByteString . pretty
+
+class Pretty a where
+  pretty :: a -> ByteString.Builder
+
+instance Pretty String where
+  pretty r =
+    ByteString.byteString (Text.encodeUtf8 $ Text.pack r)
+
+instance Pretty SomeTypeRep where
+  pretty r =
+    ByteString.byteString (Text.encodeUtf8 $ Text.pack $ show r)
+
+instance Pretty (TypeRep t) where
+  pretty r =
+    ByteString.byteString (Text.encodeUtf8 $ Text.pack $ show r)
+
+instance Pretty IMetaVar where
+  pretty (IMetaVar0 i) =
+    "t" <>
+    ByteString.byteString (Text.encodeUtf8 $ Text.pack $ show i)
+
+instance Pretty a => Pretty (IRep a) where
+  pretty = \case
+    IVar a -> pretty a
+    ICon a -> pretty a
+    IApp f x -> "(" <> pretty f <> " " <> pretty x <> ")"
+    IFun a b -> "(" <> pretty a <> " -> " <> pretty b <> ")"
+
+instance Pretty ZonkError where
+  pretty = \case
+    ZonkKindError -> "Kind error."
+    AmbiguousMetavar -> "Ambiguous meta variable."
+
+instance Pretty ElaborateError where
+  pretty = \case
+    UnsupportedTupleSize -> "That tuple size is not supported."
+    BadInstantiationBug -> "BUG: BadInstantiationBug. Please report."
+
+instance Pretty UnifyError where
+  pretty = \case
+    OccursCheck -> "Occurs check failed: Infinite type."
+    TypeMismatch a b ->
+      mconcat $ List.intersperse "\n\n" [
+        "Couldn't match type",
+        "  " <> pretty a,
+        "against type",
+        "  " <> pretty b,
+        ""]
+    TypeConMismatch a b -> "Couldn't match type constructor " <> pretty a <> " against type constructor " <> pretty b
+
+instance Pretty TypeCheckError where
+  pretty = \case
+    NotInScope s -> "Not in scope: " <> pretty s
+    TupleTypeMismatch -> "Tuple type mismatch!"
+    TypeCheckMismatch -> "Type check mismatch."
+    TupleTypeTooBig -> "Tuple type is too big."
+    TypeOfApplicandIsNotFunction -> "Type of application is not a function."
+    LambdaIsNotAFunBug -> "BUG: LambdaIsNotAFunBug. Please report."
+    InferredCheckedDisagreeBug -> "BUG: Inferred type disagrees with checked type. Please report."
+    LambdaMustBeStarBug -> "BUG: Lambda should be of kind *, but isn't. Please report."
+
+instance Pretty DesugarError where
+  pretty = \case
+    InvalidConstructor c -> "Invalid constructor: " <> pretty c
+    InvalidVariable c -> "Invalid variable: " <> pretty c
+    UnknownType t -> "Unknown type: " <> pretty t
+    UnsupportedSyntax s -> "Unsupported syntax: " <> pretty s
+    BadParameterSyntax s -> "Bad parameter syntax: " <> pretty s
+    KindError -> "Kind error."
+    BadDoNotation -> "Bad do notation."
+    TupleTooBig -> "That tuple size is not supported."
+    UnsupportedLiteral -> "That literal type is not supported."
+
+instance Pretty InferError where
+  pretty = \case
+    UnifyError e -> "Unification error: " <> pretty e
+    ZonkError e -> "Zonk error: " <> pretty e
+    ElabError e -> "Elaboration error: " <> pretty e
