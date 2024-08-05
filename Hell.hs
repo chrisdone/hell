@@ -1366,7 +1366,7 @@ instance (Ord a) => Eq (Equality a) where
 instance (Ord a) => Ord (Equality a) where
   Equality a b `compare` Equality c d = Set.fromList [a,b] `compare` Set.fromList [c,d]
 
-data ElaborateError = UnsupportedTupleSize | BadInstantiationBug
+data ElaborateError = UnsupportedTupleSize | BadInstantiationBug | VariableNotInScope String
   deriving (Show)
 
 -- | Elaboration phase.
@@ -1386,7 +1386,7 @@ elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty .
       env <- ask
       ty <- case Map.lookup string env of
              Just typ -> pure typ
-             Nothing -> fmap IVar freshIMetaVar
+             Nothing -> lift $ lift $ Left $ VariableNotInScope string
       pure $ UVar ty string
     UApp () f x -> do
       f' <- go f
@@ -1648,6 +1648,7 @@ instance Pretty ElaborateError where
   pretty = \case
     UnsupportedTupleSize -> "That tuple size is not supported."
     BadInstantiationBug -> "BUG: BadInstantiationBug. Please report."
+    VariableNotInScope s -> "Variable not in scope: " <> pretty s
 
 instance Pretty UnifyError where
   pretty = \case
