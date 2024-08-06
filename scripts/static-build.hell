@@ -2,3 +2,12 @@ main = do
   Process.runProcess_ (Process.proc "docker" ["exec", "hell", "stack", "build","--ghc-options", "-static -optl-static -fforce-recomp", "--force-dirty"])
   Directory.renameFile ".stack-work/dist/x86_64-linux/ghc-9.4.8/build/hell/hell" "hell-linux-x86-64bit"
   Process.runProcess_ (Process.proc "strip" ["hell-linux-x86-64bit"])
+  examples <- Directory.listDirectory "examples/"
+  let check = \fp -> do
+        Text.putStrLn $ Text.concat ["Checking ", fp]
+        Process.runProcess_ (Process.proc "./hell-linux-x86-64bit" ["--check", fp])
+  Monad.forM_ examples \example -> do
+    check $ Text.concat ["examples/", example]
+  check "scripts/static-build.hell"
+  check "scripts/install-hell.hell"
+  Text.putStrLn "All OK."
