@@ -107,7 +107,7 @@ commandParser =
   ]
 
 dispatch :: Command -> IO ()
-dispatch Version = putStrLn "2024-08-05"
+dispatch Version = putStrLn "2024-08-23"
 dispatch (Run filePath) = do
   result <- parseFile filePath
   case result of
