@@ -86,7 +86,12 @@ data Command
   | Version
 
 main :: IO ()
-main = dispatch =<< Options.execParser opts
+main = do
+  args <- getArgs
+  case args of
+    (x:ys)
+      | not (List.isPrefixOf "-" x) -> withArgs ys $ dispatch (Run x)
+    _ -> dispatch =<< Options.execParser opts
   where
     opts = Options.info (commandParser Options.<**> Options.helper)
       ( Options.fullDesc

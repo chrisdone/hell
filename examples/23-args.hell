@@ -1,0 +1,3 @@
+main = do
+  args <- Environment.getArgs
+  Monad.forM_ args IO.print
