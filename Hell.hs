@@ -84,7 +84,6 @@ data Command
   = Run FilePath
   | Check FilePath
   | Version
-  | Exec String
 
 main :: IO ()
 main = dispatch =<< Options.execParser opts
@@ -99,8 +98,7 @@ commandParser =
   Options.asum [
    Run <$> Options.strArgument (Options.metavar "FILE" <> Options.help "Run the given .hell file"),
    Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file"),
-   Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version"),
-   Exec <$> Options.strOption (Options.long "exec" <> Options.help "Execute the given expression" <> Options.metavar "EXPR")
+   Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version")
   ]
 
 dispatch :: Command -> IO ()
@@ -156,27 +154,6 @@ dispatch (Check filePath) = do
                                Just Type.HRefl ->
                                  case Type.eqTypeRep t (typeRep @(IO ())) of
                                    Just Type.HRefl -> pure ()
-                                   Nothing -> error $ "Type isn't IO (), but: " ++ prettyString t
-dispatch (Exec string) = do
-  case HSE.parseExpWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } string of
-    HSE.ParseFailed _ e -> error $ e
-    HSE.ParseOk e ->
-            case desugarExp mempty e of
-              Left err -> error $ prettyString err
-              Right uterm ->
-                    case inferExp mempty uterm of
-                      Left err -> error $ prettyString err
-                      Right iterm ->
-                        case check iterm Nil of
-                           Left err -> error $ prettyString err
-                           Right (Typed t ex) ->
-                             case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
-                               Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
-                               Just Type.HRefl ->
-                                 case Type.eqTypeRep t (typeRep @(IO ())) of
-                                   Just Type.HRefl ->
-                                     let action :: IO () = eval () ex
-                                     in action
                                    Nothing -> error $ "Type isn't IO (), but: " ++ prettyString t
 
 --------------------------------------------------------------------------------
