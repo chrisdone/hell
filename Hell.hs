@@ -534,17 +534,17 @@ nestedTyApps = go [] where
 
 desugarExp :: Map String (UTerm ()) -> HSE.Exp HSE.SrcSpanInfo ->
    Either DesugarError (UTerm ())
-desugarExp globals = go where
-  go = \case
-    HSE.Paren _ x -> go x
+desugarExp globals = go mempty where
+  go scope = \case
+    HSE.Paren _ x -> go scope x
     HSE.If _ i t e ->
       (\e' t' i' -> UApp () (UApp () (UApp () bool' e') t') i')
-        <$> go e <*> go t <*> go i
+        <$> go scope e <*> go scope t <*> go scope i
     HSE.Tuple _ HSE.Boxed xs ->  do
-      xs' <- traverse go xs
+      xs' <- traverse (go scope) xs
       pure $ foldl (UApp ()) (tuple' (length xs)) xs'
     HSE.List _ xs -> do
-      xs' <- traverse go xs
+      xs' <- traverse (go scope) xs
       pure $ foldr (\x y -> UApp () (UApp () cons' x) y) nil' xs'
     HSE.Lit _ lit' -> case lit' of
       HSE.Char _ char _ -> pure $ lit char
@@ -555,42 +555,53 @@ desugarExp globals = go where
       _ -> Left $ UnsupportedLiteral
     app@HSE.App{} | Just (qname, tys) <- nestedTyApps app -> do
       reps <- traverse desugarSomeType tys
-      desugarQName globals qname reps
+      desugarQName scope globals qname reps
     HSE.Var _ qname ->
-      desugarQName globals qname []
-    HSE.App _ f x -> UApp () <$> go f <*> go x
-    HSE.InfixApp _ x (HSE.QVarOp l f) y -> UApp () <$> (UApp () <$> go (HSE.Var l f) <*> go x) <*> go y
+      desugarQName scope globals qname []
+    HSE.App _ f x -> UApp () <$> go scope f <*> go scope x
+    HSE.InfixApp _ x (HSE.QVarOp l f) y -> UApp () <$> (UApp () <$> go scope (HSE.Var l f) <*> go scope x) <*> go scope y
     HSE.Lambda _ pats e -> do
       args <- traverse desugarArg pats
-      e' <- go e
+      let stringArgs = concatMap (bindingStrings . fst) args
+      e' <- go (foldr Set.insert scope stringArgs) e
       pure $ foldr (\(name,ty) inner  -> ULam () name ty inner)  e' args
     HSE.Con _ qname ->
-      desugarQName globals qname []
+      desugarQName scope globals qname []
     HSE.Do _ stmts -> do
-      let loop f [HSE.Qualifier _ e] = f <$> go e
-          loop f (s:ss) = do
+      let squash [HSE.Qualifier _ e] = pure e
+          squash (s:ss) = do
             case s of
-              HSE.Generator _ pat e -> do
-                 (s', rep) <- desugarArg pat
-                 m <- go e
-                 loop (f . (\f' -> UApp () (UApp () bind' m) (ULam () s' rep f'))) ss
-              HSE.LetStmt _ (HSE.BDecls _ [HSE.PatBind _ pat (HSE.UnGuardedRhs _ e) Nothing]) -> do
-                 (s', rep) <- desugarArg pat
-                 value <- go e
-                 loop (f . (\f' -> UApp () (ULam () s' rep f') value)) ss
-              HSE.Qualifier _ e -> do
-                e' <- go e
-                loop (f . UApp () (UApp () then' e')) ss
+              HSE.Generator l pat e -> do
+                inner <- squash ss
+                let (.>>=) = HSE.Var l (HSE.Qual l (HSE.ModuleName l "Monad") (HSE.Ident l "bind"))
+                pure $
+                  HSE.App l
+                    (HSE.App l (.>>=) e)
+                    (HSE.Lambda l [pat] inner)
+              HSE.Qualifier l e -> do
+                inner <- squash ss
+                let (.>>) = HSE.Var l (HSE.Qual l (HSE.ModuleName l "Monad") (HSE.Ident l "then"))
+                pure $
+                  HSE.App l
+                    (HSE.App l (.>>) e)
+                    inner
+              HSE.LetStmt l (HSE.BDecls _ [HSE.PatBind _ pat (HSE.UnGuardedRhs _ e) Nothing]) -> do
+                inner <- squash ss
+                pure $ HSE.App l (HSE.Lambda l [pat] inner) e
               _ -> Left BadDoNotation
-          loop _ _ = Left BadDoNotation
-      loop id stmts
-    HSE.RecConstr _ qname fields -> desugarExp globals $ makeConstructRecord qname fields
+          squash _ = Left BadDoNotation
+      squash stmts >>= go scope
+    HSE.RecConstr _ qname fields -> go scope $ makeConstructRecord qname fields
     e -> Left $ UnsupportedSyntax $ show e
 
-desugarQName :: Map String (UTerm ()) -> HSE.QName HSE.SrcSpanInfo -> [SomeTypeRep] -> Either DesugarError (UTerm ())
-desugarQName globals qname [] =
+bindingStrings :: Binding -> [String]
+bindingStrings (Singleton string) = [string]
+bindingStrings (Tuple tups) = tups
+
+desugarQName :: Set String -> Map String (UTerm ()) -> HSE.QName HSE.SrcSpanInfo -> [SomeTypeRep] -> Either DesugarError (UTerm ())
+desugarQName scope globals qname [] =
   case qname of
-    HSE.UnQual _ (HSE.Ident _ string) -> pure $ UVar () string
+    HSE.UnQual _ (HSE.Ident _ string) | Set.member string scope -> pure $ UVar () string
     HSE.Qual _ (HSE.ModuleName _ "Main") (HSE.Ident _ string)
       | Just uterm  <- Map.lookup string globals ->
         pure uterm
@@ -600,11 +611,11 @@ desugarQName globals qname [] =
     HSE.UnQual _ (HSE.Symbol _ string)
       | Just uterm <- Map.lookup string supportedLits ->
         pure $ uterm
-    _ -> desugarPolyQName globals qname []
-desugarQName globals qname treps = desugarPolyQName globals qname treps
+    _ -> desugarPolyQName qname []
+desugarQName _ _ qname treps = desugarPolyQName qname treps
 
-desugarPolyQName :: Show l => p -> HSE.QName l -> [SomeTypeRep] -> Either DesugarError (UTerm ())
-desugarPolyQName _ qname treps =
+desugarPolyQName :: Show l => HSE.QName l -> [SomeTypeRep] -> Either DesugarError (UTerm ())
+desugarPolyQName qname treps =
   case qname of
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | Just (forall', vars, irep) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
@@ -1185,12 +1196,6 @@ nil' = unsafeGetForall "List.nil"
 
 bool' :: UTerm ()
 bool' = unsafeGetForall "Bool.bool"
-
-then' :: UTerm ()
-then' = unsafeGetForall "Monad.then"
-
-bind' :: UTerm ()
-bind' = unsafeGetForall "Monad.bind"
 
 tuple' :: Int -> UTerm ()
 tuple' 0 = unsafeGetForall "Tuple.()"
