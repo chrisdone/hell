@@ -567,23 +567,29 @@ desugarExp globals = go where
     HSE.Con _ qname ->
       desugarQName globals qname []
     HSE.Do _ stmts -> do
-      let loop f [HSE.Qualifier _ e] = f <$> go e
-          loop f (s:ss) = do
+      let squash [HSE.Qualifier _ e] = pure e
+          squash (s:ss) = do
             case s of
-              HSE.Generator _ pat e -> do
-                 (s', rep) <- desugarArg pat
-                 m <- go e
-                 loop (f . (\f' -> UApp () (UApp () bind' m) (ULam () s' rep f'))) ss
-              HSE.LetStmt _ (HSE.BDecls _ [HSE.PatBind _ pat (HSE.UnGuardedRhs _ e) Nothing]) -> do
-                 (s', rep) <- desugarArg pat
-                 value <- go e
-                 loop (f . (\f' -> UApp () (ULam () s' rep f') value)) ss
-              HSE.Qualifier _ e -> do
-                e' <- go e
-                loop (f . UApp () (UApp () then' e')) ss
+              HSE.Generator l pat e -> do
+                inner <- squash ss
+                let (.>>=) = HSE.Var l (HSE.Qual l (HSE.ModuleName l "Monad") (HSE.Ident l "bind"))
+                pure $
+                  HSE.App l
+                    (HSE.App l (.>>=) e)
+                    (HSE.Lambda l [pat] inner)
+              HSE.Qualifier l e -> do
+                inner <- squash ss
+                let (.>>) = HSE.Var l (HSE.Qual l (HSE.ModuleName l "Monad") (HSE.Ident l "then"))
+                pure $
+                  HSE.App l
+                    (HSE.App l (.>>) e)
+                    inner
+              HSE.LetStmt l (HSE.BDecls _ [HSE.PatBind _ pat (HSE.UnGuardedRhs _ e) Nothing]) -> do
+                inner <- squash ss
+                pure $ HSE.App l (HSE.Lambda l [pat] inner) e
               _ -> Left BadDoNotation
-          loop _ _ = Left BadDoNotation
-      loop id stmts
+          squash _ = Left BadDoNotation
+      squash stmts >>= go
     HSE.RecConstr _ qname fields -> desugarExp globals $ makeConstructRecord qname fields
     e -> Left $ UnsupportedSyntax $ show e
 
@@ -1185,12 +1191,6 @@ nil' = unsafeGetForall "List.nil"
 
 bool' :: UTerm ()
 bool' = unsafeGetForall "Bool.bool"
-
-then' :: UTerm ()
-then' = unsafeGetForall "Monad.then"
-
-bind' :: UTerm ()
-bind' = unsafeGetForall "Monad.bind"
 
 tuple' :: Int -> UTerm ()
 tuple' 0 = unsafeGetForall "Tuple.()"
