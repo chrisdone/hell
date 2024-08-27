@@ -32,7 +32,7 @@ ghc-options:
 
 executables:
   hell:
-    main: Hell.hs
+    main: src/Hell.hs
     ghc-options:
       - -threaded
       - -rtsopts
