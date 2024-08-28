@@ -22,6 +22,7 @@ jobs:
     container:
       image: docker://ghcr.io/chrisdone/hell-build@sha256:9b8bac32a20412d613a6dcf1611736da2b18079d9b3ff1900a893a781fab8fc7
     steps:
-      - run: git clone --branch $GITHUB_REF_NAME --depth=1 https://github.com/chrisdone/hell /tmp/hell
+      - run: git clone https://github.com/chrisdone/hell /tmp/hell
+      - run: cd /tmp/hell && git checkout $GITHUB_SHA
       - run: cd /tmp/hell && stack build --fast
       - run: cd /tmp/hell && stack exec scripts/check.hell
