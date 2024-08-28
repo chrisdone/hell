@@ -17,10 +17,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    options: --user root
     env:
       HOME: /home/chris/
     container:
+      options: --user root
       image: docker://ghcr.io/chrisdone/hell-build@sha256:9b8bac32a20412d613a6dcf1611736da2b18079d9b3ff1900a893a781fab8fc7
     steps:
       - uses: actions/checkout@v3.0.2
