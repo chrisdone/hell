@@ -7,7 +7,7 @@ permissions:
 
 on:
   push:
-    branches: [ "cd/2024-08-28-stack-test" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
