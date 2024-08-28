@@ -303,21 +303,21 @@ data Forall where
   Monadic :: (forall (m :: Type -> Type). (Monad m) => TypeRep m -> Forall) -> Forall
   GetOf ::
     TypeRep (k :: Symbol) ->
+    TypeRep (a :: Type) ->
     TypeRep (t :: Symbol) ->
     TypeRep (r :: List) ->
-    TypeRep (a :: Type) ->
     ((Tagged t (Record r) -> a) -> Forall) -> Forall
   SetOf ::
     TypeRep (k :: Symbol) ->
+    TypeRep (a :: Type) ->
     TypeRep (t :: Symbol) ->
     TypeRep (r :: List) ->
-    TypeRep (a :: Type) ->
     ((a -> Tagged t (Record r) -> Tagged t (Record r)) -> Forall) -> Forall
   ModifyOf ::
     TypeRep (k :: Symbol) ->
+    TypeRep (a :: Type) ->
     TypeRep (t :: Symbol) ->
     TypeRep (r :: List) ->
-    TypeRep (a :: Type) ->
     (((a -> a) -> Tagged t (Record r) -> Tagged t (Record r)) -> Forall) -> Forall
   Final :: (forall g. Typed (Term g)) -> Forall
 
@@ -430,15 +430,15 @@ tc (UForall _ _ fall _ _ reps0) _env = go reps0 fall where
         | Type.App either' _ <- rep,
           Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) -> go reps (f rep)
         | otherwise -> error $ "type doesn't have enough instances " ++ show rep
-  go reps (GetOf k0 t0 r0 a0 f) =
+  go reps (GetOf k0 a0 t0 r0 f) =
           case makeAccessor k0 r0 a0 t0 of
             Just accessor -> go reps (f accessor)
             Nothing -> error $ "missing field for field access"
-  go reps (SetOf k0 t0 r0 a0 f) =
+  go reps (SetOf k0 a0 t0 r0 f) =
           case makeSetter k0 r0 a0 t0 of
             Just accessor -> go reps (f accessor)
             Nothing -> error $ "missing field for field set"
-  go reps (ModifyOf k0 t0 r0 a0 f) =
+  go reps (ModifyOf k0 a0 t0 r0 f) =
           case makeModify k0 r0 a0 t0 of
             Just accessor -> go reps (f accessor)
             Nothing -> error $ "missing field for field modify"
@@ -1059,9 +1059,9 @@ polyLits = Map.fromList
 
   -- Records
   "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
-  "Record.get" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. Tagged t (Record xs) -> a
-  "Record.set" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. a -> Tagged t (Record xs) -> Tagged t (Record xs)
-  "Record.modify" _ :: forall (k :: Symbol) (t :: Symbol) (xs :: List) a. (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
+  "Record.get" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). Tagged t (Record xs) -> a
+  "Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
+  "Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
   "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
   -- Operators
   "$" (Function.$) :: forall a b. (a -> b) -> a -> b
