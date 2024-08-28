@@ -1,0 +1,25 @@
+name: "Build"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+on:
+  push:
+    branches: [ "cd/2024-08-28-stack-test" ]
+  pull_request:
+    branches: [ "main" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: docker://ghcr.io/chrisdone/hell-build
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          ls `pwd`
