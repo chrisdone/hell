@@ -24,3 +24,4 @@ jobs:
     steps:
       - run: git clone --branch $GITHUB_REF_NAME --depth=1 https://github.com/chrisdone/hell /tmp/hell
       - run: cd /tmp/hell && stack build --fast
+      - run: cd /tmp/hell && stack exec scripts/check.hell
