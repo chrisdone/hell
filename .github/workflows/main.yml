@@ -35,6 +35,7 @@ jobs:
     steps:
       - run: |
           git clone https://github.com/chrisdone/hell /tmp/hell && \
+          cd /tmp/hell && \
           git checkout $GIT_BRANCH
       - run: |
           cd /tmp/hell && stack build --fast
