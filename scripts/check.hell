@@ -1,0 +1,10 @@
+main = do
+  examples <- Directory.listDirectory "examples/"
+  let check = \fp -> do
+        Text.putStrLn $ Text.concat ["Checking ", fp]
+        Process.runProcess_ (Process.proc "hell" ["--check", fp])
+  Monad.forM_ examples \example -> do
+    check $ Text.concat ["examples/", example]
+  check "scripts/static-build.hell"
+  check "scripts/install-hell.hell"
+  Text.putStrLn "All OK."
