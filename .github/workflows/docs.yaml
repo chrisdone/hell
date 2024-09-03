@@ -7,8 +7,6 @@ permissions:
 
 on:
   push:
-    branches: [ "cd/2024-09-03-gen-docs" ]
-  pull_request:
     branches: [ "main" ]
 
   # Allows you to run this workflow manually from the Actions tab
