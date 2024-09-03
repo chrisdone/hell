@@ -1690,8 +1690,10 @@ _generateApiDocs :: IO ()
 _generateApiDocs = do
   Lucid.renderToFile "docs/api/index.html" do
     doctypehtml_ do
+      style_ "body {max-width: 40em; margin: .5in auto;} h1,h2,h3,h4,h5,h6 {font-family: Helvetica;} a {color: #1a6e8e}"
       body_ do
         h1_ "Hell's API"
+        p_ $ a_ [href_ "../"] $ "Back to homepage"
         h2_ "Types"
         ul_ do
           for_ (Map.toList supportedTypeConstructors) typeConsToHtml
