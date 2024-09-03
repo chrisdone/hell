@@ -1701,6 +1701,12 @@ _generateApiDocs = do
         for_ groups \group ->
           ul_ do
             for_ group litToHtml
+        h2_ "Terms"
+        let groups' = List.groupBy (Function.on (==) (takeWhile (/= '.') . fst))
+              (Map.toList $ fmap (\(_, _, _, ty) -> ty) polyLits)
+        for_ groups' \group ->
+          ul_ do
+            for_ group polyToHtml
 
 typeConsToHtml :: (String, SomeTypeRep) -> Html ()
 typeConsToHtml (name, SomeTypeRep rep) =
@@ -1718,3 +1724,11 @@ litToHtml (name, SomeTypeRep rep) =
       strong_ $ toHtml name
       em_ " :: "
       toHtml $ prettyString $ rep
+
+polyToHtml :: (String, TH.Type) -> Html ()
+polyToHtml (name, ty) =
+  li_ do
+    code_ do
+      strong_ $ toHtml name
+      em_ " :: "
+      toHtml $ TH.pprint ty
