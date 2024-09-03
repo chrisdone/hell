@@ -1696,17 +1696,13 @@ _generateApiDocs = do
         ul_ do
           for_ (Map.toList supportedTypeConstructors) typeConsToHtml
         h2_ "Terms"
-        let groups = List.groupBy (Function.on (==) (takeWhile (/= '.') . fst))
-              (Map.toList $ fmap snd supportedLits)
-        for_ groups \group ->
+        let groups = Map.toList $ fmap (Left . snd) supportedLits
+        let groups' = Map.toList $ fmap (\(_, _, _, ty) -> Right ty) polyLits
+        for_ (List.groupBy (Function.on (==) (takeWhile (/= '.') . fst)) $ List.sortOn fst $ groups <> groups') \group ->
           ul_ do
-            for_ group litToHtml
-        h2_ "Terms"
-        let groups' = List.groupBy (Function.on (==) (takeWhile (/= '.') . fst))
-              (Map.toList $ fmap (\(_, _, _, ty) -> ty) polyLits)
-        for_ groups' \group ->
-          ul_ do
-            for_ group polyToHtml
+            for_ group \(x, a) -> case a of
+              Left e -> litToHtml (x, e)
+              Right e -> polyToHtml (x, e)
 
 typeConsToHtml :: (String, SomeTypeRep) -> Html ()
 typeConsToHtml (name, SomeTypeRep rep) =
