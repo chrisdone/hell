@@ -1688,7 +1688,7 @@ instance Pretty InferError where
 
 _generateApiDocs :: IO ()
 _generateApiDocs = do
-  Lucid.renderToFile "api.html" do
+  Lucid.renderToFile "docs/api/index.html" do
     doctypehtml_ do
       body_ do
         h1_ "Hell's API"
