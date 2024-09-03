@@ -43,4 +43,4 @@ jobs:
       - run: |
           cd /tmp/hell && stack exec hell scripts/check-examples.hell
       - run: |
-          cd /tmp/hell && stack exec hell scripts/check-docs.hell
+          cd /tmp/hell && HOME=/home/chris/ stack exec hell scripts/check-docs.hell
