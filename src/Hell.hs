@@ -1695,6 +1695,12 @@ _generateApiDocs = do
         h2_ "Types"
         ul_ do
           for_ (Map.toList supportedTypeConstructors) typeConsToHtml
+        h2_ "Terms"
+        let groups = List.groupBy (Function.on (==) (takeWhile (/= '.') . fst))
+              (Map.toList $ fmap snd supportedLits)
+        for_ groups \group ->
+          ul_ do
+            for_ group litToHtml
 
 typeConsToHtml :: (String, SomeTypeRep) -> Html ()
 typeConsToHtml (name, SomeTypeRep rep) =
@@ -1704,3 +1710,11 @@ typeConsToHtml (name, SomeTypeRep rep) =
       strong_ $ toHtml name
       em_ " :: "
       toHtml $ prettyString $ typeRepKind rep
+
+litToHtml :: (String, SomeTypeRep) -> Html ()
+litToHtml (name, SomeTypeRep rep) =
+  li_ do
+    code_ do
+      strong_ $ toHtml name
+      em_ " :: "
+      toHtml $ prettyString $ rep
