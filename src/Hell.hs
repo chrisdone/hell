@@ -11,13 +11,15 @@
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments, NamedFieldPuns, DataKinds #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms, TemplateHaskell #-}
-{-# LANGUAGE OverloadedRecordDot, OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable, TypeOperators, UndecidableInstances, TypeFamilies, AllowAmbiguousTypes, MultiParamTypeClasses, FlexibleInstances #-}
+{-# LANGUAGE OverloadedRecordDot, OverloadedStrings, MultiWayIf, DeriveFunctor, DeriveFoldable, DeriveTraversable, TypeOperators, UndecidableInstances, TypeFamilies, AllowAmbiguousTypes, MultiParamTypeClasses, FlexibleInstances, ExtendedDefaultRules #-}
 
 module Main (main) where
 
 -- All modules tend to be imported qualified by their last component,
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
+
+import Lucid hiding (for_, Term, term)
 
 import Data.Void
 import Data.Foldable
@@ -1677,3 +1679,25 @@ instance Pretty InferError where
     UnifyError e -> "Unification error: " <> pretty e
     ZonkError e -> "Zonk error: " <> pretty e
     ElabError e -> "Elaboration error: " <> pretty e
+
+--------------------------------------------------------------------------------
+-- Generate docs
+
+_generateApiDocs :: IO ()
+_generateApiDocs = do
+  Lucid.renderToFile "api.html" do
+    doctypehtml_ do
+      body_ do
+        h1_ "Hell's API"
+        h2_ "Types"
+        ul_ do
+          for_ (Map.toList supportedTypeConstructors) typeConsToHtml
+
+typeConsToHtml :: (String, SomeTypeRep) -> Html ()
+typeConsToHtml (name, SomeTypeRep rep) =
+  li_ do
+    code_ do
+      em_ "data "
+      strong_ $ toHtml name
+      em_ " :: "
+      toHtml $ prettyString $ typeRepKind rep

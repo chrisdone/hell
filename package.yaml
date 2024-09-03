@@ -24,6 +24,7 @@ dependencies:
 - template-haskell
 - unliftio
 - vector
+- lucid
 - aeson
 
 ghc-options:
