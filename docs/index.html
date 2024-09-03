@@ -1,10 +1,143 @@
-<!DOCTYPE HTML>
+<!doctype html>
 <html>
   <head>
-    <title>Hell - Haskell shell scripting language</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hell: Shell scripting Haskell dialect</title>
+    <style>
+      body {
+      max-width: 40em;
+      margin: .5in auto;
+      font-size: 18px;
+      font-family: serif;
+      line-height: 1.5;
+      }
+      pre, code {
+      font-size: 16px;
+      word-wrap: break-word;
+      }
+      header {
+      }
+      pre {
+      padding-left: 1em;
+      line-height: 1.5em;
+      border-left: 5px solid #efefef;
+      }
+      a {
+      color: #1a6e8e
+      }
+      .menu a {
+      margin-right: 1em;
+      }
+      h1,h2,h3,h4,h5,h6 {
+      font-family: Helvetica;
+      }
+
+      h1 a,h2 a,h3 a,h4 a {
+      color: inherit;
+      }
+
+      .post-1,.post-2{
+      margin-bottom: 0.5em;
+      }
+
+      .author {
+      display: none;
+      }
+
+      footer {
+      margin-top: 1.5em;
+      padding-top: 1.5em;
+      border-top: 1px solid #ccc;
+      margin-bottom: 2em
+      }
+
+      footer span {
+      display: none;
+      }
+
+      img {
+      max-width: 100%
+      }
+      pre.sourceCode span.st {
+      color: #366354
+      }
+      pre.sourceCode span.kw {
+      color: #397460
+      }
+      pre.sourceCode span.fu {
+      color: #8f4e8b
+      }
+      pre.sourceCode span.ot {
+      color: #2e659c
+      }
+      pre.sourceCode span.dt {
+      color: #4F4371
+      }
+      pre.sourceCode span.co {
+      color: #666
+      }
+      @media(max-width:767px){
+      body { margin: 1px 4px; }
+      h1, h2, .menu { margin: 0; }
+      h1 { font-size: 1.5em; }
+      h2 { font-size: 1.125em; }
+      h3 { font-size: 1.0125em; }
+      .menu a { margin-right: 0.1em; }
+      #archive { margin-left: 1em; margin-top: 0; padding: 0}
+      #archive .post-1, #archive .post-2 {
+      margin-bottom: 0.1em;
+      }
+      }
+      .footnote-ref { text-decoration: none; }
+      li { margin-top: 0.5em; margin-bottom: 0.5em; }
+      h1 { margin-bottom: 0 }
+    </style>
   </head>
   <body>
-    <h1>Hell - Haskell shell scripting language</h1>
-    <p><a href="api">API documentation</a></p>
+    <div class="page-wrap">
+<header>
+<h1>Hell: Shell scripting Haskell dialect</h1>
+
+<nav><a href="api">API documentation</a> | <a href="https://github.com/chrisdone/hell/releases">Releases</a></nav>
+</header>
+<p>Hell is a shell
+scripting language that is a tiny dialect of Haskell that I wrote for my
+  own shell scripting purposes.</p>
+
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="pp">#!/usr/bin/env hell</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="st">&quot;Please enter your name and hit ENTER:&quot;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  name <span class="ot">&lt;-</span> Text.getLine</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="st">&quot;Thanks, your name is: &quot;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn name</span></code></pre></div>
+
+<p><strong>Overview</strong></p>
+<ul>
+<li>Use a faithful Haskell syntax parser.</li>
+<li>It has no imports/modules/packages.</li>
+<li>It doesn’t support recursive definitions, but can use
+<code>fix</code> to do so.</li>
+<li>It supports basic type-classes (Eq, Ord, Show, Monad), which are
+needed for e.g. List.lookup and familiar equality things.</li>
+<li>It does not support polytypes.</li>
+<li>It use all the same names for things (List.lookup, Monad.forM,
+Async.race, etc.) that are already used in Haskell.</li>
+</ul>
+
+<p>To read about the implementation internals, see <a
+href="/pdfs/tour-of-hell.pdf">Tour of Hell</a> which is a set of slides
+I made for presenting Hell at work.</p>
+
+<footer>
+  <table style="width:100%">
+    <tr>
+      <td>© 2024-09-03 <a href="https://chrisdone.com">Chris Done</a></td>
+    </tr>
+  </table>
+</footer>
+
+    </div>
   </body>
 </html>
