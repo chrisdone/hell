@@ -1,0 +1,7 @@
+main = do
+  Text.putStrLn "Generating docs ..."
+  let script = Text.unlines [":l src/Hell.hs", "_generateApiDocs", ":quit"]
+  _out <- ByteString.readProcess_
+    (Text.setStdin script
+      (Process.proc "stack" ["ghci","--no-load"]))
+  Text.putStrLn "Generated docs."

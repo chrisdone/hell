@@ -1,0 +1,7 @@
+main = do
+  Text.putStrLn "Checking docs are up to date ..."
+  Directory.copyFile "docs/api/index.html" "docs/api/index.html-prev"
+  Process.runProcess_ $ Process.proc "hell" ["scripts/gen-docs.hell"]
+  Process.runProcess_ $
+    Process.proc "diff" ["docs/api/index.html", "docs/api/index.html-prev", "-q"]
+  Text.putStrLn "Docs are up to date."

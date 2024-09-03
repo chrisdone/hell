@@ -7,7 +7,7 @@ permissions:
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "cd/2024-09-03-gen-docs" ]
   pull_request:
     branches: [ "main" ]
 
@@ -41,4 +41,6 @@ jobs:
       - run: |
           cd /tmp/hell && stack build --fast
       - run: |
-          cd /tmp/hell && stack exec hell scripts/check.hell
+          cd /tmp/hell && stack exec hell scripts/check-examples.hell
+      - run: |
+          cd /tmp/hell && stack exec hell scripts/check-docs.hell
