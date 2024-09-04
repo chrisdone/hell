@@ -4,4 +4,24 @@ main = do
   _out <- ByteString.readProcess_
     (Text.setStdin script
       (Process.proc "stack" ["ghci","--no-load"]))
+  examples <- Directory.listDirectory "examples/"
+  let render = \fp -> do
+        Text.putStrLn $ Text.concat ["Rendering ", fp]
+        text <- Text.readFile fp
+        Text.readProcessStdout_ $ Text.setStdin (Text.unlines ["```haskell",text,"```"]) (Process.proc "pandoc" ["--from","markdown","--to","html"])
+  frags <- Monad.forM (List.sort examples) \example -> do
+    out <- render $ Text.concat ["examples/", example]
+    Monad.return (example, out)
+  Text.writeFile "docs/examples/index.html" $ Text.concat [
+    "<!doctype html>",
+    "<html>",
+    "<head>",
+    "<style>body {max-width: 40em; margin: .5in auto;} h1,h2,h3,h4,h5,h6 {font-family: Helvetica;} a {color: #1a6e8e} pre, code {font-size: 16px; word-wrap: break-word;} pre.sourceCode span.st {color: #366354} pre.sourceCode span.kw {color: #397460} pre.sourceCode span.fu {color: #8f4e8b} pre.sourceCode span.ot {color: #2e659c} pre.sourceCode span.dt {color: #4F4371} pre.sourceCode span.co {color: #666}</style>",
+    "</head>",
+    "<body>",
+    "<h1>Hell examples</h1>",
+    "<p><a href='../'>Back to homepage</a></p>",
+    Text.concat $ List.map (\(fp, frag) -> Text.concat ["<h2>", fp, "</h2>", frag]) frags,
+    "</html>"
+    ]
   Text.putStrLn "Generated docs."
