@@ -44,7 +44,7 @@ import qualified Data.Vector as Vector
 import qualified Text.Show as Show
 import qualified Text.Read as Read
 import qualified Data.Function as Function
-import qualified Data.Generics.Schemes as SYB
+import qualified Data.Generics as SYB
 import qualified Type.Reflection as Type
 import qualified Data.Maybe as Maybe
 import qualified Language.Haskell.Exts as HSE
@@ -1731,4 +1731,13 @@ polyToHtml (name, ty) =
     code_ do
       strong_ $ toHtml name
       em_ " :: "
-      toHtml $ TH.pprint ty
+      toHtml $ TH.pprint $ cleanUpTHType ty
+
+cleanUpTHType :: TH.Type -> TH.Type
+cleanUpTHType = SYB.everywhere unqualify where
+  unqualify :: forall a. Type.Typeable a => a -> a
+  unqualify a =
+    case Type.eqTypeRep (Type.typeRep @a) (Type.typeRep @TH.Name) of
+      Nothing -> a
+      Just Type.HRefl ->
+        TH.mkName $ TH.nameBase a
