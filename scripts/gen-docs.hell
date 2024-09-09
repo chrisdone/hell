@@ -12,11 +12,12 @@ main = do
   frags <- Monad.forM (List.sort examples) \example -> do
     out <- render $ Text.concat ["examples/", example]
     Monad.return (example, out)
+  css <- Text.readFile "docs/style.css"
   Text.writeFile "docs/examples/index.html" $ Text.concat [
     "<!doctype html>",
     "<html>",
     "<head>",
-    "<style>body {max-width: 40em; margin: .5in auto;} h1,h2,h3,h4,h5,h6 {font-family: Helvetica;} a {color: #1a6e8e} pre, code {font-size: 16px; word-wrap: break-word;} pre.sourceCode span.st {color: #366354} pre.sourceCode span.kw {color: #397460} pre.sourceCode span.fu {color: #8f4e8b} pre.sourceCode span.ot {color: #2e659c} pre.sourceCode span.dt {color: #4F4371} pre.sourceCode span.co {color: #666}</style>",
+    "<style>", css, "</style>",
     "</head>",
     "<body>",
     "<h1>Hell examples</h1>",
