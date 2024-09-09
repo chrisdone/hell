@@ -52,6 +52,7 @@ import qualified Data.ByteString as ByteString
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Builder as ByteString hiding (writeFile)
 import qualified Data.Text as Text
+import qualified Data.Text.IO as Text
 import qualified Data.Text.Encoding as Text
 import qualified System.IO as IO
 import qualified UnliftIO.Async as Async
@@ -1688,9 +1689,10 @@ instance Pretty InferError where
 
 _generateApiDocs :: IO ()
 _generateApiDocs = do
+  css <- Text.readFile "docs/style.css"
   Lucid.renderToFile "docs/api/index.html" do
     doctypehtml_ do
-      style_ "body {max-width: 40em; margin: .5in auto;} h1,h2,h3,h4,h5,h6 {font-family: Helvetica;} a {color: #1a6e8e}"
+      style_ css
       head_ do
         title_ "Hell's API"
       body_ do

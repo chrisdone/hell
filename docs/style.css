@@ -1,0 +1,18 @@
+body {max-width: 40em; margin: .5in auto;}
+h1,h2,h3,h4,h5,h6 {font-family: Helvetica;}
+a {color: #1a6e8e}
+pre, code {font-size: 16px; word-wrap: break-word;}
+pre.sourceCode span.st {color: #366354}
+pre.sourceCode span.kw {color: #397460}
+pre.sourceCode span.fu {color: #8f4e8b}
+pre.sourceCode span.ot {color: #2e659c}
+pre.sourceCode span.dt {color: #4F4371}
+pre.sourceCode span.co {color: #666}
+
+@media(max-width:767px){
+    body { margin: 1px 4px; }
+    h1, h2, .menu { margin: 0; }
+    h1 { font-size: 1.5em; }
+    h2 { font-size: 1.125em; }
+    h3 { font-size: 1.0125em; }
+ }
