@@ -249,7 +249,7 @@ desugarRecordType = appRecord . foldr appCons nilL where
 
 data Term g t where
   Var :: Var g t -> Term g t
-  Lam :: TypeRep (a :: Type) -> Term (g, a) b -> Term g (a -> b)
+  Lam :: Term (g, a) b -> Term g (a -> b)
   App :: Term g (s -> t) -> Term g s -> Term g t
   Lit :: a -> Term g a
 
@@ -264,7 +264,7 @@ data Var g t where
 -- This is the entire evaluator. Type-safe and total.
 eval :: env -> Term env t -> t
 eval env (Var v) = lookp v env
-eval env (Lam _ e) = \x -> eval (env, x) e
+eval env (Lam e) = \x -> eval (env, x) e
 eval env (App e1 e2) = (eval env e1) (eval env e2)
 eval _env (Lit a) = a
 
@@ -384,7 +384,7 @@ tc (ULam (StarTypeRep lam_ty) s _ body) env =
           let checked_ty = Type.Fun bndr_ty' body_ty'
           in
            case Type.eqTypeRep checked_ty lam_ty of
-             Just Type.HRefl -> Right $ Typed lam_ty (Lam bndr_ty' body')
+             Just Type.HRefl -> Right $ Typed lam_ty (Lam body')
              Nothing -> Left InferredCheckedDisagreeBug
     _ -> Left LambdaIsNotAFunBug
 tc (ULam (SomeTypeRep{}) _ _ _) _ =
