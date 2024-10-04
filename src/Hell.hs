@@ -1350,14 +1350,14 @@ data Elaborate = Elaborate {
   equalities :: Set (Equality (IRep IMetaVar))
   }
 
-data Equality a = Equality a a
+data Equality a = Equality HSE.SrcSpanInfo a a
   deriving (Show, Functor)
 
 -- Equality/ordering that is symmetric.
 instance (Ord a) => Eq (Equality a) where
-  Equality a b == Equality c d = Set.fromList [a,b] == Set.fromList [c,d]
+  Equality _ a b == Equality _ c d = Set.fromList [a,b] == Set.fromList [c,d]
 instance (Ord a) => Ord (Equality a) where
-  Equality a b `compare` Equality c d = Set.fromList [a,b] `compare` Set.fromList [c,d]
+  Equality _ a b `compare` Equality _ c d = Set.fromList [a,b] `compare` Set.fromList [c,d]
 
 data ElaborateError = UnsupportedTupleSize | BadInstantiationBug | VariableNotInScope String
   deriving (Show)
@@ -1385,13 +1385,13 @@ elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty .
       f' <- go f
       x' <- go x
       b <- fmap IVar freshIMetaVar
-      equal (typeOf f') (IFun (typeOf x') b)
+      equal l (typeOf f') (IFun (typeOf x') b)
       pure $ UApp l b f' x'
     ULam l () binding mstarType body -> do
       a <- case mstarType of
         Just ty -> pure $ fromSomeStarType ty
         Nothing -> fmap IVar freshIMetaVar
-      vars <- lift $ bindingVars a binding
+      vars <- lift $ bindingVars l a binding
       body' <- local (Map.union vars) $ go body
       let ty = IFun a (typeOf body')
       pure $ ULam l ty binding mstarType body'
@@ -1407,18 +1407,18 @@ elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty .
           Just var -> pure var
       -- Order of types is position-dependent, apply the ones we have.
       for_ (zip vars types) \((_uniq, var), someTypeRep) ->
-        equal (fromSomeType someTypeRep) (IVar var)
+        equal l (fromSomeType someTypeRep) (IVar var)
       -- Done!
       pure $ UForall l monoType types forall' uniqs polyRep (map (IVar . snd) vars)
 
-bindingVars :: IRep IMetaVar -> Binding -> StateT Elaborate (Either ElaborateError) (Map String (IRep IMetaVar))
-bindingVars irep (Singleton name) = pure $ Map.singleton name irep
-bindingVars tupleVar (Tuple names) = do
+bindingVars :: HSE.SrcSpanInfo -> IRep IMetaVar -> Binding -> StateT Elaborate (Either ElaborateError) (Map String (IRep IMetaVar))
+bindingVars _ irep (Singleton name) = pure $ Map.singleton name irep
+bindingVars l tupleVar (Tuple names) = do
   varsTypes <- for names \name -> fmap (name, ) (fmap IVar freshIMetaVar)
   -- it's a left-fold:
   -- IApp (IApp (ICon (,)) x) y
   cons <- makeCons
-  equal tupleVar $ foldl IApp (ICon cons) (map snd varsTypes)
+  equal l tupleVar $ foldl IApp (ICon cons) (map snd varsTypes)
   pure $ Map.fromList varsTypes
 
   where makeCons = case length names of
@@ -1427,8 +1427,8 @@ bindingVars tupleVar (Tuple names) = do
          4 -> pure $ SomeTypeRep (typeRep @(,,,))
          _ -> lift $ Left $ UnsupportedTupleSize
 
-equal :: MonadState Elaborate m => IRep IMetaVar -> IRep IMetaVar -> m ()
-equal x y = modify \elaborate' -> elaborate' { equalities = equalities elaborate' <> Set.singleton (Equality x y) }
+equal :: MonadState Elaborate m => HSE.SrcSpanInfo -> IRep IMetaVar -> IRep IMetaVar -> m ()
+equal l x y = modify \elaborate' -> elaborate' { equalities = equalities elaborate' <> Set.singleton (Equality l x y) }
 
 freshIMetaVar :: MonadState Elaborate m => m IMetaVar
 freshIMetaVar = do
@@ -1441,8 +1441,7 @@ freshIMetaVar = do
 
 data UnifyError =
     OccursCheck
-  | TypeConMismatch SomeTypeRep SomeTypeRep
-  | TypeMismatch (IRep IMetaVar) (IRep IMetaVar)
+  | TypeMismatch HSE.SrcSpanInfo (IRep IMetaVar) (IRep IMetaVar)
   deriving (Show)
 
 -- | Unification of equality constraints, a ~ b, to substitutions.
@@ -1451,20 +1450,20 @@ unify = foldM update mempty where
   update existing equality =
     fmap (`extends` existing)
          (examine (fmap (substitute existing) equality))
-  examine (Equality a b)
+  examine (Equality l a b)
    | a == b = pure mempty
    | IVar ivar <- a = bindMetaVar ivar b
    | IVar ivar <- b = bindMetaVar ivar a
    | IFun a1 b1 <- a,
      IFun a2 b2 <- b =
-       unify (Set.fromList [Equality a1 a2, Equality b1 b2])
+       unify (Set.fromList [Equality l a1 a2, Equality l b1 b2])
    | IApp a1 b1 <- a,
      IApp a2 b2 <- b =
-       unify (Set.fromList [Equality a1 a2, Equality b1 b2])
+       unify (Set.fromList [Equality l a1 a2, Equality l b1 b2])
    | ICon x <- a, ICon y <- b =
       if x == y then pure mempty
-                else Left $ TypeConMismatch x y
-   | otherwise = Left $ TypeMismatch a b
+                else Left $ TypeMismatch l a b
+   | otherwise = Left $ TypeMismatch l a b
 
 -- | Apply new substitutions to the old ones, and expand the set to old+new.
 extends :: Map IMetaVar (IRep IMetaVar) -> Map IMetaVar (IRep IMetaVar) -> Map IMetaVar (IRep IMetaVar)
@@ -1509,7 +1508,7 @@ zonk = \case
 parseFile :: String -> IO (Either String [(String, HSE.Exp HSE.SrcSpanInfo)])
 parseFile filePath = do
   string <- ByteString.readFile filePath
-  pure $ case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.DataKinds, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
+  pure $ case HSE.parseModuleWithMode HSE.defaultParseMode { HSE.parseFilename = filePath, HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.DataKinds, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications] } (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
     HSE.ParseFailed l e -> Left $ "Parse error: " <> HSE.prettyPrint l <> ": " <> e
     HSE.ParseOk binds -> Right binds
 
@@ -1646,14 +1645,21 @@ instance Pretty ElaborateError where
 instance Pretty UnifyError where
   pretty = \case
     OccursCheck -> "Occurs check failed: Infinite type."
-    TypeMismatch a b ->
+    TypeMismatch l a b ->
       mconcat $ List.intersperse "\n\n" [
         "Couldn't match type",
         "  " <> pretty a,
         "against type",
         "  " <> pretty b,
-        ""]
-    TypeConMismatch a b -> "Couldn't match type constructor " <> pretty a <> " against type constructor " <> pretty b
+        "arising from " <> pretty l
+        ]
+
+instance Pretty HSE.SrcSpanInfo where
+  pretty l =
+    mconcat [pretty (HSE.fileName l),":",
+      pretty $ show $ HSE.startLine l,
+      ":",
+      pretty $ show $ HSE.startColumn l]
 
 instance Pretty TypeCheckError where
   pretty = \case
