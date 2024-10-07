@@ -19,6 +19,7 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+import Data.Containers.ListUtils
 import Language.Haskell.TH.Instances ()
 import Lucid hiding (for_, Term, term)
 
@@ -1119,20 +1120,61 @@ polyLits = Map.fromList
   "List.cons" (:) :: forall a. a -> [a] -> [a]
   "List.nil" [] :: forall a. [a]
   "List.length" List.length :: forall a. [a] -> Int
+  "List.scanl'" List.scanl' :: forall a b. (b -> a -> b) -> b -> [a] -> [b]
+  "List.scanr" List.scanr :: forall a b. (a -> b -> b) -> b -> [a] -> [b]
   "List.concat" List.concat :: forall a. [[a]] -> [a]
+  "List.concatMap" List.concatMap :: forall a b. (a -> [b]) -> [a] -> [b]
   "List.drop" List.drop :: forall a. Int -> [a] -> [a]
   "List.take" List.take :: forall a. Int -> [a] -> [a]
+  "List.splitAt" List.splitAt :: forall a. Int -> [a] -> ([a],[a])
+  "List.break" List.break :: forall a. (a -> Bool) -> [a] -> ([a],[a])
+  "List.span" List.span :: forall a. (a -> Bool) -> [a] -> ([a],[a])
+  "List.partition" List.partition :: forall a. (a -> Bool) -> [a] -> ([a],[a])
+  "List.takeWhile" List.takeWhile :: forall a. (a -> Bool) -> [a] -> [a]
+  "List.dropWhile" List.dropWhile :: forall a. (a -> Bool) -> [a] -> [a]
+  "List.dropWhileEnd" List.dropWhileEnd :: forall a. (a -> Bool) -> [a] -> [a]
   "List.map" List.map :: forall a b. (a -> b) -> [a] -> [b]
+  "List.any" List.any :: forall a. (a -> Bool) -> [a] -> Bool
+  "List.all" List.all :: forall a. (a -> Bool) -> [a] -> Bool
   "List.iterate'" List.iterate' :: forall a. (a -> a) -> a -> [a]
+  "List.repeat" List.repeat :: forall a. a -> [a]
+  "List.cycle" List.cycle :: forall a. [a] -> [a]
   "List.filter" List.filter :: forall a. (a -> Bool) -> [a] -> [a]
   "List.foldl'" List.foldl' :: forall a b. (b -> a -> b) -> b -> [a] -> b
+  "List.foldr" List.foldr :: forall a b. (a -> b -> b) -> b -> [a] -> b
+  "List.unfoldr" List.unfoldr :: forall a b. (b -> Maybe (a, b)) -> b -> [a]
   "List.zip" List.zip :: forall a b. [a] -> [b] -> [(a,b)]
+  "List.mapAccumL" List.mapAccumL :: forall s a b. (s -> a -> (s, b)) -> s -> [a] -> (s, [b])
+  "List.mapAccumR" List.mapAccumL :: forall s a b. (s -> a -> (s, b)) -> s -> [a] -> (s, [b])
   "List.zipWith" List.zipWith :: forall a b c. (a -> b -> c) -> [a] -> [b] -> [c]
   "List.lookup" List.lookup :: forall a b. Eq a => a -> [(a,b)] -> Maybe b
+  "List.find" List.find :: forall a b. (a -> Bool) -> [a] -> Maybe a
   "List.sort" List.sort :: forall a. Ord a => [a] -> [a]
+  "List.group" List.group :: forall a. Eq a => [a] -> [[a]]
+  "List.isPrefixOf" List.isPrefixOf :: forall a. Eq a => [a] -> [a] -> Bool
+  "List.isSuffixOf" List.isSuffixOf :: forall a. Eq a => [a] -> [a] -> Bool
+  "List.isInfixOf" List.isInfixOf :: forall a. Eq a => [a] -> [a] -> Bool
+  "List.isSubsequenceOf" List.isSubsequenceOf :: forall a. Eq a => [a] -> [a] -> Bool
   "List.groupBy" List.groupBy :: forall a. (a -> a -> Bool) -> [a] -> [[a]]
   "List.reverse" List.reverse :: forall a. [a] -> [a]
+  "List.nubOrd" nubOrd :: forall a. Ord a => [a] -> [a]
+  "List.inits" List.inits :: forall a. [a] -> [[a]]
+  "List.tails" List.tails :: forall a. [a] -> [[a]]
+  "List.deleteBy" List.deleteBy :: forall a. (a -> a -> Bool) -> a -> [a] -> [a]
+  "List.elem" List.elem :: forall a. Eq a => a -> [a] -> Bool
+  "List.notElem" List.notElem :: forall a. Eq a => a -> [a] -> Bool
   "List.sortOn" List.sortOn :: forall a b. Ord b => (a -> b) -> [a] -> [a]
+  "List.null" List.null :: forall a. [a] -> Bool
+  "List.elemIndex" List.elemIndex :: forall a. Eq a => a -> [a] -> Maybe Int
+  "List.elemIndices" List.elemIndices :: forall a. Eq a => a -> [a] -> [Int]
+  "List.findIndex" List.findIndex :: forall a. (a -> Bool) -> [a] -> Maybe Int
+  "List.findIndices" List.findIndices :: forall a. (a -> Bool) -> [a] -> [Int]
+  "List.uncons" List.uncons :: forall a. [a] -> Maybe (a, [a])
+  "List.intersperse" List.intersperse :: forall a. a -> [a] -> [a]
+  "List.intercalate" List.intercalate :: forall a. [a] -> [[a]] -> [a]
+  "List.transpose" List.transpose :: forall a. [[a]] -> [[a]]
+  "List.subsequences" List.subsequences :: forall a. [a] -> [[a]]
+  "List.permutations" List.permutations :: forall a. [a] -> [[a]]
   -- Vector
   "Vector.fromList" Vector.fromList :: forall a. [a] -> Vector a
   "Vector.toList" Vector.toList :: forall a. Vector a -> [a]
