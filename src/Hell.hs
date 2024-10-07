@@ -1752,7 +1752,8 @@ _generateApiDocs = do
         h2_ "Terms"
         let groups = Map.toList $ fmap (Left . snd) supportedLits
         let groups' = Map.toList $ fmap (\(_, _, _, ty) -> Right ty) polyLits
-        for_ (List.groupBy (Function.on (==) (takeWhile (/= '.') . fst)) $ List.sortOn fst $ groups <> groups') \group ->
+        for_ (List.groupBy (Function.on (==) (takeWhile (/= '.') . fst)) $ List.sortOn fst $ groups <> groups') \group -> do
+          h3_ $ for_ (take 1 group) \(x, _) -> toHtml $ takeWhile (/='.') x
           ul_ do
             for_ group \(x, a) -> case a of
               Left e -> litToHtml (x, e)
