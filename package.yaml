@@ -24,7 +24,7 @@ dependencies:
 - template-haskell
 - unliftio
 - vector
-- lucid
+- lucid2
 - th-lift
 - th-orphans
 - aeson

@@ -29,7 +29,7 @@ executable hell
     , ghc-prim
     , haskell-src-exts
     , hspec
-    , lucid
+    , lucid2
     , mtl
     , optparse-applicative
     , syb
