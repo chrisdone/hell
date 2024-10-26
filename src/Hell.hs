@@ -65,6 +65,7 @@ import qualified Options.Applicative as Options
 import Data.Traversable
 import Data.Bifunctor
 import System.Process.Typed as Process
+import Control.Monad
 import Control.Monad.State.Strict
 import Control.Monad.Reader
 import System.Environment
@@ -74,7 +75,7 @@ import Data.Vector (Vector)
 import Data.Aeson (Value)
 import Data.Text (Text)
 import Data.ByteString (ByteString)
-import GHC.Types
+import GHC.Types hiding (List)
 import GHC.TypeLits
 import Type.Reflection (SomeTypeRep(..), TypeRep, typeRepKind, typeRep, pattern TypeRep)
 
