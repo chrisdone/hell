@@ -8,6 +8,7 @@
 -- made some of this more ergonomic.
 
 {-# options_ghc -Wno-unused-foralls #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ExistentialQuantification, TypeApplications, BlockArguments, NamedFieldPuns, DataKinds #-}
 {-# LANGUAGE GADTs, PolyKinds, TupleSections, StandaloneDeriving, Rank2Types, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns, LambdaCase, ScopedTypeVariables, PatternSynonyms, TemplateHaskell #-}
@@ -75,7 +76,10 @@ import Data.Vector (Vector)
 import Data.Aeson (Value)
 import Data.Text (Text)
 import Data.ByteString (ByteString)
-import GHC.Types
+#if __GLASGOW_HASKELL__ >= 906
+import Control.Monad
+#endif
+import GHC.Types (Type)
 import GHC.TypeLits
 import Type.Reflection (SomeTypeRep(..), TypeRep, typeRepKind, typeRep, pattern TypeRep)
 
