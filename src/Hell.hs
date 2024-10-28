@@ -835,7 +835,8 @@ supportedTypeConstructors = Map.fromList [
   ("Tagged", SomeTypeRep $ typeRep @Tagged),
   ("Record", SomeTypeRep $ typeRep @Record),
   ("NilL", SomeTypeRep $ typeRep @('NilL)),
-  ("ConsL", SomeTypeRep $ typeRep @('ConsL))
+  ("ConsL", SomeTypeRep $ typeRep @('ConsL)),
+  ("()", SomeTypeRep $ typeRep @())
   ]
 
 --------------------------------------------------------------------------------
