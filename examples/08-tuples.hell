@@ -5,3 +5,5 @@ main = do
 
   let (foo,bar) = (123, "foo")
   Text.putStrLn bar
+
+  Monad.return ()
