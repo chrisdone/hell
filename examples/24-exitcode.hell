@@ -1,0 +1,13 @@
+main = do
+  (code, out, err) <- ByteString.readProcess (Process.proc "ls" ["-al"])
+
+  -- Accessor style
+  Exit.exitCode
+    (Text.putStrLn "All good!")
+    (\i -> IO.print i)
+    code
+
+  -- Validation style
+  if Eq.eq code Exit.ExitSuccess
+     then Text.putStrLn "OK, good!"
+     else Text.putStrLn "Oh, sad."
