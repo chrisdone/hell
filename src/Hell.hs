@@ -29,6 +29,7 @@ import qualified Language.Haskell.TH as TH
 import qualified Language.Haskell.TH.Syntax as TH
 import Language.Haskell.TH (Q)
 
+import qualified System.Exit as Exit
 import qualified Data.Graph as Graph
 import qualified Data.Eq as Eq
 import qualified Data.Either as Either
@@ -942,6 +943,9 @@ supportedLits = Map.fromList [
    ("Process.setEnv", lit' $ Process.setEnv @() @() @() . map (bimap Text.unpack Text.unpack)),
    ("Process.runProcess", lit' $ runProcess @IO @() @() @()),
    ("Process.runProcess_", lit' $ runProcess_ @IO @() @() @()),
+   -- Exit
+   ("Exit.ExitSuccess", lit' Exit.ExitSuccess),
+   ("Exit.ExitFailure", lit' Exit.ExitFailure),
    -- Lists
    ("List.and", lit' (List.and @[])),
    ("List.or", lit' (List.or @[])),
@@ -1105,6 +1109,10 @@ polyLits = Map.fromList
   "Tuple.(,)" (,) :: forall a b. a -> b -> (a,b)
   "Tuple.(,,)" (,,) :: forall a b c. a -> b -> c -> (a,b,c)
   "Tuple.(,,,)" (,,,) :: forall a b c d. a -> b -> c -> d -> (a,b,c,d)
+  -- Exit
+  "Exit.die" Exit.die :: forall a. String -> IO a
+  "Exit.exitWith" Exit.exitWith :: forall a. ExitCode -> IO a
+  "Exit.exitCode" exit_exitCode :: forall a. a -> (Int -> a) -> ExitCode -> a
   -- Exceptions
   "Error.error" (error . Text.unpack) :: forall a. Text -> a
   -- Bool
@@ -1243,6 +1251,14 @@ unsafeGetForall :: String -> HSE.SrcSpanInfo -> UTerm ()
 unsafeGetForall key l = Maybe.fromMaybe (error $ "Bad compile-time lookup for " ++ key) $ do
   (forall', vars, irep, _) <- Map.lookup key polyLits
   pure (UForall l () [] forall' vars irep [])
+
+--------------------------------------------------------------------------------
+-- Accessor for ExitCode
+
+exit_exitCode :: a -> (Int -> a) -> ExitCode -> a
+exit_exitCode ok fail' = \case
+  ExitSuccess -> ok
+  ExitFailure i -> fail' i
 
 --------------------------------------------------------------------------------
 -- UTF-8 specific operations without all the environment gubbins
