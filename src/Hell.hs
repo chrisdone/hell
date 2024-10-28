@@ -327,7 +327,10 @@ data Forall where
   Final :: (forall g. Typed (Term g)) -> Forall
 
 lit :: Type.Typeable a => a -> UTerm ()
-lit l = UForall HSE.noSrcSpan () [] (Final (Typed (Type.typeOf l) (Lit l))) [] (fromSomeStarType (SomeStarType (Type.typeOf l))) []
+lit = litWithSpan HSE.noSrcSpan
+
+litWithSpan :: Type.Typeable a => HSE.SrcSpanInfo -> a -> UTerm ()
+litWithSpan srcSpanInfo l = UForall srcSpanInfo () [] (Final (Typed (Type.typeOf l) (Lit l))) [] (fromSomeStarType (SomeStarType (Type.typeOf l))) []
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 deriving instance Show SomeStarType
