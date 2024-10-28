@@ -328,7 +328,10 @@ data Forall where
   Final :: (forall g. Typed (Term g)) -> Forall
 
 lit :: Type.Typeable a => a -> UTerm ()
-lit l = UForall HSE.noSrcSpan () [] (Final (Typed (Type.typeOf l) (Lit l))) [] (fromSomeStarType (SomeStarType (Type.typeOf l))) []
+lit = litWithSpan HSE.noSrcSpan
+
+litWithSpan :: Type.Typeable a => HSE.SrcSpanInfo -> a -> UTerm ()
+litWithSpan srcSpanInfo l = UForall srcSpanInfo () [] (Final (Typed (Type.typeOf l) (Lit l))) [] (fromSomeStarType (SomeStarType (Type.typeOf l))) []
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 deriving instance Show SomeStarType
@@ -611,7 +614,9 @@ desugarPolyQName qname treps =
     HSE.UnQual l (HSE.Symbol _ string)
       | Just (forall', vars, irep, _) <- Map.lookup string polyLits -> do
         pure (UForall l () treps forall' vars irep [])
-    _ ->  Left $ InvalidVariable $ HSE.prettyPrint qname
+    HSE.Special l (HSE.UnitCon{}) ->
+      pure $ litWithSpan l ()
+    _ ->  Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) =
