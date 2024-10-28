@@ -613,7 +613,9 @@ desugarPolyQName qname treps =
     HSE.UnQual l (HSE.Symbol _ string)
       | Just (forall', vars, irep, _) <- Map.lookup string polyLits -> do
         pure (UForall l () treps forall' vars irep [])
-    _ ->  Left $ InvalidVariable $ HSE.prettyPrint qname
+    HSE.Special l (HSE.UnitCon{}) ->
+      pure $ litWithSpan l ()
+    _ ->  Left $ InvalidVariable $ show qname
 
 desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
 desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) =
