@@ -1131,6 +1131,8 @@ polyLits = Map.fromList
   "Set.member" Set.member :: forall a. Ord a => a -> Set a -> Bool
   "Set.delete" Set.delete :: forall a. Ord a => a -> Set a -> Set a
   "Set.union" Set.union :: forall a. Ord a => Set a -> Set a -> Set a
+  "Set.difference" Set.difference :: forall a. Ord a => Set a -> Set a -> Set a
+  "Set.intersection" Set.intersection :: forall a. Ord a => Set a -> Set a -> Set a
   "Set.toList" Set.toList :: forall a. Set a -> [a]
   "Set.size" Set.size :: forall a. Set a -> Int
   "Set.singleton" Set.singleton :: forall a. Ord a => a -> Set a
