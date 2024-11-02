@@ -12,7 +12,6 @@ main = do
 
   Process.runProcess_ (Process.proc "echo" ["Hello, World!"])
 
-  -- Explicit type signature, but you don't need this. Just for demo'ing.
   let config = Process.proc "false" []
   code <- Process.runProcess config
   Text.putStrLn "Done."
