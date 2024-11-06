@@ -452,7 +452,7 @@ data UTerm t
   | UApp HSE.SrcSpanInfo t (UTerm t) (UTerm t)
   | -- IRep below: The variables are poly types, they aren't metavars,
     -- and need to be instantiated.
-    UForall HSE.SrcSpanInfo t [SomeTypeRep] Forall [TH.Uniq] (IRep TH.Uniq) [t]
+    UForall Prim HSE.SrcSpanInfo t [SomeTypeRep] Forall [TH.Uniq] (IRep TH.Uniq) [t]
   deriving (Traversable, Functor, Foldable)
 
 typeOf :: UTerm t -> t
@@ -460,7 +460,7 @@ typeOf = \case
   UVar _ t _ -> t
   ULam _ t _ _ _ -> t
   UApp _ t _ _ -> t
-  UForall _ t _ _ _ _ _ -> t
+  UForall _ _ t _ _ _ _ _ -> t
 
 data Binding = Singleton String | Tuple [String]
 
@@ -496,11 +496,13 @@ data Forall where
     Forall
   Final :: (forall g. Typed (Term g)) -> Forall
 
-lit :: (Type.Typeable a) => a -> UTerm ()
-lit = litWithSpan HSE.noSrcSpan
+lit :: Type.Typeable a => Prim -> a -> UTerm ()
+lit name = litWithSpan name HSE.noSrcSpan
 
-litWithSpan :: (Type.Typeable a) => HSE.SrcSpanInfo -> a -> UTerm ()
-litWithSpan srcSpanInfo l = UForall srcSpanInfo () [] (Final (Typed (Type.typeOf l) (Lit l))) [] (fromSomeStarType (SomeStarType (Type.typeOf l))) []
+litWithSpan :: Type.Typeable a => Prim -> HSE.SrcSpanInfo -> a -> UTerm ()
+litWithSpan name srcSpanInfo l = UForall name srcSpanInfo () [] (Final (Typed (Type.typeOf l) (Lit l))) [] (fromSomeStarType (SomeStarType (Type.typeOf l))) []
+
+data Prim = LitP (HSE.Literal HSE.SrcSpanInfo) | NameP String | UnitP
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 
@@ -583,7 +585,7 @@ tc (UApp _ _ e1 e2) env =
                     _ -> Left TypeCheckMismatch
     Right {} -> Left TypeOfApplicandIsNotFunction
 -- Polytyped terms, must be, syntactically, fully-saturated
-tc (UForall _ _ _ fall _ _ reps0) _env = go reps0 fall
+tc (UForall _ _ _ _ fall _ _ reps0) _env = go reps0 fall
   where
     go :: [SomeTypeRep] -> Forall -> Either TypeCheckError (Typed (Term g))
     go [] (Final typed') = pure typed'
@@ -751,12 +753,12 @@ desugarExp userDefinedTypeAliases globals = go mempty
         xs' <- traverse (go scope) xs
         pure $ foldr (\x y -> UApp l () (UApp l () (cons' l) x) y) (nil' l) xs'
       HSE.Lit _ lit' -> case lit' of
-        HSE.Char _ char _ -> pure $ lit char
-        HSE.String _ string _ -> pure $ lit $ Text.pack string
-        HSE.Int _ int _ -> pure $ lit (fromIntegral int :: Int)
+        HSE.Char _ char _ -> pure $ lit (LitP lit') char
+        HSE.String _ string _ -> pure $ lit (LitP lit') $ Text.pack string
+        HSE.Int _ int _ -> pure $ lit (LitP lit') (fromIntegral int :: Int)
         HSE.Frac _ _ str
           | Just dub <- Read.readMaybe str ->
-              pure $ lit (dub :: Double)
+              pure $ lit (LitP lit') (dub :: Double)
         _ -> Left $ UnsupportedLiteral
       app@HSE.App {} | Just (qname, tys) <- nestedTyApps app -> do
         reps <- traverse (desugarSomeType userDefinedTypeAliases) tys
@@ -906,13 +908,15 @@ desugarPolyQName :: HSE.QName HSE.SrcSpanInfo -> [SomeTypeRep] -> Either Desugar
 desugarPolyQName qname treps =
   case qname of
     HSE.Qual l (HSE.ModuleName _ prefix) (HSE.Ident _ string)
-      | Just (forall', vars, irep, _) <- Map.lookup (prefix ++ "." ++ string) polyLits -> do
-          pure (UForall l () treps forall' vars irep [])
+      | let namep = (prefix ++ "." ++ string),
+        Just (forall', vars, irep, _) <- Map.lookup namep polyLits -> do
+          pure (UForall (NameP namep) l () treps forall' vars irep [])
     HSE.UnQual l (HSE.Symbol _ string)
-      | Just (forall', vars, irep, _) <- Map.lookup string polyLits -> do
-          pure (UForall l () treps forall' vars irep [])
+      | let namep = string,
+        Just (forall', vars, irep, _) <- Map.lookup string polyLits -> do
+          pure (UForall (NameP namep) l () treps forall' vars irep [])
     HSE.Special l (HSE.UnitCon {}) ->
-      pure $ litWithSpan l ()
+      pure $ litWithSpan UnitP l ()
     _ -> Left $ InvalidVariable $ show qname
 
 desugarArg :: Map String SomeTypeRep -> HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
@@ -1180,139 +1184,138 @@ supportedLits :: Map String (UTerm (), SomeTypeRep)
 supportedLits =
   Map.fromList
     [ -- Text I/O
-      ("Text.putStrLn", lit' t_putStrLn),
-      ("Text.hPutStr", lit' t_hPutStr),
-      ("Text.putStr", lit' t_putStr),
-      ("Text.getLine", lit' t_getLine),
-      ("Text.writeFile", lit' t_writeFile),
-      ("Text.readFile", lit' t_readFile),
-      ("Text.appendFile", lit' t_appendFile),
-      ("Text.readProcess", lit' t_readProcess),
-      ("Text.readProcess_", lit' t_readProcess_),
-      ("Text.readProcessStdout_", lit' t_readProcessStdout_),
-      ("Text.getContents", lit' (fmap Text.decodeUtf8 ByteString.getContents)),
-      ("Text.setStdin", lit' t_setStdin),
+      lit' "Text.putStrLn" t_putStrLn,
+      lit' "Text.hPutStr" t_hPutStr,
+      lit' "Text.putStr" t_putStr,
+      lit' "Text.getLine" t_getLine,
+      lit' "Text.writeFile" t_writeFile,
+      lit' "Text.readFile" t_readFile,
+      lit' "Text.appendFile" t_appendFile,
+      lit' "Text.readProcess" t_readProcess,
+      lit' "Text.readProcess_" t_readProcess_,
+      lit' "Text.readProcessStdout_" t_readProcessStdout_,
+      lit' "Text.getContents" (fmap Text.decodeUtf8 ByteString.getContents),
+      lit' "Text.setStdin" t_setStdin,
       -- Text operations
-      ("Text.decodeUtf8", lit' Text.decodeUtf8),
-      ("Text.encodeUtf8", lit' Text.encodeUtf8),
-      ("Text.eq", lit' ((==) @Text)),
-      ("Text.length", lit' Text.length),
-      ("Text.concat", lit' Text.concat),
-      ("Text.breakOn", lit' Text.breakOn),
-      ("Text.lines", lit' Text.lines),
-      ("Text.words", lit' Text.words),
-      ("Text.unlines", lit' Text.unlines),
-      ("Text.unwords", lit' Text.unwords),
-      ("Text.intercalate", lit' Text.intercalate),
-      ("Text.reverse", lit' Text.reverse),
-      ("Text.toLower", lit' Text.toLower),
-      ("Text.toUpper", lit' Text.toUpper),
+      lit' "Text.decodeUtf8" Text.decodeUtf8,
+      lit' "Text.encodeUtf8" Text.encodeUtf8,
+      lit' "Text.eq" ((==) @Text),
+      lit' "Text.length" Text.length,
+      lit' "Text.concat" Text.concat,
+      lit' "Text.breakOn" Text.breakOn,
+      lit' "Text.lines" Text.lines,
+      lit' "Text.words" Text.words,
+      lit' "Text.unlines" Text.unlines,
+      lit' "Text.unwords" Text.unwords,
+      lit' "Text.intercalate" Text.intercalate,
+      lit' "Text.reverse" Text.reverse,
+      lit' "Text.toLower" Text.toLower,
+      lit' "Text.toUpper" Text.toUpper,
       -- Needs Char operations.
       -- ("Text.any", lit' Text.any),
       -- ("Text.all", lit' Text.all),
       -- ("Text.filter", lit' Text.filter),
-      ("Text.take", lit' Text.take),
-      ("Text.splitOn", lit' Text.splitOn),
-      ("Text.takeEnd", lit' Text.takeEnd),
-      ("Text.drop", lit' Text.drop),
-      ("Text.stripPrefix", lit' Text.stripPrefix),
-      ("Text.stripSuffix", lit' Text.stripSuffix),
-      ("Text.isSuffixOf", lit' Text.isSuffixOf),
-      ("Text.isPrefixOf", lit' Text.isPrefixOf),
-      ("Text.dropEnd", lit' Text.dropEnd),
-      ("Text.strip", lit' Text.strip),
-      ("Text.replace", lit' Text.replace),
-      ("Text.isPrefixOf", lit' Text.isPrefixOf),
-      ("Text.isSuffixOf", lit' Text.isSuffixOf),
-      ("Text.isInfixOf", lit' Text.isInfixOf),
-      ("Text.interact", lit' (\f -> ByteString.interact (Text.encodeUtf8 . f . Text.decodeUtf8))),
+      lit' "Text.take" Text.take,
+      lit' "Text.splitOn" Text.splitOn,
+      lit' "Text.takeEnd" Text.takeEnd,
+      lit' "Text.drop" Text.drop,
+      lit' "Text.stripPrefix" Text.stripPrefix,
+      lit' "Text.stripSuffix" Text.stripSuffix,
+      lit' "Text.isSuffixOf" Text.isSuffixOf,
+      lit' "Text.isPrefixOf" Text.isPrefixOf,
+      lit' "Text.dropEnd" Text.dropEnd,
+      lit' "Text.strip" Text.strip,
+      lit' "Text.replace" Text.replace,
+      lit' "Text.isPrefixOf" Text.isPrefixOf,
+      lit' "Text.isSuffixOf" Text.isSuffixOf,
+      lit' "Text.isInfixOf" Text.isInfixOf,
+      lit' "Text.interact" (\f -> ByteString.interact (Text.encodeUtf8 . f . Text.decodeUtf8)),
       -- Int operations
-      ("Int.show", lit' (Text.pack . show @Int)),
-      ("Int.eq", lit' ((==) @Int)),
-      ("Int.plus", lit' ((+) @Int)),
-      ("Int.mult", lit' ((*) @Int)),
-      ("Int.subtract", lit' (subtract @Int)),
+      lit' "Int.show" (Text.pack . show @Int),
+      lit' "Int.eq" ((==) @Int),
+      lit' "Int.plus" ((+) @Int),
+      lit' "Int.mult" ((*) @Int),
+      lit' "Int.subtract" (subtract @Int),
       -- Double operations
-      ("Double.fromInt", lit' (fromIntegral :: Int -> Double)),
-      ("Double.show", lit' (Text.pack . show @Double)),
-      ("Double.eq", lit' ((==) @Double)),
-      ("Double.plus", lit' ((+) @Double)),
-      ("Double.mult", lit' ((*) @Double)),
-      ("Double.subtract", lit' (subtract @Double)),
+      lit' "Double.fromInt" (fromIntegral :: Int -> Double),
+      lit' "Double.show" (Text.pack . show @Double),
+      lit' "Double.eq" ((==) @Double),
+      lit' "Double.plus" ((+) @Double),
+      lit' "Double.mult" ((*) @Double),
+      lit' "Double.subtract" (subtract @Double),
       -- Bytes I/O
-      ("ByteString.hGet", lit' ByteString.hGet),
-      ("ByteString.hPutStr", lit' ByteString.hPutStr),
-      ("ByteString.writeFile", lit' bytestring_writeFile),
-      ("ByteString.readFile", lit' bytestring_readFile),
-      ("ByteString.readProcess", lit' b_readProcess),
-      ("ByteString.readProcess_", lit' b_readProcess_),
-      ("ByteString.readProcessStdout_", lit' b_readProcessStdout_),
-      ("ByteString.interact", lit' ByteString.interact),
-      ("ByteString.getContents", lit' ByteString.getContents),
+      lit' "ByteString.hGet" ByteString.hGet,
+      lit' "ByteString.hPutStr" ByteString.hPutStr,
+      lit' "ByteString.writeFile" bytestring_writeFile,
+      lit' "ByteString.readFile" bytestring_readFile,
+      lit' "ByteString.readProcess" b_readProcess,
+      lit' "ByteString.readProcess_" b_readProcess_,
+      lit' "ByteString.readProcessStdout_" b_readProcessStdout_,
+      lit' "ByteString.interact" ByteString.interact,
+      lit' "ByteString.getContents" ByteString.getContents,
       -- Handles, buffering
-      ("IO.stdout", lit' IO.stdout),
-      ("IO.stderr", lit' IO.stderr),
-      ("IO.stdin", lit' IO.stdin),
-      ("IO.hSetBuffering", lit' IO.hSetBuffering),
-      ("IO.NoBuffering", lit' IO.NoBuffering),
-      ("IO.LineBuffering", lit' IO.LineBuffering),
-      ("IO.BlockBuffering", lit' IO.BlockBuffering),
-      ("IO.hClose", lit' IO.hClose),
-      ("IO.openFile", lit' (\f m -> IO.openFile (Text.unpack f) m)),
-      ("IO.ReadMode", lit' IO.ReadMode),
-      ("IO.WriteMode", lit' IO.WriteMode),
-      ("IO.AppendMode", lit' IO.AppendMode),
-      ("IO.ReadWriteMode", lit' IO.ReadWriteMode),
+      lit' "IO.stdout" IO.stdout,
+      lit' "IO.stderr" IO.stderr,
+      lit' "IO.stdin" IO.stdin,
+      lit' "IO.hSetBuffering" IO.hSetBuffering,
+      lit' "IO.NoBuffering" IO.NoBuffering,
+      lit' "IO.LineBuffering" IO.LineBuffering,
+      lit' "IO.BlockBuffering" IO.BlockBuffering,
+      lit' "IO.hClose" IO.hClose,
+      lit' "IO.openFile" (\f m -> IO.openFile (Text.unpack f) m),
+      lit' "IO.ReadMode" IO.ReadMode,
+      lit' "IO.WriteMode" IO.WriteMode,
+      lit' "IO.AppendMode" IO.AppendMode,
+      lit' "IO.ReadWriteMode" IO.ReadWriteMode,
       -- Concurrent stuff
-      ("Concurrent.threadDelay", lit' Concurrent.threadDelay),
+      lit' "Concurrent.threadDelay" Concurrent.threadDelay,
       -- Bool
-      ("Bool.True", lit' Bool.True),
-      ("Bool.False", lit' Bool.False),
-      ("Bool.not", lit' Bool.not),
+      lit' "Bool.True" Bool.True,
+      lit' "Bool.False" Bool.False,
+      lit' "Bool.not" Bool.not,
       -- Get arguments
-      ("Environment.getArgs", lit' $ fmap (map Text.pack) getArgs),
-      ("Environment.getEnvironment", lit' $ fmap (map (bimap Text.pack Text.pack)) getEnvironment),
-      ("Environment.getEnv", lit' $ fmap Text.pack . getEnv . Text.unpack),
+      lit' "Environment.getArgs" $ fmap (map Text.pack) getArgs,
+      lit' "Environment.getEnvironment" $ fmap (map (bimap Text.pack Text.pack)) getEnvironment,
+      lit' "Environment.getEnv" $ fmap Text.pack . getEnv . Text.unpack,
       -- Current directory
-      ("Directory.createDirectoryIfMissing", lit' (\b f -> Dir.createDirectoryIfMissing b (Text.unpack f))),
-      ("Directory.createDirectory", lit' (Dir.createDirectory . Text.unpack)),
-      ("Directory.getCurrentDirectory", lit' (fmap Text.pack Dir.getCurrentDirectory)),
-      ("Directory.listDirectory", lit' (fmap (fmap Text.pack) . Dir.listDirectory . Text.unpack)),
-      ("Directory.setCurrentDirectory", lit' (Dir.setCurrentDirectory . Text.unpack)),
-      ("Directory.renameFile", lit' (\x y -> Dir.renameFile (Text.unpack x) (Text.unpack y))),
-      ("Directory.copyFile", lit' (\x y -> Dir.copyFile (Text.unpack x) (Text.unpack y))),
-      ("Directory.removeFile", lit' (\x -> Dir.removeFile (Text.unpack x))),
+      lit' "Directory.createDirectoryIfMissing" (\b f -> Dir.createDirectoryIfMissing b (Text.unpack f)),
+      lit' "Directory.createDirectory" (Dir.createDirectory . Text.unpack),
+      lit' "Directory.getCurrentDirectory" (fmap Text.pack Dir.getCurrentDirectory),
+      lit' "Directory.listDirectory" (fmap (fmap Text.pack) . Dir.listDirectory . Text.unpack),
+      lit' "Directory.setCurrentDirectory" (Dir.setCurrentDirectory . Text.unpack),
+      lit' "Directory.renameFile" (\x y -> Dir.renameFile (Text.unpack x) (Text.unpack y)),
+      lit' "Directory.copyFile" (\x y -> Dir.copyFile (Text.unpack x) (Text.unpack y)),
+      lit' "Directory.removeFile" (\x -> Dir.removeFile (Text.unpack x)),
       -- Process
-      ("Process.proc", lit' $ \n xs -> proc (Text.unpack n) (map Text.unpack xs)),
-      ("Process.setEnv", lit' $ Process.setEnv @() @() @() . map (bimap Text.unpack Text.unpack)),
-
+      lit' "Process.proc" $ \n xs -> proc (Text.unpack n) (map Text.unpack xs),
+      lit' "Process.setEnv" $ Process.setEnv @() @() @() . map (bimap Text.unpack Text.unpack),
       -- Exit
-      ("Exit.ExitSuccess", lit' Exit.ExitSuccess),
-      ("Exit.ExitFailure", lit' Exit.ExitFailure),
+      lit' "Exit.ExitSuccess" Exit.ExitSuccess,
+      lit' "Exit.ExitFailure" Exit.ExitFailure,
       -- Lists
-      ("List.and", lit' (List.and @[])),
-      ("List.or", lit' (List.or @[])),
+      lit' "List.and" (List.and @[]),
+      lit' "List.or" (List.or @[]),
       -- Json
-      ("Json.decode", lit' (Json.decode . L.fromStrict :: ByteString -> Maybe Value)),
-      ("Json.encode", lit' (L.toStrict . Json.encode :: Value -> ByteString)),
-      ("Json.Number", lit' (Json.toJSON :: Double -> Value)),
-      ("Json.String", lit' (Json.toJSON :: Text -> Value)),
-      ("Json.Bool", lit' (Json.toJSON :: Bool -> Value)),
-      ("Json.Null", lit' Json.Null),
-      ("Json.Array", lit' (Json.toJSON :: Vector Value -> Value)),
-      ("Json.Object", lit' (Json.toJSON :: Map Text Value -> Value)),
+      lit' "Json.decode" (Json.decode . L.fromStrict :: ByteString -> Maybe Value),
+      lit' "Json.encode" (L.toStrict . Json.encode :: Value -> ByteString),
+      lit' "Json.Number" (Json.toJSON :: Double -> Value),
+      lit' "Json.String" (Json.toJSON :: Text -> Value),
+      lit' "Json.Bool" (Json.toJSON :: Bool -> Value),
+      lit' "Json.Null" Json.Null,
+      lit' "Json.Array" (Json.toJSON :: Vector Value -> Value),
+      lit' "Json.Object" (Json.toJSON :: Map Text Value -> Value),
       -- Records
-      ("hell:Hell.NilR", lit' NilR),
+      lit' "hell:Hell.NilR" NilR,
       -- Nullary
-      ("hell:Hell.Nullary", lit' Nullary),
+      lit' "hell:Hell.Nullary" Nullary,
       -- Options
-      ("Options.switch", lit' Options.switch),
-      ("Options.strOption", lit' (Options.strOption @Text)),
-      ("Options.strArgument", lit' (Options.strArgument @Text))
+      lit' "Options.switch" Options.switch,
+      lit' "Options.strOption" (Options.strOption @Text),
+      lit' "Options.strArgument" (Options.strArgument @Text)
     ]
   where
-    lit' :: forall a. (Type.Typeable a) => a -> (UTerm (), SomeTypeRep)
-    lit' x = (lit x, SomeTypeRep $ Type.typeOf x)
+    lit' :: forall a. (Type.Typeable a) => String -> a -> (String, (UTerm (), SomeTypeRep))
+    lit' str x = ( str, (lit (NameP str) x, SomeTypeRep $ Type.typeOf x) )
 
 --------------------------------------------------------------------------------
 -- Derive prims TH
@@ -1712,7 +1715,7 @@ tuple' _ = error "Bad compile-time lookup for tuple'."
 unsafeGetForall :: String -> HSE.SrcSpanInfo -> UTerm ()
 unsafeGetForall key l = Maybe.fromMaybe (error $ "Bad compile-time lookup for " ++ key) $ do
   (forall', vars, irep, _) <- Map.lookup key polyLits
-  pure (UForall l () [] forall' vars irep [])
+  pure (UForall (NameP key) l () [] forall' vars irep [])
 
 --------------------------------------------------------------------------------
 -- Hidden terms and types, implementation-detail, used by Hell
@@ -1971,7 +1974,7 @@ elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty .
         body' <- local (Map.union vars) $ go body
         let ty = IFun a (typeOf body')
         pure $ ULam l ty binding mstarType body'
-      UForall l () types forall' uniqs polyRep _ -> do
+      UForall prim l () types forall' uniqs polyRep _ -> do
         -- Generate variables for each unique.
         vars <- for uniqs \uniq -> do
           v <- freshIMetaVar l
@@ -1985,7 +1988,7 @@ elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty .
         for_ (zip vars types) \((_uniq, var), someTypeRep) ->
           equal l (fromSomeType someTypeRep) (IVar var)
         -- Done!
-        pure $ UForall l monoType types forall' uniqs polyRep (map (IVar . snd) vars)
+        pure $ UForall prim l monoType types forall' uniqs polyRep (map (IVar . snd) vars)
 
 bindingVars :: HSE.SrcSpanInfo -> IRep IMetaVar -> Binding -> StateT Elaborate (Either ElaborateError) (Map String (IRep IMetaVar))
 bindingVars _ irep (Singleton name) = pure $ Map.singleton name irep
