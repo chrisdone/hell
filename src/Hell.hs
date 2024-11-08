@@ -134,8 +134,14 @@ dispatch (Run filePath) = do
                                        let action :: IO () = eval () ex
                                        in action
                                      Nothing -> error $ "Type isn't IO (), but: " ++ show t
-                              else
-                                putStrLn $ toJS uterm
+                              else do
+                                putStrLn ""
+                                let thd (_,_,x) = x
+                                mapM_ (\x -> do
+                                  Text.putStr $ thd x
+                                  Text.putStrLn ";") $ supportedLits
+                                putStrLn $ "const main = " ++ toJS uterm ++ ";"
+                                putStrLn "console.log(main);"
 dispatch (Check filePath) = do
   result <- parseFile filePath
   case result of
@@ -324,7 +330,9 @@ data Forall where
     (((a -> a) -> Tagged t (Record r) -> Tagged t (Record r)) -> Forall) -> Forall
   Final :: (forall g. Typed (Term g)) -> Forall
 
-data Prim = LitP (HSE.Literal HSE.SrcSpanInfo) | NameP String | UnitP
+data Prim = LitP (HSE.Literal HSE.SrcSpanInfo)
+  | NameP String
+  | UnitP
 
 lit :: Type.Typeable a => Prim -> a -> UTerm ()
 lit name = litWithSpan name HSE.noSrcSpan
@@ -596,10 +604,10 @@ desugarQName scope globals qname [] =
       | Just uterm  <- Map.lookup string globals ->
         pure uterm
     HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string)
-      | Just (uterm, _) <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
+      | Just (uterm, _, _) <- Map.lookup (prefix ++ "." ++ string) supportedLits ->
         pure $ uterm
     HSE.UnQual _ (HSE.Symbol _ string)
-      | Just (uterm, _) <- Map.lookup string supportedLits ->
+      | Just (uterm, _, _) <- Map.lookup string supportedLits ->
         pure $ uterm
     _ -> desugarPolyQName qname []
 desugarQName _ _ qname treps = desugarPolyQName qname treps
@@ -842,7 +850,7 @@ supportedTypeConstructors = Map.fromList [
 --------------------------------------------------------------------------------
 -- Support primitives
 
-supportedLits :: Map String (UTerm (), SomeTypeRep)
+supportedLits :: Map String (UTerm (), SomeTypeRep, Text)
 supportedLits = Map.fromList [
    -- -- Text I/O
    -- ("Text.putStrLn", lit' t_putStrLn),
@@ -860,7 +868,8 @@ supportedLits = Map.fromList [
    -- -- Text operations
    -- ("Text.decodeUtf8", lit' Text.decodeUtf8),
    -- ("Text.encodeUtf8", lit' Text.encodeUtf8),
-   ("Text.eq", lit' (NameP "Text.eq") ((==) @Text)),
+   ("Text.eq", lit' (NameP "Text.eq") ((==) @Text)
+    "const Textz46eq = (a) => (b) => a == b"),
    -- ("Text.length", lit' Text.length),
    -- ("Text.concat", lit' Text.concat),
    -- ("Text.breakOn", lit' Text.breakOn),
@@ -893,7 +902,8 @@ supportedLits = Map.fromList [
    -- ("Text.interact", lit' (\f -> ByteString.interact (Text.encodeUtf8 . f. Text.decodeUtf8))),
    -- -- Int operations
    -- ("Int.show", lit' (Text.pack . show @Int)),
-   ("Int.eq", lit' (NameP "Int.eq") ((==) @Int))
+   ("Int.eq", lit' (NameP "Int.eq") ((==) @Int)
+     "const Intz46eq = (a) => (b) => a == b")
    -- ("Int.plus", lit' ((+) @Int)),
    -- ("Int.subtract", lit' (subtract @Int)),
    -- -- Double operations
@@ -962,8 +972,8 @@ supportedLits = Map.fromList [
    -- -- Records
    -- ("Record.nil", lit' NilR)
   ]
-  where lit' :: forall a. Type.Typeable a => Prim -> a -> (UTerm (), SomeTypeRep)
-        lit' p x = (lit p x, SomeTypeRep $ Type.typeOf x)
+  where lit' :: forall a. Type.Typeable a => Prim -> a -> Text -> (UTerm (), SomeTypeRep, Text)
+        lit' p x src = (lit p x, SomeTypeRep $ Type.typeOf x, src)
 
 --------------------------------------------------------------------------------
 -- Derive prims TH
@@ -1106,7 +1116,7 @@ polyLits = Map.fromList
   -- "Ord.lt" (Ord.<) :: forall a. Ord a => a -> a -> Bool
   -- "Ord.gt" (Ord.>) :: forall a. Ord a => a -> a -> Bool
   -- -- Tuples
-  "Tuple.(,)" (,) :: forall a b. a -> b -> (a,b)
+  -- "Tuple.(,)" (,) :: forall a b. a -> b -> (a,b)
   -- "Tuple.(,)" (,) :: forall a b. a -> b -> (a,b)
   -- "Tuple.(,,)" (,,) :: forall a b c. a -> b -> c -> (a,b,c)
   -- "Tuple.(,,,)" (,,,) :: forall a b c d. a -> b -> c -> d -> (a,b,c,d)
@@ -1119,7 +1129,7 @@ polyLits = Map.fromList
   -- -- Bool
   -- "Bool.bool" Bool.bool :: forall a. a -> a -> Bool -> a
   -- -- Function
-  "Function.id" Function.id :: forall a. a -> a
+  -- "Function.id" Function.id :: forall a. a -> a
   -- "Function.fix" Function.fix :: forall a. (a -> a) -> a
 
   -- -- Set
@@ -1773,7 +1783,8 @@ _generateApiDocs = do
         ul_ do
           for_ (Map.toList supportedTypeConstructors) typeConsToHtml
         h2_ "Terms"
-        let groups = Map.toList $ fmap (Left . snd) supportedLits
+        let snd3 (_,x,_) = x
+        let groups = Map.toList $ fmap (Left . snd3) supportedLits
         let groups' = Map.toList $ fmap (\(_, _, _, ty) -> Right ty) polyLits
         for_ (List.groupBy (Function.on (==) (takeWhile (/= '.') . fst)) $ List.sortOn fst $ groups <> groups') \group -> do
           h3_ $ for_ (take 1 group) \(x, _) -> toHtml $ takeWhile (/='.') x

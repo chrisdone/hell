@@ -1,6 +1,5 @@
 #!/usr/bin/env hell
--- const Tuplez46z40z44z41 = (a) => (b) => [a,b]
--- const Textz46eq = (a) => (b) => a == b
-main = Main.f (1,2)
 
-f = \(x,y) -> Int.eq x y
+main = Main.f 1 2
+
+f = \x -> \y -> Int.eq x y
