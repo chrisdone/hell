@@ -1848,5 +1848,5 @@ toJS = \case
 zzEncode :: [Char] -> [Char]
 zzEncode = concatMap z where
   z 'z' = "zz"
-  z c | isAlphaNum c = [c]
+  z c | isAlpha c = [c]
       | otherwise = "z" ++ show (ord c)
