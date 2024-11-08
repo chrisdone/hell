@@ -1,5 +1,5 @@
 #!/usr/bin/env hell
 
-main = Main.f 1 2
+main = [Main.f 1 2, Int.eq 34 99]
 
 f = \x -> \y -> Int.eq x y

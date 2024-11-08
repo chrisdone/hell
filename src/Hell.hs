@@ -135,13 +135,17 @@ dispatch (Run filePath) = do
                                        in action
                                      Nothing -> error $ "Type isn't IO (), but: " ++ show t
                               else do
-                                putStrLn ""
+                                putStrLn "\n(() => {"
                                 let thd (_,_,x) = x
                                 mapM_ (\x -> do
                                   Text.putStr $ thd x
                                   Text.putStrLn ";") $ supportedLits
+                                mapM_ (\(_,_,_,_,x) -> do
+                                  putStr x
+                                  Text.putStrLn ";") $ polyLits
                                 putStrLn $ "const main = " ++ toJS uterm ++ ";"
                                 putStrLn "console.log(main);"
+                                putStrLn "})();"
 dispatch (Check filePath) = do
   result <- parseFile filePath
   case result of
@@ -617,10 +621,10 @@ desugarPolyQName qname treps =
   case qname of
     HSE.Qual l (HSE.ModuleName _ prefix) (HSE.Ident _ string)
       | let str = (prefix ++ "." ++ string),
-        Just (forall', vars, irep, _) <- Map.lookup str polyLits -> do
+        Just (forall', vars, irep, _, _) <- Map.lookup str polyLits -> do
         pure (UForall (NameP str) l () treps forall' vars irep [])
     HSE.UnQual l (HSE.Symbol _ string)
-      | Just (forall', vars, irep, _) <- Map.lookup string polyLits -> do
+      | Just (forall', vars, irep, _, _) <- Map.lookup string polyLits -> do
         pure (UForall (NameP string) l () treps forall' vars irep [])
     HSE.Special l (HSE.UnitCon{}) ->
       pure $ litWithSpan UnitP l ()
@@ -869,7 +873,7 @@ supportedLits = Map.fromList [
    -- ("Text.decodeUtf8", lit' Text.decodeUtf8),
    -- ("Text.encodeUtf8", lit' Text.encodeUtf8),
    ("Text.eq", lit' (NameP "Text.eq") ((==) @Text)
-    "const Textz46eq = (a) => (b) => a == b"),
+    "const Text$eq = (a) => (b) => a == b"),
    -- ("Text.length", lit' Text.length),
    -- ("Text.concat", lit' Text.concat),
    -- ("Text.breakOn", lit' Text.breakOn),
@@ -903,7 +907,7 @@ supportedLits = Map.fromList [
    -- -- Int operations
    -- ("Int.show", lit' (Text.pack . show @Int)),
    ("Int.eq", lit' (NameP "Int.eq") ((==) @Int)
-     "const Intz46eq = (a) => (b) => a == b")
+     "const Int$eq = (a) => (b) => a == b")
    -- ("Int.plus", lit' ((+) @Int)),
    -- ("Int.subtract", lit' (subtract @Int)),
    -- -- Double operations
@@ -978,7 +982,7 @@ supportedLits = Map.fromList [
 --------------------------------------------------------------------------------
 -- Derive prims TH
 
-polyLits :: Map String (Forall, [TH.Uniq], IRep TH.Uniq, TH.Type)
+polyLits :: Map String (Forall, [TH.Uniq], IRep TH.Uniq, TH.Type, String)
 polyLits = Map.fromList
   $(let
       -- Derive well-typed primitive forms.
@@ -1009,7 +1013,7 @@ polyLits = Map.fromList
 
       -- Make a well-typed primitive form. Expects a very strict format.
       makePrim :: TH.Stmt -> Q TH.Exp
-      makePrim (TH.NoBindS (TH.SigE (TH.AppE (TH.LitE (TH.StringL string)) expr0)
+      makePrim (TH.NoBindS (TH.SigE (TH.AppE (TH.AppE (TH.LitE (TH.StringL string)) (TH.LitE (TH.StringL js))) expr0)
                    thtype@(TH.ForallT vars constraints typ))) =
         let constrained = foldl getConstraint mempty constraints
             vars0 = map (\case
@@ -1073,7 +1077,7 @@ polyLits = Map.fromList
                    t -> error $ "Did not expect this type of variable! " ++ show t)
                 finalExpr
                 vars
-        in [| (string, ($builder, $(TH.listE vars0), $(toTy typ), thtype)) |]
+        in [| (string, ($builder, $(TH.listE vars0), $(toTy typ), thtype, js)) |]
       makePrim e = error $ "Should be of the form \"Some.name\" The.name :: T\ngot: " ++ show e
 
       -- Just tells us whether a given variable is constrained by a
@@ -1085,14 +1089,14 @@ polyLits = Map.fromList
     derivePrims [| do
 
   -- Records
-  "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
-  "Record.get" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). Tagged t (Record xs) -> a
-  "Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
-  "Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
-  "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
-  -- Operators
-  "$" (Function.$) :: forall a b. (a -> b) -> a -> b
-  "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
+  -- "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
+  -- "Record.get" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). Tagged t (Record xs) -> a
+  -- "Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
+  -- "Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
+  -- "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
+  -- -- Operators
+  -- "$" (Function.$) :: forall a b. (a -> b) -> a -> b
+  -- "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
   -- -- Monad
   -- "Monad.bind" (Prelude.>>=) :: forall m a b. Monad m => m a -> (a -> m b) -> m b
   -- "Monad.then" (Prelude.>>) :: forall m a b. Monad m => m a -> m b -> m b
@@ -1142,8 +1146,8 @@ polyLits = Map.fromList
   -- "Set.size" Set.size :: forall a. Set a -> Int
   -- "Set.singleton" Set.singleton :: forall a. Ord a => a -> Set a
   -- -- Lists
-  -- "List.cons" (:) :: forall a. a -> [a] -> [a]
-  -- "List.nil" [] :: forall a. [a]
+  "List.cons" "const List$cons = (x) => (y) => [x,y]" (:) :: forall a. a -> [a] -> [a]
+  "List.nil" "const List$nil = []" [] :: forall a. [a]
   -- "List.length" List.length :: forall a. [a] -> Int
   -- "List.scanl'" List.scanl' :: forall a b. (b -> a -> b) -> b -> [a] -> [b]
   -- "List.scanr" List.scanr :: forall a b. (a -> b -> b) -> b -> [a] -> [b]
@@ -1261,7 +1265,7 @@ tuple' _ = error "Bad compile-time lookup for tuple'."
 
 unsafeGetForall :: String -> HSE.SrcSpanInfo -> UTerm ()
 unsafeGetForall key l = Maybe.fromMaybe (error $ "Bad compile-time lookup for " ++ key) $ do
-  (forall', vars, irep, _) <- Map.lookup key polyLits
+  (forall', vars, irep, _, _) <- Map.lookup key polyLits
   pure (UForall (NameP key) l () [] forall' vars irep [])
 
 -- --------------------------------------------------------------------------------
@@ -1785,7 +1789,7 @@ _generateApiDocs = do
         h2_ "Terms"
         let snd3 (_,x,_) = x
         let groups = Map.toList $ fmap (Left . snd3) supportedLits
-        let groups' = Map.toList $ fmap (\(_, _, _, ty) -> Right ty) polyLits
+        let groups' = Map.toList $ fmap (\(_, _, _, ty, _) -> Right ty) polyLits
         for_ (List.groupBy (Function.on (==) (takeWhile (/= '.') . fst)) $ List.sortOn fst $ groups <> groups') \group -> do
           h3_ $ for_ (take 1 group) \(x, _) -> toHtml $ takeWhile (/='.') x
           ul_ do
@@ -1843,10 +1847,11 @@ toJS = \case
     HSE.String _ _ string -> show string -- TODO:
     HSE.Int _ _i string -> string -- TODO:
     _ -> error "Unsupported literal."
-  UForall UnitP _ _ _ _ _ _ _ -> "0"
+  UForall UnitP _ _ _ _ _ _ _ -> "[]"
 
 zzEncode :: [Char] -> [Char]
 zzEncode = concatMap z where
   z 'z' = "zz"
+  z '.' = "$"
   z c | isAlpha c = [c]
       | otherwise = "z" ++ show (ord c)
