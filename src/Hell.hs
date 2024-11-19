@@ -1671,9 +1671,8 @@ makeModify k0 r0 a0 t0 = do
 
 -- | A variant; one of the given choices.
 data Variant xs where
-  LeftV :: forall k a xs k'' a''. a -> Variant (ConsL k a (ConsL k'' a'' xs))
+  LeftV :: forall k a xs. a -> Variant (ConsL k a xs)
   RightV :: forall k a xs k'' a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
-  SingleV :: forall k a. a -> Variant (ConsL k a NilL)
 
 -- | Accessor of a given variant. A record whose fields all correspond
 -- to the constructors of a sum type, and whose types are all `a ->
@@ -1685,7 +1684,6 @@ data Accessor (xs :: List) r where
 -- | Run a total case-analysis against a variant, given an accessor
 -- record.
 runAccessor :: Variant xs -> Accessor xs r -> r
-runAccessor (SingleV a) (ConsA f NilA) = f a
 runAccessor (LeftV a) (ConsA f _) = f a
 runAccessor (RightV xs) (ConsA _ ys) = runAccessor xs ys
 
