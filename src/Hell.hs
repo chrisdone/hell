@@ -1667,6 +1667,62 @@ makeModify k0 r0 a0 t0 = do
   pure \f record -> setter (f (getter record)) record
 
 --------------------------------------------------------------------------------
+-- Variants
+
+data Variant xs where
+  LeftV :: forall k a xs k'' a''. a -> Variant (ConsL k a (ConsL k'' a'' xs))
+  RightV :: forall k a xs k'' a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
+  SingleV :: forall k a. a -> Variant (ConsL k a NilL)
+
+-- | Make a case-analysis function @f@ given a list of variants.
+makeCase :: TypeRep (vs :: List) -> TypeRep f -> Maybe f
+makeCase l0 f0 =
+  case l0 of
+    Type.App (Type.App (Type.App consL k) a) _xs |
+     Just Type.HRefl <- Type.eqTypeRep consL (typeRep @ConsL),
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind k) (typeRep @Symbol),
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind a) (typeRep @Type) ->
+      case f0 of
+        Type.Fun a' r |
+          Just Type.HRefl <- Type.eqTypeRep a a',
+          Just Type.HRefl <- Type.eqTypeRep (typeRepKind r) (typeRep @Type) ->
+            go l0 f0
+        _ -> Nothing -- There must be at least one receiving argument.
+    _ -> Nothing -- You can't have an empty variant.
+  where
+    go :: TypeRep (ConsL k a xs) -> TypeRep (a -> r) -> Maybe (a -> r)
+    go l f = Nothing
+
+-- Construction:
+bar0 :: Variant (ConsL "Number" Double NilL)
+bar0 = SingleV 123
+
+-- Construction:
+bar :: Variant (ConsL "Unit" () (ConsL "String" Text (ConsL "Number" Double NilL)))
+bar = RightV (RightV (SingleV 123))
+
+-- Case analysis:
+foo0 :: Variant (ConsL "Number" Double NilL) -> Text
+foo0 = \v ->
+  case v of
+    SingleV @"Number" x -> Text.pack (show @Double x)
+
+-- Case analysis:
+foo :: Variant (ConsL "String" Text (ConsL "Number" Double NilL)) -> Text
+foo = \v ->
+  case v of
+    LeftV @"String" x -> x
+    RightV (SingleV @"Number" x) -> Text.pack (show @Double x)
+
+-- Case analysis:
+foo' :: Variant (ConsL "Unit" () (ConsL "String" Text (ConsL "Number" Double NilL))) -> Text
+foo' = \v ->
+  case v of
+    LeftV @"Unit" () -> "unit"
+    RightV (LeftV @"String" x) -> x
+    RightV (RightV (SingleV @"Number" x)) -> Text.pack (show @Double x)
+
+--------------------------------------------------------------------------------
 -- Pretty printing
 
 -- | Convenience.
