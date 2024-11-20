@@ -1583,7 +1583,7 @@ parseFile filePath = do
     HSE.ParseOk binds -> Right binds
 
 -- This should be quite efficient because it's essentially a pointer
--- increase. It leaves the \n so that line numbers are in tact.
+-- increase. It leaves the \n so that line numbers are intact.
 dropShebang :: Text -> Text
 dropShebang t = Maybe.fromMaybe t do
   rest <- Text.stripPrefix "#!" t
