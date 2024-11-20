@@ -1089,7 +1089,7 @@ polyLits = Map.fromList
   "Variant.right" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
   "Variant.nil" NilA :: forall r. Accessor 'NilL r
   "Variant.cons" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
-  "Variant.run" runAccessor :: forall r (xs :: List). Variant xs -> Accessor xs r -> r
+  "Variant.run" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
   -- Tagged
   "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
   -- Operators
@@ -1691,9 +1691,9 @@ data Accessor (xs :: List) r where
 
 -- | Run a total case-analysis against a variant, given an accessor
 -- record.
-runAccessor :: Variant xs -> Accessor xs r -> r
-runAccessor (LeftV a) (ConsA f _) = f a
-runAccessor (RightV xs) (ConsA _ ys) = runAccessor xs ys
+runAccessor :: Tagged s (Variant xs) -> Accessor xs r -> r
+runAccessor (Tagged (LeftV a)) (ConsA f _) = f a
+runAccessor (Tagged (RightV xs)) (ConsA _ ys) = runAccessor (Tagged xs) ys
 
 --------------------------------------------------------------------------------
 -- Pretty printing

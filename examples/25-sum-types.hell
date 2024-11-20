@@ -1,0 +1,21 @@
+_Number = Tagged.Tagged @"Main.Value" . Variant.left @"Main.Number" @Int
+_Text = Tagged.Tagged @"Main.Value" . Variant.right . Variant.left @"Main.Text" @Text
+
+-- Equivalent to:
+--
+-- data Value = Number Int | Text Text
+
+main = do
+  let printIt = \x ->
+        Text.putStrLn $ Variant.run
+          x
+          $ Variant.cons @"Main.Number" (\i -> Show.show i) $
+             Variant.cons @"Main.Text" (\t -> t) $
+               Variant.nil
+        -- Equivalent to:
+        -- Text.putStrLn case x of
+        --   Number i -> Show.show i
+        --   Text t -> t
+
+  printIt $ Main._Number 123
+  printIt $ Main._Text "abc"
