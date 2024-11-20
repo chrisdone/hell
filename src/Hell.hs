@@ -838,6 +838,7 @@ supportedTypeConstructors = Map.fromList [
   ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig),
   ("Tagged", SomeTypeRep $ typeRep @Tagged),
   ("Record", SomeTypeRep $ typeRep @Record),
+  ("Variant", SomeTypeRep $ typeRep @Variant),
   ("NilL", SomeTypeRep $ typeRep @('NilL)),
   ("ConsL", SomeTypeRep $ typeRep @('ConsL)),
   ("()", SomeTypeRep $ typeRep @())
@@ -1083,6 +1084,13 @@ polyLits = Map.fromList
   "Record.get" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). Tagged t (Record xs) -> a
   "Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
   "Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
+  -- Variants
+  "Variant.left" LeftV :: forall (k :: Symbol) a (xs :: List). a -> Variant (ConsL k a xs)
+  "Variant.right" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
+  "Variant.nil" NilA :: forall r. Accessor 'NilL r
+  "Variant.cons" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
+  "Variant.run" runAccessor :: forall r (xs :: List). Variant xs -> Accessor xs r -> r
+  -- Tagged
   "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
   -- Operators
   "$" (Function.$) :: forall a b. (a -> b) -> a -> b
@@ -1670,7 +1678,7 @@ makeModify k0 r0 a0 t0 = do
 -- Variants
 
 -- | A variant; one of the given choices.
-data Variant xs where
+data Variant (xs :: List) where
   LeftV :: forall k a xs. a -> Variant (ConsL k a xs)
   RightV :: forall k a xs k'' a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
 
