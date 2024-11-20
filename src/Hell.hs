@@ -175,15 +175,82 @@ dispatch (Check filePath) = do
 -- Get declarations from the module
 
 parseModule :: HSE.Module HSE.SrcSpanInfo -> HSE.ParseResult [(String, HSE.Exp HSE.SrcSpanInfo)]
-parseModule (HSE.Module _ Nothing [] [] decls) =
-  traverse parseDecl decls
+parseModule (HSE.Module _ Nothing [] [] decls) = do
+  things <- fmap concat $ traverse parseDecl decls
+  let names = map fst things
+  if Set.size (Set.fromList names) == length names
+     then pure things
+     else fail "Duplicate names!"
   where
     parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
-          pure (string, exp')
+          pure [(string, exp')]
     parseDecl (HSE.DataDecl _ HSE.DataType{} Nothing (HSE.DHead _ name) [qualConDecl] []) =
-          parseDataDecl name qualConDecl
+          fmap (:[]) $ parseDataDecl name qualConDecl
+    parseDecl (HSE.DataDecl _ HSE.DataType{} Nothing (HSE.DHead _ name) qualConDecls []) =
+          parseSumDecl name qualConDecls
     parseDecl _ = fail "Can't parse that!"
 parseModule _ = fail "Module headers aren't supported."
+
+-- data Value = Text Text | Number Int
+-- \ x ->
+--   Tagged.Tagged @"Main.Value"
+--     @(Variant (ConsL "Number" Int (ConsL "Text" Text NilL)))
+--     (Variant.left @"Number" x)
+-- \ x ->
+--   Tagged.Tagged @"Main.Value"
+--     @(Variant (ConsL "Number" Int (ConsL "Text" Text NilL)))
+--     (Variant.right (Variant.left @"Text" x))
+parseSumDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> [HSE.QualConDecl l] -> HSE.ParseResult [(String, HSE.Exp HSE.SrcSpanInfo)]
+parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
+  conDecls <- fmap Map.fromList $ traverse parseConDecl conDecls0
+  let variantType = desugarVariantType $ Map.toList conDecls
+  -- Note: the constructors are sorted by name, to provide a canonical ordering.
+  pure $ map (makeCons conDecls variantType) $ Map.toList conDecls
+      where l = HSE.noSrcSpan
+            makeCons conDecls variantType (conName, _) = (conName, expr) where
+              expr =
+                HSE.Lambda l [HSE.PVar l (HSE.Ident l "x")] $
+                  appTagged tyname variantType $
+                    desugarVariantCon (Map.keys conDecls) conName
+            appTagged name ty =
+              HSE.App l $ HSE.App l
+                    (HSE.App l
+                      (HSE.Con l (HSE.Qual l (HSE.ModuleName l "Tagged") (HSE.Ident l "Tagged")))
+                      (HSE.TypeApp l (tySym $ "Main." ++ name)))
+                    (HSE.TypeApp l ty)
+                where
+                tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+parseSumDecl _ _ =
+  fail "Sum type declaration not in supported format."
+
+desugarVariantCon :: [String] -> String -> HSE.Exp HSE.SrcSpanInfo
+desugarVariantCon cons thisCon = rights $ left where
+  right _ =
+    HSE.Var l (HSE.Qual l (HSE.ModuleName l "Variant") (HSE.Ident l "right"))
+  rights e = foldr (HSE.App l) e $ map right $ takeWhile (/= thisCon) cons
+  left =
+    HSE.App l (HSE.App l (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Variant") (HSE.Ident l "left")))
+                  (HSE.TypeApp l (tySym thisCon)))
+      (HSE.Var l (HSE.UnQual l (HSE.Ident l "x")))
+  tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+  l = HSE.noSrcSpan
+
+desugarVariantType :: [(String, HSE.Type HSE.SrcSpanInfo)] -> HSE.Type HSE.SrcSpanInfo
+desugarVariantType = appRecord . foldr appCons nilL where
+  appCons (name, typ) rest =
+    HSE.TyApp l (HSE.TyApp l (HSE.TyApp l consL (tySym name)) typ) rest
+  appRecord x =
+    HSE.TyParen l ( HSE.TyApp l recordT x )
+  tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+  nilL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "NilL"))
+  consL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "ConsL"))
+  recordT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Variant"))
+  l = HSE.noSrcSpan
+
+parseConDecl :: MonadFail f => HSE.QualConDecl l -> f (String, HSE.Type l)
+parseConDecl (HSE.QualConDecl _ Nothing Nothing (HSE.ConDecl _ (HSE.Ident _ consName) [slot])) =
+  pure (consName, slot)
+parseConDecl _ = fail "Unsupported constructor declaration format."
 
 parseDataDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> HSE.QualConDecl l -> HSE.ParseResult (String, HSE.Exp HSE.SrcSpanInfo)
 parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDecl _ (HSE.Ident _ consName) fields)) = do
@@ -202,7 +269,7 @@ parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDe
             _ -> fail "Invalid field name."
           pure $ map (, typ) names'
 parseDataDecl _ _ =
-  fail "Data declaration not in supported format."
+  fail "Record declaration not in supported format."
 
 makeConstructor :: String -> [(String, HSE.Type HSE.SrcSpanInfo)] -> HSE.Exp HSE.SrcSpanInfo
 makeConstructor name = appTagged . desugarRecordType where
@@ -234,7 +301,7 @@ makeConstructRecord qname fields =
                    f -> error $ "Invalid field: " ++ show f
                    )
                      fields
-  where   l = HSE.noSrcSpan
+  where l = HSE.noSrcSpan
 
 desugarRecordType :: [(String, HSE.Type HSE.SrcSpanInfo)] -> HSE.Type HSE.SrcSpanInfo
 desugarRecordType = appRecord . foldr appCons nilL where
@@ -531,6 +598,9 @@ desugarExp :: Map String (UTerm ()) -> HSE.Exp HSE.SrcSpanInfo ->
    Either DesugarError (UTerm ())
 desugarExp globals = go mempty where
   go scope = \case
+    HSE.Case l e alts -> do
+      e' <- desugarCase l e alts
+      go scope e'
     HSE.Paren _ x -> go scope x
     HSE.If l i t e ->
       (\e' t' i' -> UApp l () (UApp l () (UApp l () (bool' l) e') t') i')
@@ -588,6 +658,37 @@ desugarExp globals = go mempty where
       squash stmts >>= go scope
     HSE.RecConstr _ qname fields -> go scope $ makeConstructRecord qname fields
     e -> Left $ UnsupportedSyntax $ show e
+
+-- Generates this:
+--
+-- Variant.run
+--           x
+--           $ Variant.cons @"Main.Number" (\i -> Show.show i) $
+--              Variant.cons @"Main.Text" (\t -> t) $
+--                Variant.nil
+desugarCase :: HSE.SrcSpanInfo -> HSE.Exp HSE.SrcSpanInfo -> [HSE.Alt HSE.SrcSpanInfo] -> Either DesugarError (HSE.Exp HSE.SrcSpanInfo)
+desugarCase _ _ [] = Left $ UnsupportedSyntax "empty case"
+desugarCase l scrutinee xs = do
+  alts <- fmap (List.sortBy (Ord.comparing fst)) $ traverse desugarAlt xs
+  pure $
+    HSE.App l (HSE.App l run scrutinee)
+    $ foldr (HSE.App l) nil $ map snd alts
+  where tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+        nil = (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Variant")
+                                                        (HSE.Ident l "nil")))
+        run = (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Variant")
+                                                        (HSE.Ident l "run")))
+        desugarAlt (HSE.Alt l' (HSE.PApp _ (HSE.UnQual _ (HSE.Ident _ name))
+                              [HSE.PVar _ (HSE.Ident _ x)])
+                              (HSE.UnGuardedRhs _ e)
+                              _) =
+          -- Variant.cons @name (\x -> e)
+          pure $ (name, ) $
+            HSE.App l' (HSE.App l' (HSE.Var l' (HSE.Qual l' (HSE.ModuleName l' "Variant")
+                                                        (HSE.Ident l' "cons")))
+                                 (HSE.TypeApp l' (tySym name)))
+                (HSE.Lambda l' [HSE.PVar l' (HSE.Ident l' x)] e)
+        desugarAlt _ = Left $ UnsupportedSyntax "case alternative syntax"
 
 bindingStrings :: Binding -> [String]
 bindingStrings (Singleton string) = [string]
