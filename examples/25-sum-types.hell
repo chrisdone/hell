@@ -1,0 +1,10 @@
+data Value = Text Text | Number Int
+
+main = do
+  let printIt = \x ->
+        Text.putStrLn case x of
+          Number i -> Show.show i
+          Text t -> t
+  printIt $ Main.Number 123
+  printIt $ Main.Text "abc"
+  Monad.mapM_ printIt [Main.Number 123,Main.Text "abc"]
