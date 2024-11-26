@@ -972,6 +972,7 @@ supportedTypeConstructors = Map.fromList [
   ("hell:Hell.Nullary", SomeTypeRep $ typeRep @Nullary)
   ]
 
+-- | Used for constructors with no slot. E.g. True :: Nullary -> Bool
 data Nullary = Nullary
 
 --------------------------------------------------------------------------------
