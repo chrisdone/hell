@@ -1001,12 +1001,14 @@ supportedLits = Map.fromList [
    ("Int.show", lit' (Text.pack . show @Int)),
    ("Int.eq", lit' ((==) @Int)),
    ("Int.plus", lit' ((+) @Int)),
+   ("Int.mult", lit' ((*) @Int)),
    ("Int.subtract", lit' (subtract @Int)),
    -- Double operations
    ("Double.fromInt", lit' (fromIntegral :: Int -> Double)),
    ("Double.show", lit' (Text.pack . show @Double)),
    ("Double.eq", lit' ((==) @Double)),
    ("Double.plus", lit' ((+) @Double)),
+   ("Double.mult", lit' ((*) @Double)),
    ("Double.subtract", lit' (subtract @Double)),
    -- Bytes I/O
    ("ByteString.hGet", lit' ByteString.hGet),
