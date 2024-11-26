@@ -207,11 +207,16 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
   -- Note: the constructors are sorted by name, to provide a canonical ordering.
   pure $ map (makeCons conDecls variantType) $ Map.toList conDecls
       where l = HSE.noSrcSpan
-            makeCons conDecls variantType (conName, _) = (conName, expr) where
-              expr =
-                HSE.Lambda l [HSE.PVar l (HSE.Ident l "x")] $
-                  appTagged tyname variantType $
-                    desugarVariantCon (Map.keys conDecls) conName
+            makeCons conDecls variantType (conName, typ)
+              | HSE.TyCon _ (HSE.Qual _ (HSE.ModuleName _ "hell:Hell") (HSE.Ident _ "Nullary")) <- typ
+                = (conName, appTagged tyname variantType $
+                       desugarVariantCon True (Map.keys conDecls) conName)
+              | otherwise = (conName, expr)
+                where
+                  expr =
+                   HSE.Lambda l [HSE.PVar l (HSE.Ident l "x")] $
+                     appTagged tyname variantType $
+                       desugarVariantCon False (Map.keys conDecls) conName
             appTagged name ty =
               HSE.App l $ HSE.App l
                     (HSE.App l
@@ -223,15 +228,19 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
 parseSumDecl _ _ =
   fail "Sum type declaration not in supported format."
 
-desugarVariantCon :: [String] -> String -> HSE.Exp HSE.SrcSpanInfo
-desugarVariantCon cons thisCon = rights $ left where
+desugarVariantCon :: Bool -> [String] -> String -> HSE.Exp HSE.SrcSpanInfo
+desugarVariantCon nullary cons thisCon = rights $ left where
   right _ =
     HSE.Var l (HSE.Qual l (HSE.ModuleName l "Variant") (HSE.Ident l "right"))
   rights e = foldr (HSE.App l) e $ map right $ takeWhile (/= thisCon) cons
   left =
-    HSE.App l (HSE.App l (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Variant") (HSE.Ident l "left")))
-                  (HSE.TypeApp l (tySym thisCon)))
+    if nullary then HSE.App l left0
+      (HSE.Con l (HSE.Qual l (HSE.ModuleName l "hell:Hell") (HSE.Ident l "Nullary"))) else
+      HSE.App l left0
       (HSE.Var l (HSE.UnQual l (HSE.Ident l "x")))
+      where left0 =
+              (HSE.App l (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Variant") (HSE.Ident l "left")))
+                  (HSE.TypeApp l (tySym thisCon)))
   tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
   l = HSE.noSrcSpan
 
@@ -250,6 +259,9 @@ desugarVariantType = appRecord . foldr appCons nilL where
 parseConDecl :: MonadFail f => HSE.QualConDecl l -> f (String, HSE.Type l)
 parseConDecl (HSE.QualConDecl _ Nothing Nothing (HSE.ConDecl _ (HSE.Ident _ consName) [slot])) =
   pure (consName, slot)
+parseConDecl (HSE.QualConDecl l Nothing Nothing (HSE.ConDecl _ (HSE.Ident _ consName) [])) =
+  pure (consName, HSE.TyCon l (HSE.Qual l (HSE.ModuleName l "hell:Hell")
+        (HSE.Ident l "Nullary")))
 parseConDecl _ = fail "Unsupported constructor declaration format."
 
 parseDataDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> HSE.QualConDecl l -> HSE.ParseResult (String, HSE.Exp HSE.SrcSpanInfo)
@@ -688,6 +700,17 @@ desugarCase l scrutinee xs = do
                                                         (HSE.Ident l' "cons")))
                                  (HSE.TypeApp l' (tySym name)))
                 (HSE.Lambda l' [HSE.PVar l' (HSE.Ident l' x)] e)
+        -- Nullary constructor
+        desugarAlt (HSE.Alt l' (HSE.PApp _ (HSE.UnQual _ (HSE.Ident _ name))
+                              [])
+                              (HSE.UnGuardedRhs _ e)
+                              _) =
+          -- Variant.cons @name (\_ -> e)
+          pure $ (name, ) $
+            HSE.App l' (HSE.App l' (HSE.Var l' (HSE.Qual l' (HSE.ModuleName l' "Variant")
+                                                        (HSE.Ident l' "cons")))
+                                 (HSE.TypeApp l' (tySym name)))
+                (HSE.Lambda l' [HSE.PVar l' (HSE.Ident l' "_")] e)
         desugarAlt _ = Left $ UnsupportedSyntax "case alternative syntax"
 
 bindingStrings :: Binding -> [String]
@@ -768,6 +791,9 @@ desugarSomeType = go where
     HSE.TyParen _ x -> go x
     HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ name))
       | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
+    HSE.TyCon _ (HSE.Qual _ (HSE.ModuleName _ m) (HSE.Ident _ name))
+      | Just rep <- Map.lookup (m <> "." <> name) supportedTypeConstructors
+        -> pure rep
     HSE.TyCon _ (HSE.Special _ HSE.UnitCon{}) -> pure $ StarTypeRep $ typeRep @()
     HSE.TyList _ inner -> do
       rep <- go inner
@@ -942,8 +968,11 @@ supportedTypeConstructors = Map.fromList [
   ("Variant", SomeTypeRep $ typeRep @Variant),
   ("NilL", SomeTypeRep $ typeRep @('NilL)),
   ("ConsL", SomeTypeRep $ typeRep @('ConsL)),
-  ("()", SomeTypeRep $ typeRep @())
+  ("()", SomeTypeRep $ typeRep @()),
+  ("hell:Hell.Nullary", SomeTypeRep $ typeRep @Nullary)
   ]
+
+data Nullary = Nullary
 
 --------------------------------------------------------------------------------
 -- Support primitives
@@ -1068,7 +1097,9 @@ supportedLits = Map.fromList [
    ("Json.Array", lit' (Json.toJSON :: Vector Value -> Value)),
    ("Json.Object", lit' (Json.toJSON :: Map Text Value -> Value)),
    -- Records
-   ("Record.nil", lit' NilR)
+   ("Record.nil", lit' NilR),
+   -- Nullary
+   ("hell:Hell.Nullary", lit' Nullary)
   ]
   where lit' :: forall a. Type.Typeable a => a -> (UTerm (), SomeTypeRep)
         lit' x = (lit x, SomeTypeRep $ Type.typeOf x)
