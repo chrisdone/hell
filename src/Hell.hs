@@ -1311,7 +1311,7 @@ polyLits = Map.fromList
   "List.mapAccumR" List.mapAccumL :: forall s a b. (s -> a -> (s, b)) -> s -> [a] -> (s, [b])
   "List.zipWith" List.zipWith :: forall a b c. (a -> b -> c) -> [a] -> [b] -> [c]
   "List.lookup" List.lookup :: forall a b. Eq a => a -> [(a,b)] -> Maybe b
-  "List.find" List.find :: forall a b. (a -> Bool) -> [a] -> Maybe a
+  "List.find" List.find :: forall a. (a -> Bool) -> [a] -> Maybe a
   "List.sort" List.sort :: forall a. Ord a => [a] -> [a]
   "List.group" List.group :: forall a. Eq a => [a] -> [[a]]
   "List.isPrefixOf" List.isPrefixOf :: forall a. Eq a => [a] -> [a] -> Bool
