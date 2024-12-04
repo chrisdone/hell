@@ -1555,7 +1555,7 @@ fromSomeType (SomeTypeRep r) = go r where
 --------------------------------------------------------------------------------
 -- Inference elaboration phase
 
-newtype IMetaVar = IMetaVar0 Int
+data IMetaVar = IMetaVar0 { index :: Int, srcSpanInfo :: HSE.SrcSpanInfo }
   deriving (Ord, Eq, Show)
 
 data Elaborate = Elaborate {
@@ -1597,13 +1597,13 @@ elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty .
     UApp l () f x -> do
       f' <- go f
       x' <- go x
-      b <- fmap IVar freshIMetaVar
+      b <- fmap IVar $ freshIMetaVar l
       equal l (typeOf f') (IFun (typeOf x') b)
       pure $ UApp l b f' x'
     ULam l () binding mstarType body -> do
       a <- case mstarType of
         Just ty -> pure $ fromSomeStarType ty
-        Nothing -> fmap IVar freshIMetaVar
+        Nothing -> fmap IVar $ freshIMetaVar l
       vars <- lift $ bindingVars l a binding
       body' <- local (Map.union vars) $ go body
       let ty = IFun a (typeOf body')
@@ -1611,7 +1611,7 @@ elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty .
     UForall l () types forall' uniqs polyRep _ -> do
       -- Generate variables for each unique.
       vars <- for uniqs \uniq -> do
-        v <- freshIMetaVar
+        v <- freshIMetaVar l
         pure (uniq, v)
       -- Fill in the polyRep with the metavars.
       monoType <- for polyRep \uniq ->
@@ -1627,7 +1627,7 @@ elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty .
 bindingVars :: HSE.SrcSpanInfo -> IRep IMetaVar -> Binding -> StateT Elaborate (Either ElaborateError) (Map String (IRep IMetaVar))
 bindingVars _ irep (Singleton name) = pure $ Map.singleton name irep
 bindingVars l tupleVar (Tuple names) = do
-  varsTypes <- for names \name -> fmap (name, ) (fmap IVar freshIMetaVar)
+  varsTypes <- for names \name -> fmap (name, ) (fmap IVar (freshIMetaVar l))
   -- it's a left-fold:
   -- IApp (IApp (ICon (,)) x) y
   cons <- makeCons
@@ -1643,11 +1643,11 @@ bindingVars l tupleVar (Tuple names) = do
 equal :: MonadState Elaborate m => HSE.SrcSpanInfo -> IRep IMetaVar -> IRep IMetaVar -> m ()
 equal l x y = modify \elaborate' -> elaborate' { equalities = equalities elaborate' <> Set.singleton (Equality l x y) }
 
-freshIMetaVar :: MonadState Elaborate m => m IMetaVar
-freshIMetaVar = do
+freshIMetaVar :: MonadState Elaborate m => HSE.SrcSpanInfo -> m IMetaVar
+freshIMetaVar srcSpanInfo = do
   Elaborate{counter} <- get
   modify \elaborate' -> elaborate' { counter = counter + 1 }
-  pure $ IMetaVar0 counter
+  pure $ IMetaVar0 counter srcSpanInfo
 
 --------------------------------------------------------------------------------
 -- Unification
@@ -1854,7 +1854,7 @@ instance Pretty (TypeRep t) where
     ByteString.byteString (Text.encodeUtf8 $ Text.pack $ show r)
 
 instance Pretty IMetaVar where
-  pretty (IMetaVar0 i) =
+  pretty (IMetaVar0 i _) =
     "t" <>
     ByteString.byteString (Text.encodeUtf8 $ Text.pack $ show i)
 
