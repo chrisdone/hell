@@ -1512,7 +1512,7 @@ data IRep v
 
 data ZonkError
  = ZonkKindError
- | AmbiguousMetavar
+ | AmbiguousMetavar IMetaVar
  deriving (Show)
 
 -- | A complete implementation of conversion from the inferer's type
@@ -1709,7 +1709,7 @@ occurs ivar = any (==ivar)
 -- <https://stackoverflow.com/questions/31889048/what-does-the-ghc-source-mean-by-zonk>
 zonk :: IRep IMetaVar -> Either ZonkError (IRep Void)
 zonk = \case
-  IVar {} -> Left AmbiguousMetavar
+  IVar var -> Left $ AmbiguousMetavar var
   ICon c -> pure $ ICon c
   IFun a b -> IFun <$> zonk a <*> zonk b
   IApp a b -> IApp <$> zonk a <*> zonk b
@@ -1868,7 +1868,10 @@ instance Pretty a => Pretty (IRep a) where
 instance Pretty ZonkError where
   pretty = \case
     ZonkKindError -> "Kind error."
-    AmbiguousMetavar -> "Ambiguous meta variable."
+    AmbiguousMetavar imetavar ->
+      "Ambiguous meta variable: " <> pretty imetavar <> "\n" <>
+       "arising from " <>
+         pretty imetavar.srcSpanInfo
 
 instance Pretty ElaborateError where
   pretty = \case
