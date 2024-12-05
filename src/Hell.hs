@@ -90,11 +90,13 @@ import Test.Hspec
 ------------------------------------------------------------------------------
 -- Main entry point
 
+-- | Commands available.
 data Command
   = Run FilePath
   | Check FilePath
   | Version
 
+-- | Main entry point.
 main :: IO ()
 main = do
   args <- getArgs
@@ -108,6 +110,7 @@ main = do
      <> Options.progDesc "Runs and typechecks Hell scripts"
      <> Options.header "hell - A Haskell-driven scripting language" )
 
+-- | Command options.
 commandParser :: Options.Parser Command
 commandParser =
   Options.asum [
@@ -116,9 +119,22 @@ commandParser =
    Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version")
   ]
 
+-- | Dispatch on the command.
 dispatch :: Command -> IO ()
 dispatch Version = putStrLn "2024-12-04"
 dispatch (Run filePath) = do
+  action <- compileFile filePath
+  eval () action
+dispatch (Check filePath) = do
+  void $ compileFile filePath
+
+--------------------------------------------------------------------------------
+-- Compiler
+
+-- | Parses the file with HSE, desugars it, infers it, checks it,
+-- returns it. Or throws an error.
+compileFile :: FilePath -> IO (Term () (IO ()))
+compileFile filePath = do
   result <- parseFile filePath
   case result of
     Left e -> error $ e
@@ -142,34 +158,8 @@ dispatch (Run filePath) = do
                                Just Type.HRefl ->
                                  case Type.eqTypeRep t (typeRep @(IO ())) of
                                    Just Type.HRefl ->
-                                     let action :: IO () = eval () ex
-                                     in action
+                                     pure ex
                                    Nothing -> error $ "Type isn't IO (), but: " ++ show t
-dispatch (Check filePath) = do
-  result <- parseFile filePath
-  case result of
-    Left e -> error $ e
-    Right binds
-      | anyCycles binds -> error "Cyclic bindings are not supported!"
-      | otherwise ->
-            case desugarAll binds of
-              Left err -> error $ prettyString err
-              Right terms ->
-                case lookup "main" terms of
-                  Nothing -> error "No main declaration!"
-                  Just main' ->
-                    case inferExp mempty main' of
-                      Left err -> error $ prettyString err
-                      Right uterm ->
-                        case check uterm Nil of
-                           Left err -> error $ prettyString err
-                           Right (Typed t _ex) ->
-                             case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
-                               Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
-                               Just Type.HRefl ->
-                                 case Type.eqTypeRep t (typeRep @(IO ())) of
-                                   Just Type.HRefl -> pure ()
-                                   Nothing -> error $ "Type isn't IO (), but: " ++ prettyString t
 
 --------------------------------------------------------------------------------
 -- Get declarations from the module
