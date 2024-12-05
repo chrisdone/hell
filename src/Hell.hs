@@ -44,9 +44,10 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+#if __GLASGOW_HASKELL__ >= 906
+import Control.Monad
+#endif
 import qualified Control.Concurrent as Concurrent
--- Things used within the host language.
-
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Aeson (Value)
@@ -80,6 +81,8 @@ import Data.Traversable
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Data.Void
+import GHC.TypeLits
+import GHC.Types (Type)
 import qualified Language.Haskell.Exts as HSE
 import Language.Haskell.TH (Q)
 import qualified Language.Haskell.TH as TH
@@ -93,19 +96,12 @@ import qualified System.Exit as Exit
 import qualified System.IO as IO
 import System.Process.Typed as Process
 import qualified System.Timeout as Timeout
+import Test.Hspec
 import qualified Text.Read as Read
 import qualified Text.Show as Show
+import Type.Reflection (SomeTypeRep (..), TypeRep, typeRep, typeRepKind, pattern TypeRep)
 import qualified Type.Reflection as Type
 import qualified UnliftIO.Async as Async
-#if __GLASGOW_HASKELL__ >= 906
-import Control.Monad
-#endif
-import GHC.TypeLits
-import GHC.Types (Type)
--- Testing support
-
-import Test.Hspec
-import Type.Reflection (SomeTypeRep (..), TypeRep, typeRep, typeRepKind, pattern TypeRep)
 
 ------------------------------------------------------------------------------
 -- Main entry point
