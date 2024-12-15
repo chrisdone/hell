@@ -1413,7 +1413,7 @@ polyLits =
                  "Tuple.(,,)" (,,) :: forall a b c. a -> b -> c -> (a, b, c)
                  "Tuple.(,,,)" (,,,) :: forall a b c d. a -> b -> c -> d -> (a, b, c, d)
                  -- Exit
-                 "Exit.die" Exit.die :: forall a. String -> IO a
+                 "Exit.die" (Exit.die . Text.unpack) :: forall a. Text -> IO a
                  "Exit.exitWith" Exit.exitWith :: forall a. ExitCode -> IO a
                  "Exit.exitCode" exit_exitCode :: forall a. a -> (Int -> a) -> ExitCode -> a
                  -- Exceptions
