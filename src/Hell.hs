@@ -160,7 +160,7 @@ compileFile filePath = do
     Right File{terms}
       | anyCycles terms -> error "Cyclic bindings are not supported!"
       | otherwise ->
-          case desugarAll terms of
+          case desugarAll mempty terms of
             Left err -> error $ prettyString err
             Right dterms ->
               case lookup "main" dterms of
@@ -696,10 +696,11 @@ nestedTyApps = go []
     go _ _ = Nothing
 
 desugarExp ::
+  Map String SomeTypeRep ->
   Map String (UTerm ()) ->
   HSE.Exp HSE.SrcSpanInfo ->
   Either DesugarError (UTerm ())
-desugarExp globals = go mempty
+desugarExp userDefinedTypeAliases globals = go mempty
   where
     go scope = \case
       HSE.Case l e alts -> do
@@ -726,14 +727,14 @@ desugarExp globals = go mempty
               pure $ lit (dub :: Double)
         _ -> Left $ UnsupportedLiteral
       app@HSE.App {} | Just (qname, tys) <- nestedTyApps app -> do
-        reps <- traverse desugarSomeType tys
+        reps <- traverse (desugarSomeType userDefinedTypeAliases) tys
         desugarQName scope globals qname reps
       HSE.Var _ qname ->
         desugarQName scope globals qname []
       HSE.App l f x -> UApp l () <$> go scope f <*> go scope x
       HSE.InfixApp l x (HSE.QVarOp l'op f) y -> UApp l () <$> (UApp l'op () <$> go scope (HSE.Var l'op f) <*> go scope x) <*> go scope y
       HSE.Lambda l pats e -> do
-        args <- traverse desugarArg pats
+        args <- traverse (desugarArg userDefinedTypeAliases) pats
         let stringArgs = concatMap (bindingStrings . fst) args
         e' <- go (foldr Set.insert scope stringArgs) e
         pure $ foldr (\(name, ty) inner -> ULam l () name ty inner) e' args
@@ -897,19 +898,19 @@ desugarPolyQName qname treps =
       pure $ litWithSpan l ()
     _ -> Left $ InvalidVariable $ show qname
 
-desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
-desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) =
-  fmap (Singleton i,) (fmap Just (desugarStarType typ))
-desugarArg (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
+desugarArg :: Map String SomeTypeRep -> HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
+desugarArg userDefinedTypeAliases (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) =
+  fmap (Singleton i,) (fmap Just (desugarStarType userDefinedTypeAliases typ))
+desugarArg userDefinedTypeAliases (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
   | Just idents' <- traverse desugarIdent idents =
-      fmap (Tuple idents',) (fmap Just (desugarStarType typ))
-desugarArg (HSE.PVar _ (HSE.Ident _ i)) =
+      fmap (Tuple idents',) (fmap Just (desugarStarType userDefinedTypeAliases typ))
+desugarArg _ (HSE.PVar _ (HSE.Ident _ i)) =
   pure (Singleton i, Nothing)
-desugarArg (HSE.PTuple _ HSE.Boxed idents)
+desugarArg _ (HSE.PTuple _ HSE.Boxed idents)
   | Just idents' <- traverse desugarIdent idents =
       pure (Tuple idents', Nothing)
-desugarArg (HSE.PParen _ p) = desugarArg p
-desugarArg p = Left $ BadParameterSyntax $ HSE.prettyPrint p
+desugarArg userDefinedTypeAliases (HSE.PParen _ p) = desugarArg userDefinedTypeAliases p
+desugarArg _ p = Left $ BadParameterSyntax $ HSE.prettyPrint p
 
 desugarIdent :: HSE.Pat HSE.SrcSpanInfo -> Maybe String
 desugarIdent (HSE.PVar _ (HSE.Ident _ s)) = Just s
@@ -918,15 +919,17 @@ desugarIdent _ = Nothing
 --------------------------------------------------------------------------------
 -- Desugar types
 
-desugarStarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
-desugarStarType t = do
-  someRep <- desugarSomeType t
+desugarStarType :: Map String SomeTypeRep -> HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
+desugarStarType userDefinedTypeAliases t = do
+  someRep <- desugarSomeType userDefinedTypeAliases t
   case someRep of
     StarTypeRep t' -> pure (SomeStarType t')
     _ -> Left KindError
 
-desugarSomeType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
-desugarSomeType = go
+desugarSomeType ::
+  Map String SomeTypeRep ->
+  HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
+desugarSomeType userDefinedTypeAliases = go
   where
     go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
     go = \case
@@ -944,7 +947,7 @@ desugarSomeType = go
       HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ name))
         | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
       HSE.TyCon _ (HSE.Qual _ (HSE.ModuleName _ m) (HSE.Ident _ name))
-        | Just rep <- Map.lookup (m <> "." <> name) supportedTypeConstructors ->
+        | Just rep <- Map.lookup (m <> "." <> name) (supportedTypeConstructors <> userDefinedTypeAliases) ->
             pure rep
       HSE.TyCon _ (HSE.Special _ HSE.UnitCon {}) -> pure $ StarTypeRep $ typeRep @()
       HSE.TyList _ inner -> do
@@ -996,22 +999,43 @@ desugarTypeSpec = do
     shouldBe (try "()") (Right (SomeStarType $ typeRep @()))
     shouldBe (try "[Int]") (Right (SomeStarType $ typeRep @[Int]))
   where
-    try e = case fmap (desugarStarType) $ HSE.parseType e of
+    try e = case fmap (desugarStarType mempty) $ HSE.parseType e of
       HSE.ParseOk r -> r
       _ -> error "Parse failed."
 
 --------------------------------------------------------------------------------
 -- Desugar all bindings
 
-desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Either DesugarError [(String, UTerm ())]
-desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stronglyConnected
+desugarAll ::
+  Map String (HSE.Type HSE.SrcSpanInfo) ->
+  [(String, HSE.Exp HSE.SrcSpanInfo)]
+   -> Either DesugarError [(String, UTerm ())]
+desugarAll types0 terms0 = do
+  types <-
+    pure mempty
+    -- flip execStateT Map.empty $
+    --   traverse goType $ Graph.flattenSCCs $ stronglyConnected $ types0
+  terms <- flip evalStateT Map.empty $
+    traverse (goTerm types) $ Graph.flattenSCCs $ stronglyConnected $ terms0
+  pure terms
   where
-    go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String (UTerm ())) (Either DesugarError) (String, UTerm ())
-    go (name, expr) = do
+    goTerm ::
+      Map String SomeTypeRep
+      -> (String, HSE.Exp HSE.SrcSpanInfo)
+      -> StateT (Map String (UTerm ())) (Either DesugarError) (String, UTerm ())
+    goTerm userDefinedTypeAliases (name, expr) = do
       globals <- get
-      uterm <- lift $ desugarExp globals expr
+      uterm <- lift $ desugarExp userDefinedTypeAliases globals expr
       modify' $ Map.insert name uterm
       pure (name, uterm)
+
+    goType ::
+      (String, HSE.Type HSE.SrcSpanInfo)
+      -> StateT (Map String SomeTypeRep) (Either DesugarError) ()
+    goType (name, typ) = do
+      types <- get
+      SomeStarType someTypeRep <- lift $ desugarStarType types typ
+      modify' $ Map.insert name $ SomeTypeRep someTypeRep
 
 --------------------------------------------------------------------------------
 -- Infer
