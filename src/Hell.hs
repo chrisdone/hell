@@ -157,10 +157,11 @@ compileFile filePath = do
   result <- parseFile filePath
   case result of
     Left e -> error $ e
-    Right File{terms}
+    Right File{terms,types}
       | anyCycles terms -> error "Cyclic bindings are not supported!"
+      | anyCycles types -> error "Cyclic types are not supported!"
       | otherwise ->
-          case desugarAll mempty terms of
+          case desugarAll types terms of
             Left err -> error $ prettyString err
             Right dterms ->
               case lookup "main" dterms of
@@ -189,7 +190,9 @@ parseModule (HSE.Module _ Nothing [] [] decls) = do
   let terms = concatMap fst termsAndTypes
       types = concatMap snd termsAndTypes
   let names = map fst terms
-  if Set.size (Set.fromList names) == length names
+      tyNames = map fst types
+  if Set.size (Set.fromList names) == length names &&
+     Set.size (Set.fromList tyNames) == length tyNames
     then pure File{terms,types}
     else fail "Duplicate names!"
   where
@@ -1007,14 +1010,12 @@ desugarTypeSpec = do
 -- Desugar all bindings
 
 desugarAll ::
-  Map String (HSE.Type HSE.SrcSpanInfo) ->
+  [(String, HSE.Type HSE.SrcSpanInfo)] ->
   [(String, HSE.Exp HSE.SrcSpanInfo)]
    -> Either DesugarError [(String, UTerm ())]
 desugarAll types0 terms0 = do
-  types <-
-    pure mempty
-    -- flip execStateT Map.empty $
-    --   traverse goType $ Graph.flattenSCCs $ stronglyConnected $ types0
+  types <- flip execStateT Map.empty $
+    traverse goType $ Graph.flattenSCCs $ stronglyConnected $ types0
   terms <- flip evalStateT Map.empty $
     traverse (goTerm types) $ Graph.flattenSCCs $ stronglyConnected $ terms0
   pure terms
@@ -1035,7 +1036,7 @@ desugarAll types0 terms0 = do
     goType (name, typ) = do
       types <- get
       SomeStarType someTypeRep <- lift $ desugarStarType types typ
-      modify' $ Map.insert name $ SomeTypeRep someTypeRep
+      modify' $ Map.insert ("Main." ++ name) $ SomeTypeRep someTypeRep
 
 --------------------------------------------------------------------------------
 -- Infer
@@ -1074,7 +1075,7 @@ zonkToStarType subs irep = do
 --------------------------------------------------------------------------------
 -- Occurs check
 
-anyCycles :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Bool
+anyCycles :: SYB.Data a => [(String, a)] -> Bool
 anyCycles =
   any isCycle
     . stronglyConnected
@@ -1083,7 +1084,7 @@ anyCycles =
       Graph.CyclicSCC {} -> True
       _ -> False
 
-stronglyConnected :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> [Graph.SCC (String, HSE.Exp HSE.SrcSpanInfo)]
+stronglyConnected :: SYB.Data a => [(String, a)] -> [Graph.SCC (String, a)]
 stronglyConnected =
   Graph.stronglyConnComp
     . map \thing@(name, e) -> (thing, name, freeVariables e)
@@ -1104,7 +1105,7 @@ anyCyclesSpec = do
 --------------------------------------------------------------------------------
 -- Get free variables of an HSE expression
 
-freeVariables :: HSE.Exp HSE.SrcSpanInfo -> [String]
+freeVariables :: SYB.Data a => a -> [String]
 freeVariables =
   Maybe.mapMaybe unpack
     . SYB.listify (const True :: HSE.QName HSE.SrcSpanInfo -> Bool)
