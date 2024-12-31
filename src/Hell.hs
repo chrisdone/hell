@@ -157,13 +157,13 @@ compileFile filePath = do
   result <- parseFile filePath
   case result of
     Left e -> error $ e
-    Right binds
-      | anyCycles binds -> error "Cyclic bindings are not supported!"
+    Right File{terms}
+      | anyCycles terms -> error "Cyclic bindings are not supported!"
       | otherwise ->
-          case desugarAll binds of
+          case desugarAll terms of
             Left err -> error $ prettyString err
-            Right terms ->
-              case lookup "main" terms of
+            Right dterms ->
+              case lookup "main" dterms of
                 Nothing -> error "No main declaration!"
                 Just main' ->
                   case inferExp mempty main' of
@@ -183,12 +183,12 @@ compileFile filePath = do
 --------------------------------------------------------------------------------
 -- Get declarations from the module
 
-parseModule :: HSE.Module HSE.SrcSpanInfo -> HSE.ParseResult [(String, HSE.Exp HSE.SrcSpanInfo)]
+parseModule :: HSE.Module HSE.SrcSpanInfo -> HSE.ParseResult File
 parseModule (HSE.Module _ Nothing [] [] decls) = do
   things <- fmap concat $ traverse parseDecl decls
   let names = map fst things
   if Set.size (Set.fromList names) == length names
-    then pure things
+    then pure File{terms=things,types=mempty}
     else fail "Duplicate names!"
   where
     parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
@@ -1885,13 +1885,18 @@ zonk = \case
 --------------------------------------------------------------------------------
 -- Parse with #!/shebangs
 
+data File = File {
+  terms :: [(String, HSE.Exp HSE.SrcSpanInfo)],
+  types :: [(String, HSE.Type HSE.SrcSpanInfo)]
+  }
+
 -- Parse a file into a list of decls, but strip shebangs.
-parseFile :: String -> IO (Either String [(String, HSE.Exp HSE.SrcSpanInfo)])
+parseFile :: String -> IO (Either String File)
 parseFile filePath = do
   string <- ByteString.readFile filePath
   pure $ case HSE.parseModuleWithMode HSE.defaultParseMode {HSE.parseFilename = filePath, HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.DataKinds, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications]} (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
     HSE.ParseFailed l e -> Left $ "Parse error: " <> HSE.prettyPrint l <> ": " <> e
-    HSE.ParseOk binds -> Right binds
+    HSE.ParseOk file -> Right file
 
 -- This should be quite efficient because it's essentially a pointer
 -- increase. It leaves the \n so that line numbers are intact.
