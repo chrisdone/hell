@@ -157,13 +157,14 @@ compileFile filePath = do
   result <- parseFile filePath
   case result of
     Left e -> error $ e
-    Right binds
-      | anyCycles binds -> error "Cyclic bindings are not supported!"
+    Right File{terms,types}
+      | anyCycles terms -> error "Cyclic bindings are not supported!"
+      | anyCycles types -> error "Cyclic types are not supported!"
       | otherwise ->
-          case desugarAll binds of
+          case desugarAll types terms of
             Left err -> error $ prettyString err
-            Right terms ->
-              case lookup "main" terms of
+            Right dterms ->
+              case lookup "main" dterms of
                 Nothing -> error "No main declaration!"
                 Just main' ->
                   case inferExp mempty main' of
@@ -183,20 +184,27 @@ compileFile filePath = do
 --------------------------------------------------------------------------------
 -- Get declarations from the module
 
-parseModule :: HSE.Module HSE.SrcSpanInfo -> HSE.ParseResult [(String, HSE.Exp HSE.SrcSpanInfo)]
+parseModule :: HSE.Module HSE.SrcSpanInfo -> HSE.ParseResult File
 parseModule (HSE.Module _ Nothing [] [] decls) = do
-  things <- fmap concat $ traverse parseDecl decls
-  let names = map fst things
-  if Set.size (Set.fromList names) == length names
-    then pure things
+  termsAndTypes <- traverse parseDecl decls
+  let terms = concatMap fst termsAndTypes
+      types = concatMap snd termsAndTypes
+  let names = map fst terms
+      tyNames = map fst types
+  if Set.size (Set.fromList names) == length names &&
+     Set.size (Set.fromList tyNames) == length tyNames
+    then pure File{terms,types}
     else fail "Duplicate names!"
   where
     parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
-      pure [(string, exp')]
+      pure ([(string, exp')], types)
+        where types = []
     parseDecl (HSE.DataDecl _ HSE.DataType {} Nothing (HSE.DHead _ name) [qualConDecl] []) =
-      fmap (: []) $ parseDataDecl name qualConDecl
+      do (termName,termExpr,typeName,typ) <- parseDataDecl name qualConDecl
+         pure ([(termName,termExpr)], [(typeName,typ)])
     parseDecl (HSE.DataDecl _ HSE.DataType {} Nothing (HSE.DHead _ name) qualConDecls []) =
-      parseSumDecl name qualConDecls
+      do (terms, tyname, typ) <- parseSumDecl name qualConDecls
+         pure (terms, [(tyname,typ)])
     parseDecl _ = fail "Can't parse that!"
 parseModule _ = fail "Module headers aren't supported."
 
@@ -209,13 +217,22 @@ parseModule _ = fail "Module headers aren't supported."
 --   Tagged.Tagged @"Main.Value"
 --     @(Variant (ConsL "Number" Int (ConsL "Text" Text NilL)))
 --     (Variant.right (Variant.left @"Text" x))
-parseSumDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> [HSE.QualConDecl l] -> HSE.ParseResult [(String, HSE.Exp HSE.SrcSpanInfo)]
+parseSumDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> [HSE.QualConDecl l] -> HSE.ParseResult ([(String, HSE.Exp HSE.SrcSpanInfo)],
+          -- ^^^^^ constructor and term
+             String, HSE.Type HSE.SrcSpanInfo)
+          -- ^^^^^ type name and type
 parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
   conDecls <- fmap Map.fromList $ traverse parseConDecl conDecls0
   let variantType = desugarVariantType $ Map.toList conDecls
+  let taggedVariantType =
+        -- Example:              Tagged  "Person"      (Variant ..)
+        --                       vvvvvv  vvvvvvvv      vvvvvvvvvvv
+        HSE.TyApp l (HSE.TyApp l taggedT (tySym tyname)) variantType
   -- Note: the constructors are sorted by name, to provide a canonical ordering.
-  pure $ map (makeCons conDecls variantType) $ Map.toList conDecls
+  let terms = map (makeCons conDecls variantType) $ Map.toList conDecls
+  pure (terms, tyname, taggedVariantType)
   where
+    taggedT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Tagged"))
     l = HSE.noSrcSpan
     makeCons conDecls variantType (conName, typ)
       | HSE.TyCon _ (HSE.Qual _ (HSE.ModuleName _ "hell:Hell") (HSE.Ident _ "Nullary")) <- typ =
@@ -239,8 +256,7 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
               (HSE.TypeApp l (tySym $ "Main." ++ name))
           )
           (HSE.TypeApp l ty)
-      where
-        tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+    tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
 parseSumDecl _ _ =
   fail "Sum type declaration not in supported format."
 
@@ -301,7 +317,16 @@ parseConDecl (HSE.QualConDecl l Nothing Nothing (HSE.ConDecl _ (HSE.Ident _ cons
     )
 parseConDecl _ = fail "Unsupported constructor declaration format."
 
-parseDataDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> HSE.QualConDecl l -> HSE.ParseResult (String, HSE.Exp HSE.SrcSpanInfo)
+parseDataDecl :: (l ~ HSE.SrcSpanInfo) =>
+   HSE.Name l ->
+   HSE.QualConDecl l ->
+   HSE.ParseResult (String,    HSE.Exp HSE.SrcSpanInfo,
+   --               ^^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^
+   -- Term constructor name... and its expr.
+
+                    String, HSE.Type HSE.SrcSpanInfo)
+   --               ^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^
+   --          Type name... type content.
 parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDecl _ (HSE.Ident _ consName) fields)) = do
   -- Note: the fields are sorted by name.
   fields' <- fmap (List.sortBy (Ord.comparing fst) . concat) $ traverse getField fields
@@ -311,7 +336,8 @@ parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDe
   -- turn it off.
   when (List.nub names /= names) $
     fail "Field names cannot be repeated."
-  pure (consName, makeConstructor tyname fields')
+  let ( consExpr , typ ) = makeConstructor tyname fields'
+  pure (consName, consExpr, tyname, typ)
   where
     getField (HSE.FieldDecl _ names typ) = do
       names' <- for names \case
@@ -321,9 +347,16 @@ parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDe
 parseDataDecl _ _ =
   fail "Record declaration not in supported format."
 
-makeConstructor :: String -> [(String, HSE.Type HSE.SrcSpanInfo)] -> HSE.Exp HSE.SrcSpanInfo
-makeConstructor name = appTagged . desugarRecordType
+makeConstructor :: String -> [(String, HSE.Type HSE.SrcSpanInfo)] ->
+  (HSE.Exp HSE.SrcSpanInfo, HSE.Type HSE.SrcSpanInfo)
+makeConstructor name fields = (appTagged recordType, taggedRecordType)
   where
+    recordType = desugarRecordType fields
+    taggedRecordType =
+      -- Example:              Tagged  "Person"      (Record ..)
+      --                       vvvvvv  vvvvvvvv      vvvvvvvvvvv
+      HSE.TyApp l (HSE.TyApp l taggedT (tySym name)) recordType
+    taggedT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Tagged"))
     appTagged ty =
       HSE.App
         l
@@ -666,10 +699,11 @@ nestedTyApps = go []
     go _ _ = Nothing
 
 desugarExp ::
+  Map String SomeTypeRep ->
   Map String (UTerm ()) ->
   HSE.Exp HSE.SrcSpanInfo ->
   Either DesugarError (UTerm ())
-desugarExp globals = go mempty
+desugarExp userDefinedTypeAliases globals = go mempty
   where
     go scope = \case
       HSE.Case l e alts -> do
@@ -696,14 +730,14 @@ desugarExp globals = go mempty
               pure $ lit (dub :: Double)
         _ -> Left $ UnsupportedLiteral
       app@HSE.App {} | Just (qname, tys) <- nestedTyApps app -> do
-        reps <- traverse desugarSomeType tys
+        reps <- traverse (desugarSomeType userDefinedTypeAliases) tys
         desugarQName scope globals qname reps
       HSE.Var _ qname ->
         desugarQName scope globals qname []
       HSE.App l f x -> UApp l () <$> go scope f <*> go scope x
       HSE.InfixApp l x (HSE.QVarOp l'op f) y -> UApp l () <$> (UApp l'op () <$> go scope (HSE.Var l'op f) <*> go scope x) <*> go scope y
       HSE.Lambda l pats e -> do
-        args <- traverse desugarArg pats
+        args <- traverse (desugarArg userDefinedTypeAliases) pats
         let stringArgs = concatMap (bindingStrings . fst) args
         e' <- go (foldr Set.insert scope stringArgs) e
         pure $ foldr (\(name, ty) inner -> ULam l () name ty inner) e' args
@@ -867,19 +901,19 @@ desugarPolyQName qname treps =
       pure $ litWithSpan l ()
     _ -> Left $ InvalidVariable $ show qname
 
-desugarArg :: HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
-desugarArg (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) =
-  fmap (Singleton i,) (fmap Just (desugarStarType typ))
-desugarArg (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
+desugarArg :: Map String SomeTypeRep -> HSE.Pat HSE.SrcSpanInfo -> Either DesugarError (Binding, Maybe SomeStarType)
+desugarArg userDefinedTypeAliases (HSE.PatTypeSig _ (HSE.PVar _ (HSE.Ident _ i)) typ) =
+  fmap (Singleton i,) (fmap Just (desugarStarType userDefinedTypeAliases typ))
+desugarArg userDefinedTypeAliases (HSE.PatTypeSig _ (HSE.PTuple _ HSE.Boxed idents) typ)
   | Just idents' <- traverse desugarIdent idents =
-      fmap (Tuple idents',) (fmap Just (desugarStarType typ))
-desugarArg (HSE.PVar _ (HSE.Ident _ i)) =
+      fmap (Tuple idents',) (fmap Just (desugarStarType userDefinedTypeAliases typ))
+desugarArg _ (HSE.PVar _ (HSE.Ident _ i)) =
   pure (Singleton i, Nothing)
-desugarArg (HSE.PTuple _ HSE.Boxed idents)
+desugarArg _ (HSE.PTuple _ HSE.Boxed idents)
   | Just idents' <- traverse desugarIdent idents =
       pure (Tuple idents', Nothing)
-desugarArg (HSE.PParen _ p) = desugarArg p
-desugarArg p = Left $ BadParameterSyntax $ HSE.prettyPrint p
+desugarArg userDefinedTypeAliases (HSE.PParen _ p) = desugarArg userDefinedTypeAliases p
+desugarArg _ p = Left $ BadParameterSyntax $ HSE.prettyPrint p
 
 desugarIdent :: HSE.Pat HSE.SrcSpanInfo -> Maybe String
 desugarIdent (HSE.PVar _ (HSE.Ident _ s)) = Just s
@@ -888,15 +922,17 @@ desugarIdent _ = Nothing
 --------------------------------------------------------------------------------
 -- Desugar types
 
-desugarStarType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
-desugarStarType t = do
-  someRep <- desugarSomeType t
+desugarStarType :: Map String SomeTypeRep -> HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeStarType
+desugarStarType userDefinedTypeAliases t = do
+  someRep <- desugarSomeType userDefinedTypeAliases t
   case someRep of
     StarTypeRep t' -> pure (SomeStarType t')
     _ -> Left KindError
 
-desugarSomeType :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
-desugarSomeType = go
+desugarSomeType ::
+  Map String SomeTypeRep ->
+  HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
+desugarSomeType userDefinedTypeAliases = go
   where
     go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
     go = \case
@@ -914,7 +950,7 @@ desugarSomeType = go
       HSE.TyCon _ (HSE.UnQual _ (HSE.Ident _ name))
         | Just rep <- Map.lookup name supportedTypeConstructors -> pure rep
       HSE.TyCon _ (HSE.Qual _ (HSE.ModuleName _ m) (HSE.Ident _ name))
-        | Just rep <- Map.lookup (m <> "." <> name) supportedTypeConstructors ->
+        | Just rep <- Map.lookup (m <> "." <> name) (supportedTypeConstructors <> userDefinedTypeAliases) ->
             pure rep
       HSE.TyCon _ (HSE.Special _ HSE.UnitCon {}) -> pure $ StarTypeRep $ typeRep @()
       HSE.TyList _ inner -> do
@@ -966,22 +1002,41 @@ desugarTypeSpec = do
     shouldBe (try "()") (Right (SomeStarType $ typeRep @()))
     shouldBe (try "[Int]") (Right (SomeStarType $ typeRep @[Int]))
   where
-    try e = case fmap (desugarStarType) $ HSE.parseType e of
+    try e = case fmap (desugarStarType mempty) $ HSE.parseType e of
       HSE.ParseOk r -> r
       _ -> error "Parse failed."
 
 --------------------------------------------------------------------------------
 -- Desugar all bindings
 
-desugarAll :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Either DesugarError [(String, UTerm ())]
-desugarAll = flip evalStateT Map.empty . traverse go . Graph.flattenSCCs . stronglyConnected
+desugarAll ::
+  [(String, HSE.Type HSE.SrcSpanInfo)] ->
+  [(String, HSE.Exp HSE.SrcSpanInfo)]
+   -> Either DesugarError [(String, UTerm ())]
+desugarAll types0 terms0 = do
+  types <- flip execStateT Map.empty $
+    traverse goType $ Graph.flattenSCCs $ stronglyConnected $ types0
+  terms <- flip evalStateT Map.empty $
+    traverse (goTerm types) $ Graph.flattenSCCs $ stronglyConnected $ terms0
+  pure terms
   where
-    go :: (String, HSE.Exp HSE.SrcSpanInfo) -> StateT (Map String (UTerm ())) (Either DesugarError) (String, UTerm ())
-    go (name, expr) = do
+    goTerm ::
+      Map String SomeTypeRep
+      -> (String, HSE.Exp HSE.SrcSpanInfo)
+      -> StateT (Map String (UTerm ())) (Either DesugarError) (String, UTerm ())
+    goTerm userDefinedTypeAliases (name, expr) = do
       globals <- get
-      uterm <- lift $ desugarExp globals expr
+      uterm <- lift $ desugarExp userDefinedTypeAliases globals expr
       modify' $ Map.insert name uterm
       pure (name, uterm)
+
+    goType ::
+      (String, HSE.Type HSE.SrcSpanInfo)
+      -> StateT (Map String SomeTypeRep) (Either DesugarError) ()
+    goType (name, typ) = do
+      types <- get
+      SomeStarType someTypeRep <- lift $ desugarStarType types typ
+      modify' $ Map.insert ("Main." ++ name) $ SomeTypeRep someTypeRep
 
 --------------------------------------------------------------------------------
 -- Infer
@@ -1020,7 +1075,7 @@ zonkToStarType subs irep = do
 --------------------------------------------------------------------------------
 -- Occurs check
 
-anyCycles :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> Bool
+anyCycles :: SYB.Data a => [(String, a)] -> Bool
 anyCycles =
   any isCycle
     . stronglyConnected
@@ -1029,7 +1084,7 @@ anyCycles =
       Graph.CyclicSCC {} -> True
       _ -> False
 
-stronglyConnected :: [(String, HSE.Exp HSE.SrcSpanInfo)] -> [Graph.SCC (String, HSE.Exp HSE.SrcSpanInfo)]
+stronglyConnected :: SYB.Data a => [(String, a)] -> [Graph.SCC (String, a)]
 stronglyConnected =
   Graph.stronglyConnComp
     . map \thing@(name, e) -> (thing, name, freeVariables e)
@@ -1050,7 +1105,7 @@ anyCyclesSpec = do
 --------------------------------------------------------------------------------
 -- Get free variables of an HSE expression
 
-freeVariables :: HSE.Exp HSE.SrcSpanInfo -> [String]
+freeVariables :: SYB.Data a => a -> [String]
 freeVariables =
   Maybe.mapMaybe unpack
     . SYB.listify (const True :: HSE.QName HSE.SrcSpanInfo -> Bool)
@@ -1885,13 +1940,18 @@ zonk = \case
 --------------------------------------------------------------------------------
 -- Parse with #!/shebangs
 
+data File = File {
+  terms :: [(String, HSE.Exp HSE.SrcSpanInfo)],
+  types :: [(String, HSE.Type HSE.SrcSpanInfo)]
+  }
+
 -- Parse a file into a list of decls, but strip shebangs.
-parseFile :: String -> IO (Either String [(String, HSE.Exp HSE.SrcSpanInfo)])
+parseFile :: String -> IO (Either String File)
 parseFile filePath = do
   string <- ByteString.readFile filePath
   pure $ case HSE.parseModuleWithMode HSE.defaultParseMode {HSE.parseFilename = filePath, HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.DataKinds, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications]} (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
     HSE.ParseFailed l e -> Left $ "Parse error: " <> HSE.prettyPrint l <> ": " <> e
-    HSE.ParseOk binds -> Right binds
+    HSE.ParseOk file -> Right file
 
 -- This should be quite efficient because it's essentially a pointer
 -- increase. It leaves the \n so that line numbers are intact.
