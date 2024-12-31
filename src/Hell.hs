@@ -185,18 +185,23 @@ compileFile filePath = do
 
 parseModule :: HSE.Module HSE.SrcSpanInfo -> HSE.ParseResult File
 parseModule (HSE.Module _ Nothing [] [] decls) = do
-  things <- fmap concat $ traverse parseDecl decls
-  let names = map fst things
+  termsAndTypes <- traverse parseDecl decls
+  let terms = concatMap fst termsAndTypes
+      types = concatMap snd termsAndTypes
+  let names = map fst terms
   if Set.size (Set.fromList names) == length names
-    then pure File{terms=things,types=mempty}
+    then pure File{terms,types}
     else fail "Duplicate names!"
   where
     parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
-      pure [(string, exp')]
+      pure ([(string, exp')], types)
+        where types = []
     parseDecl (HSE.DataDecl _ HSE.DataType {} Nothing (HSE.DHead _ name) [qualConDecl] []) =
-      fmap (: []) $ parseDataDecl name qualConDecl
+      do (termName,termExpr,typeName,typ) <- parseDataDecl name qualConDecl
+         pure ([(termName,termExpr)], [(typeName,typ)])
     parseDecl (HSE.DataDecl _ HSE.DataType {} Nothing (HSE.DHead _ name) qualConDecls []) =
-      parseSumDecl name qualConDecls
+      do (terms, tyname, typ) <- parseSumDecl name qualConDecls
+         pure (terms, [(tyname,typ)])
     parseDecl _ = fail "Can't parse that!"
 parseModule _ = fail "Module headers aren't supported."
 
@@ -209,13 +214,22 @@ parseModule _ = fail "Module headers aren't supported."
 --   Tagged.Tagged @"Main.Value"
 --     @(Variant (ConsL "Number" Int (ConsL "Text" Text NilL)))
 --     (Variant.right (Variant.left @"Text" x))
-parseSumDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> [HSE.QualConDecl l] -> HSE.ParseResult [(String, HSE.Exp HSE.SrcSpanInfo)]
+parseSumDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> [HSE.QualConDecl l] -> HSE.ParseResult ([(String, HSE.Exp HSE.SrcSpanInfo)],
+          -- ^^^^^ constructor and term
+             String, HSE.Type HSE.SrcSpanInfo)
+          -- ^^^^^ type name and type
 parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
   conDecls <- fmap Map.fromList $ traverse parseConDecl conDecls0
   let variantType = desugarVariantType $ Map.toList conDecls
+  let taggedVariantType =
+        -- Example:              Tagged  "Person"      (Variant ..)
+        --                       vvvvvv  vvvvvvvv      vvvvvvvvvvv
+        HSE.TyApp l (HSE.TyApp l taggedT (tySym tyname)) variantType
   -- Note: the constructors are sorted by name, to provide a canonical ordering.
-  pure $ map (makeCons conDecls variantType) $ Map.toList conDecls
+  let terms = map (makeCons conDecls variantType) $ Map.toList conDecls
+  pure (terms, tyname, taggedVariantType)
   where
+    taggedT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Tagged"))
     l = HSE.noSrcSpan
     makeCons conDecls variantType (conName, typ)
       | HSE.TyCon _ (HSE.Qual _ (HSE.ModuleName _ "hell:Hell") (HSE.Ident _ "Nullary")) <- typ =
@@ -239,8 +253,7 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
               (HSE.TypeApp l (tySym $ "Main." ++ name))
           )
           (HSE.TypeApp l ty)
-      where
-        tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
+    tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
 parseSumDecl _ _ =
   fail "Sum type declaration not in supported format."
 
@@ -301,7 +314,16 @@ parseConDecl (HSE.QualConDecl l Nothing Nothing (HSE.ConDecl _ (HSE.Ident _ cons
     )
 parseConDecl _ = fail "Unsupported constructor declaration format."
 
-parseDataDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> HSE.QualConDecl l -> HSE.ParseResult (String, HSE.Exp HSE.SrcSpanInfo)
+parseDataDecl :: (l ~ HSE.SrcSpanInfo) =>
+   HSE.Name l ->
+   HSE.QualConDecl l ->
+   HSE.ParseResult (String,    HSE.Exp HSE.SrcSpanInfo,
+   --               ^^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^
+   -- Term constructor name... and its expr.
+
+                    String, HSE.Type HSE.SrcSpanInfo)
+   --               ^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^
+   --          Type name... type content.
 parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDecl _ (HSE.Ident _ consName) fields)) = do
   -- Note: the fields are sorted by name.
   fields' <- fmap (List.sortBy (Ord.comparing fst) . concat) $ traverse getField fields
@@ -311,7 +333,8 @@ parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDe
   -- turn it off.
   when (List.nub names /= names) $
     fail "Field names cannot be repeated."
-  pure (consName, makeConstructor tyname fields')
+  let ( consExpr , typ ) = makeConstructor tyname fields'
+  pure (consName, consExpr, tyname, typ)
   where
     getField (HSE.FieldDecl _ names typ) = do
       names' <- for names \case
@@ -321,9 +344,16 @@ parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDe
 parseDataDecl _ _ =
   fail "Record declaration not in supported format."
 
-makeConstructor :: String -> [(String, HSE.Type HSE.SrcSpanInfo)] -> HSE.Exp HSE.SrcSpanInfo
-makeConstructor name = appTagged . desugarRecordType
+makeConstructor :: String -> [(String, HSE.Type HSE.SrcSpanInfo)] ->
+  (HSE.Exp HSE.SrcSpanInfo, HSE.Type HSE.SrcSpanInfo)
+makeConstructor name fields = (appTagged recordType, taggedRecordType)
   where
+    recordType = desugarRecordType fields
+    taggedRecordType =
+      -- Example:              Tagged  "Person"      (Record ..)
+      --                       vvvvvv  vvvvvvvv      vvvvvvvvvvv
+      HSE.TyApp l (HSE.TyApp l taggedT (tySym name)) recordType
+    taggedT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Tagged"))
     appTagged ty =
       HSE.App
         l
