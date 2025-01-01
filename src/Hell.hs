@@ -75,6 +75,8 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.Tree (Tree)
+import qualified Data.Tree as Tree
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
 import Data.Traversable
@@ -610,6 +612,7 @@ tc (UForall _ _ _ fall _ _ reps0) _env = go reps0 fall
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @IO) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Maybe) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @[]) -> go reps (f rep)
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Tree) -> go reps (f rep)
           | Type.App either' _ <- rep,
             Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) ->
               go reps (f rep)
@@ -1491,6 +1494,13 @@ polyLits =
                  "Set.toList" Set.toList :: forall a. Set a -> [a]
                  "Set.size" Set.size :: forall a. Set a -> Int
                  "Set.singleton" Set.singleton :: forall a. (Ord a) => a -> Set a
+                 -- Trees
+                 "Tree.Node" Tree.Node :: forall a. a -> [Tree a] -> Tree a
+                 "Tree.unfoldTree" Tree.unfoldTree :: forall a b. (b -> (a, [b])) -> b -> Tree a
+                 "Tree.foldTree" Tree.foldTree :: forall a b. (a -> [b] -> b) -> Tree a -> b
+                 "Tree.flatten" Tree.flatten :: forall a. Tree a -> [a]
+                 "Tree.levels" Tree.levels :: forall a. Tree a -> [[a]]
+                 "Tree.map" fmap :: forall a b. (a -> b) -> Tree a -> Tree b
                  -- Lists
                  "List.cons" (:) :: forall a. a -> [a] -> [a]
                  "List.nil" [] :: forall a. [a]
