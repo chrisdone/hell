@@ -225,9 +225,9 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
   conDecls <- fmap Map.fromList $ traverse parseConDecl conDecls0
   let variantType = desugarVariantType $ Map.toList conDecls
   let taggedVariantType =
-        -- Example:              Tagged  "Person"      (Variant ..)
-        --                       vvvvvv  vvvvvvvv      vvvvvvvvvvv
-        HSE.TyApp l (HSE.TyApp l taggedT (tySym tyname)) variantType
+        -- Example:              Tagged  "Main.Person"  (Variant ..)
+        --                       vvvvvv  vvvvvvvv       vvvvvvvvvvv
+        HSE.TyApp l (HSE.TyApp l taggedT (tySym qualifiedName)) variantType
   -- Note: the constructors are sorted by name, to provide a canonical ordering.
   let terms = map (makeCons conDecls variantType) $ Map.toList conDecls
   pure (terms, tyname, taggedVariantType)
@@ -237,23 +237,24 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
     makeCons conDecls variantType (conName, typ)
       | HSE.TyCon _ (HSE.Qual _ (HSE.ModuleName _ "hell:Hell") (HSE.Ident _ "Nullary")) <- typ =
           ( conName,
-            appTagged tyname variantType $
+            appTagged variantType $
               desugarVariantCon True (Map.keys conDecls) conName
           )
       | otherwise = (conName, expr)
       where
         expr =
           HSE.Lambda l [HSE.PVar l (HSE.Ident l "x")] $
-            appTagged tyname variantType $
+            appTagged variantType $
               desugarVariantCon False (Map.keys conDecls) conName
-    appTagged name ty =
+    qualifiedName = "Main." ++ tyname
+    appTagged ty =
       HSE.App l $
         HSE.App
           l
           ( HSE.App
               l
               (HSE.Con l (HSE.Qual l (HSE.ModuleName l "Tagged") (HSE.Ident l "Tagged")))
-              (HSE.TypeApp l (tySym $ "Main." ++ name))
+              (HSE.TypeApp l (tySym qualifiedName))
           )
           (HSE.TypeApp l ty)
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
@@ -353,9 +354,10 @@ makeConstructor name fields = (appTagged recordType, taggedRecordType)
   where
     recordType = desugarRecordType fields
     taggedRecordType =
-      -- Example:              Tagged  "Person"      (Record ..)
-      --                       vvvvvv  vvvvvvvv      vvvvvvvvvvv
-      HSE.TyApp l (HSE.TyApp l taggedT (tySym name)) recordType
+      -- Example:              Tagged  "Main.Person"  (Record ..)
+      --                       vvvvvv  vvvvvvvv       vvvvvvvvvvv
+      HSE.TyApp l (HSE.TyApp l taggedT (tySym qualifiedName)) recordType
+    qualifiedName = "Main." ++ name
     taggedT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Tagged"))
     appTagged ty =
       HSE.App
@@ -363,7 +365,7 @@ makeConstructor name fields = (appTagged recordType, taggedRecordType)
         ( HSE.App
             l
             (HSE.Con l (HSE.Qual l (HSE.ModuleName l "Tagged") (HSE.Ident l "Tagged")))
-            (HSE.TypeApp l (tySym name))
+            (HSE.TypeApp l (tySym qualifiedName))
         )
         (HSE.TypeApp l ty)
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
