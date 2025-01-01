@@ -1,0 +1,19 @@
+-- <https://github.com/chrisdone/hell/discussions/64>
+--
+-- Previously:
+--
+-- hell: Unification error: Couldn't match type
+
+--   "Main.MySum"
+
+-- against type
+
+--   "MySum"
+
+data MyRecord = MyRecord {sum :: Main.MySum}
+
+data MySum = MySumL | MySumR
+
+main = do
+  let myRecord = Main.MyRecord {sum = Main.MySumR}
+  Text.putStrLn "hello world"

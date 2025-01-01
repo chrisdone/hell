@@ -1,17 +1,26 @@
 -- User-defined types can reference other types now.
 data Person = Person {
   name :: Text,
-  address :: Main.Address
+  address :: Main.Address,
+  status :: Main.Status
   }
+data Status = Retired | Working
 data Address = Address {
   line1 :: Text, line2 :: Text
 }
 main = do
-  let p :: Main.Person = Main.Person { name = "Chris", address = Main.Address { line1 = "1 North Pole", line2 = "Earth" } }
+  let p :: Main.Person = Main.Person {
+        name = "Chris",
+        address = Main.Address { line1 = "1 North Pole", line2 = "Earth" },
+        status = Main.Retired
+       }
   Text.putStrLn $ Record.get @"name" p
   Text.putStrLn $
-    Record.get @"line1" @Text $
+    Record.get @"line1" $
       Record.get @"address" @Main.Address p
       --                    ^ Unfortunately this is needed or else the
       --                    nested access causes an ambiguous type
       --                    variable. But it's not too bad.
+  case Record.get @"status" @Main.Status p of
+    Retired -> Text.putStrLn "Retired"
+    Working -> Text.putStrLn "Working"
