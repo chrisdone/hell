@@ -484,4 +484,26 @@ class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a 
 <span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
 <span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> myRecord <span class="ot">=</span> <span class="dt">Main.MyRecord</span> {<span class="fu">sum</span> <span class="ot">=</span> <span class="dt">Main.MySumR</span>}</span>
 <span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="st">&quot;hello world&quot;</span></span></code></pre></div>
+<h2>28-trees.hell</h2><div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Basic example of a tree data structure.</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> tree <span class="ot">=</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>        <span class="dt">Tree.Node</span> <span class="st">&quot;1&quot;</span> [</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>          <span class="dt">Tree.Node</span> <span class="st">&quot;1.a&quot;</span> [],</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>          <span class="dt">Tree.Node</span> <span class="st">&quot;1.b&quot;</span> [</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>            <span class="dt">Tree.Node</span> <span class="st">&quot;1.b.x&quot;</span> []</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>          ]</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>        ]</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- Do a trivial map, include the length of the tag in the nodes.</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> tree&#39; <span class="ot">=</span> Tree.map (\a <span class="ot">-&gt;</span> (a, Text.length a)) tree</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- Write the tree out in a Lisp syntax.</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  Tree.foldTree</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    (\(a, len) children <span class="ot">-&gt;</span> <span class="kw">do</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>      Text.putStr <span class="st">&quot;(&quot;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>      Text.putStr a</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>      Text.putStr <span class="st">&quot; &quot;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>      Text.putStr <span class="op">$</span> <span class="dt">Show</span><span class="op">.</span><span class="fu">show</span> len</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>      <span class="dt">Monad</span><span class="op">.</span>forM_ children (\m <span class="ot">-&gt;</span> <span class="kw">do</span> Text.putStr <span class="st">&quot; &quot;</span>; m)</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>      Text.putStr <span class="st">&quot;)&quot;</span>)</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    tree&#39;</span></code></pre></div>
 </html>
