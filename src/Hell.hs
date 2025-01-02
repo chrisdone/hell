@@ -298,8 +298,8 @@ desugarVariantType = appRecord . foldr appCons nilL
     appRecord x =
       HSE.TyParen l (HSE.TyApp l (hellVariantTyCon l) x)
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
-    nilL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "NilL"))
-    consL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "ConsL"))
+    nilL = hellNilTyCon l
+    consL = hellConsTyCon l
     l = HSE.noSrcSpan
 
 parseConDecl :: (MonadFail f) => HSE.QualConDecl l -> f (String, HSE.Type l)
@@ -399,8 +399,8 @@ desugarRecordType = appRecord . foldr appCons nilL
     appRecord x =
       HSE.TyApp l (hellRecordTyCon l) x
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
-    nilL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "NilL"))
-    consL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "ConsL"))
+    nilL = hellNilTyCon l
+    consL = hellConsTyCon l
     l = HSE.noSrcSpan
 
 --------------------------------------------------------------------------------
@@ -1139,11 +1139,9 @@ supportedTypeConstructors =
       ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig),
       ("()", SomeTypeRep $ typeRep @()),
 
-      -- Internal, not yet hidden types
-      ("NilL", SomeTypeRep $ typeRep @('NilL)),
-      ("ConsL", SomeTypeRep $ typeRep @('ConsL)),
-
       -- Internal, hidden types
+      ("hell:Hell.NilL", SomeTypeRep $ typeRep @('NilL)),
+      ("hell:Hell.ConsL", SomeTypeRep $ typeRep @('ConsL)),
       ("hell:Hell.Variant", SomeTypeRep $ typeRep @Variant),
       ("hell:Hell.Record", SomeTypeRep $ typeRep @Record),
       ("hell:Hell.Tagged", SomeTypeRep $ typeRep @Tagged),
@@ -1643,6 +1641,12 @@ hellRecordTyCon l = hellTyCon l "Record"
 
 hellVariantTyCon :: l -> HSE.Type l
 hellVariantTyCon l = hellTyCon l "Variant"
+
+hellNilTyCon :: l -> HSE.Type l
+hellNilTyCon l = hellTyCon l "NilL"
+
+hellConsTyCon :: l -> HSE.Type l
+hellConsTyCon l = hellTyCon l "ConsL"
 
 hellTaggedCon :: l -> HSE.Exp l
 hellTaggedCon l = hellCon l "Tagged"
