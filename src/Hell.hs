@@ -275,7 +275,7 @@ desugarVariantCon nullary cons thisCon = rights $ left
           HSE.App
             l
             left0
-            (HSE.Con l (HSE.Qual l (HSE.ModuleName l "hell:Hell") (HSE.Ident l "Nullary")))
+            (HSE.Con l (hellQName l "Nullary"))
         else
           HSE.App
             l
@@ -308,16 +308,7 @@ parseConDecl :: (MonadFail f) => HSE.QualConDecl l -> f (String, HSE.Type l)
 parseConDecl (HSE.QualConDecl _ Nothing Nothing (HSE.ConDecl _ (HSE.Ident _ consName) [slot])) =
   pure (consName, slot)
 parseConDecl (HSE.QualConDecl l Nothing Nothing (HSE.ConDecl _ (HSE.Ident _ consName) [])) =
-  pure
-    ( consName,
-      HSE.TyCon
-        l
-        ( HSE.Qual
-            l
-            (HSE.ModuleName l "hell:Hell")
-            (HSE.Ident l "Nullary")
-        )
-    )
+  pure ( consName, hellTyCon l "Nullary")
 parseConDecl _ = fail "Unsupported constructor declaration format."
 
 parseDataDecl :: (l ~ HSE.SrcSpanInfo) =>
@@ -1626,6 +1617,18 @@ unsafeGetForall :: String -> HSE.SrcSpanInfo -> UTerm ()
 unsafeGetForall key l = Maybe.fromMaybe (error $ "Bad compile-time lookup for " ++ key) $ do
   (forall', vars, irep, _) <- Map.lookup key polyLits
   pure (UForall l () [] forall' vars irep [])
+
+--------------------------------------------------------------------------------
+-- Hidden terms and types, implementation-detail, used by Hell
+
+hellModule :: l -> HSE.ModuleName l
+hellModule l = HSE.ModuleName l "hell:Hell"
+
+hellQName :: l -> String -> HSE.QName l
+hellQName l string = HSE.Qual l (hellModule l) (HSE.Ident l string)
+
+hellTyCon :: l -> String -> HSE.Type l
+hellTyCon l string = HSE.TyCon l $ hellQName l string
 
 --------------------------------------------------------------------------------
 -- Accessor for ExitCode
