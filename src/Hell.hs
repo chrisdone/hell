@@ -380,7 +380,7 @@ makeConstructRecord qname fields =
                 )
                 rest
       )
-      (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Record") (HSE.Ident l "nil")))
+      (HSE.Var l (hellQName l "NilR"))
     $ List.sortBy (Ord.comparing fst)
     $ map
       ( \case
@@ -1275,7 +1275,7 @@ supportedLits =
       ("Json.Array", lit' (Json.toJSON :: Vector Value -> Value)),
       ("Json.Object", lit' (Json.toJSON :: Map Text Value -> Value)),
       -- Records
-      ("Record.nil", lit' NilR),
+      ("hell:Hell.NilR", lit' NilR),
       -- Nullary
       ("hell:Hell.Nullary", lit' Nullary)
     ]
@@ -2230,11 +2230,16 @@ _generateApiDocs = do
         h1_ "Hell's API"
         p_ $ a_ [href_ "../"] $ "Back to homepage"
         h2_ "Types"
+        let excludeHidden = filter (not . List.isPrefixOf "hell:Hell." . fst)
         ul_ do
-          for_ (Map.toList supportedTypeConstructors) typeConsToHtml
+          for_ (excludeHidden $ Map.toList supportedTypeConstructors) typeConsToHtml
         h2_ "Terms"
-        let groups = Map.toList $ fmap (Left . snd) supportedLits
-        let groups' = Map.toList $ fmap (\(_, _, _, ty) -> Right ty) polyLits
+        let groups =
+              excludeHidden $
+              Map.toList $ fmap (Left . snd) $
+               supportedLits
+        let groups' = excludeHidden  $
+              Map.toList $ fmap (\(_, _, _, ty) -> Right ty) polyLits
         for_ (List.groupBy (Function.on (==) (takeWhile (/= '.') . fst)) $ List.sortOn fst $ groups <> groups') \group -> do
           h3_ $ for_ (take 1 group) \(x, _) -> toHtml $ takeWhile (/= '.') x
           ul_ do
