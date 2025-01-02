@@ -265,8 +265,7 @@ parseSumDecl _ _ =
 desugarVariantCon :: Bool -> [String] -> String -> HSE.Exp HSE.SrcSpanInfo
 desugarVariantCon nullary cons thisCon = rights $ left
   where
-    right _ =
-      HSE.Var l (HSE.Qual l (HSE.ModuleName l "Variant") (HSE.Ident l "right"))
+    right _ = HSE.Var l (hellQName l "RightV")
     rights e = foldr (HSE.App l) e $ map right $ takeWhile (/= thisCon) cons
     left =
       if nullary
@@ -284,7 +283,7 @@ desugarVariantCon nullary cons thisCon = rights $ left
         left0 =
           ( HSE.App
               l
-              (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Variant") (HSE.Ident l "left")))
+              (HSE.Var l (hellQName l "LeftV"))
               (HSE.TypeApp l (tySym thisCon))
           )
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
@@ -373,7 +372,7 @@ makeConstructRecord qname fields =
                     l
                     ( HSE.App
                         l
-                        (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Record") (HSE.Ident l "cons")))
+                        (HSE.Var l (hellQName l "ConsR"))
                         (HSE.TypeApp l (tySym name))
                     )
                     expr
@@ -784,20 +783,13 @@ desugarCase l scrutinee xs = do
     nil =
       ( HSE.Var
           l
-          ( HSE.Qual
-              l
-              (HSE.ModuleName l "Variant")
-              (HSE.Ident l "nil")
+          ( hellQName l "NilA"
           )
       )
     run =
       ( HSE.Var
           l
-          ( HSE.Qual
-              l
-              (HSE.ModuleName l "Variant")
-              (HSE.Ident l "run")
-          )
+          ( hellQName l "runAccessor")
       )
     desugarAlt
       ( HSE.Alt
@@ -819,11 +811,7 @@ desugarCase l scrutinee xs = do
                   l'
                   ( HSE.Var
                       l'
-                      ( HSE.Qual
-                          l'
-                          (HSE.ModuleName l' "Variant")
-                          (HSE.Ident l' "cons")
-                      )
+                      ( hellQName l' "ConsA")
                   )
                   (HSE.TypeApp l' (tySym name))
               )
@@ -849,11 +837,7 @@ desugarCase l scrutinee xs = do
                   l'
                   ( HSE.Var
                       l'
-                      ( HSE.Qual
-                          l'
-                          (HSE.ModuleName l' "Variant")
-                          (HSE.Ident l' "cons")
-                      )
+                      ( hellQName l' "ConsA")
                   )
                   (HSE.TypeApp l' (tySym name))
               )
@@ -1421,16 +1405,16 @@ polyLits =
              [|
                do
                  -- Records
-                 "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
+                 "hell:Hell.ConsR" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
                  "Record.get" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). Tagged t (Record xs) -> a
                  "Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
                  "Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
                  -- Variants
-                 "Variant.left" LeftV :: forall (k :: Symbol) a (xs :: List). a -> Variant (ConsL k a xs)
-                 "Variant.right" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
-                 "Variant.nil" NilA :: forall r. Accessor 'NilL r
-                 "Variant.cons" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
-                 "Variant.run" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
+                 "hell:Hell.LeftV" LeftV :: forall (k :: Symbol) a (xs :: List). a -> Variant (ConsL k a xs)
+                 "hell:Hell.RightV" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
+                 "hell:Hell.NilA" NilA :: forall r. Accessor 'NilL r
+                 "hell:Hell.ConsA" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
+                 "hell:Hell.runAccessor" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
                  -- Tagged
                  "hell:Hell.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
                  -- Operators
