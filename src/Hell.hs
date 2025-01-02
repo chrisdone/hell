@@ -212,11 +212,11 @@ parseModule _ = fail "Module headers aren't supported."
 
 -- data Value = Text Text | Number Int
 -- \ x ->
---   Tagged.Tagged @"Main.Value"
+--   hell:Hell.Tagged @"Main.Value"
 --     @(Variant (ConsL "Number" Int (ConsL "Text" Text NilL)))
 --     (Variant.left @"Number" x)
 -- \ x ->
---   Tagged.Tagged @"Main.Value"
+--   hell:Hell.Tagged @"Main.Value"
 --     @(Variant (ConsL "Number" Int (ConsL "Text" Text NilL)))
 --     (Variant.right (Variant.left @"Text" x))
 parseSumDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> [HSE.QualConDecl l] -> HSE.ParseResult ([(String, HSE.Exp HSE.SrcSpanInfo)],
@@ -229,12 +229,11 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
   let taggedVariantType =
         -- Example:              Tagged  "Main.Person"  (Variant ..)
         --                       vvvvvv  vvvvvvvv       vvvvvvvvvvv
-        HSE.TyApp l (HSE.TyApp l taggedT (tySym qualifiedName)) variantType
+        HSE.TyApp l (HSE.TyApp l (hellTaggedTyCon l) (tySym qualifiedName)) variantType
   -- Note: the constructors are sorted by name, to provide a canonical ordering.
   let terms = map (makeCons conDecls variantType) $ Map.toList conDecls
   pure (terms, tyname, taggedVariantType)
   where
-    taggedT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Tagged"))
     l = HSE.noSrcSpan
     makeCons conDecls variantType (conName, typ)
       | HSE.TyCon _ (HSE.Qual _ (HSE.ModuleName _ "hell:Hell") (HSE.Ident _ "Nullary")) <- typ =
@@ -255,7 +254,7 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
           l
           ( HSE.App
               l
-              (HSE.Con l (HSE.Qual l (HSE.ModuleName l "Tagged") (HSE.Ident l "Tagged")))
+              (hellTaggedCon l)
               (HSE.TypeApp l (tySym qualifiedName))
           )
           (HSE.TypeApp l ty)
@@ -349,15 +348,14 @@ makeConstructor name fields = (appTagged recordType, taggedRecordType)
     taggedRecordType =
       -- Example:              Tagged  "Main.Person"  (Record ..)
       --                       vvvvvv  vvvvvvvv       vvvvvvvvvvv
-      HSE.TyApp l (HSE.TyApp l taggedT (tySym qualifiedName)) recordType
+      HSE.TyApp l (HSE.TyApp l (hellTaggedTyCon l) (tySym qualifiedName)) recordType
     qualifiedName = "Main." ++ name
-    taggedT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Tagged"))
     appTagged ty =
       HSE.App
         l
         ( HSE.App
             l
-            (HSE.Con l (HSE.Qual l (HSE.ModuleName l "Tagged") (HSE.Ident l "Tagged")))
+            (hellTaggedCon l)
             (HSE.TypeApp l (tySym qualifiedName))
         )
         (HSE.TypeApp l ty)
@@ -1124,7 +1122,9 @@ freeVariablesSpec = do
 supportedTypeConstructors :: Map String SomeTypeRep
 supportedTypeConstructors =
   Map.fromList
-    [ ("Bool", SomeTypeRep $ typeRep @Bool),
+    [
+      -- Standard Haskell types
+      ("Bool", SomeTypeRep $ typeRep @Bool),
       ("Int", SomeTypeRep $ typeRep @Int),
       ("Double", SomeTypeRep $ typeRep @Double),
       ("Char", SomeTypeRep $ typeRep @Char),
@@ -1139,12 +1139,16 @@ supportedTypeConstructors =
       ("Set", SomeTypeRep $ typeRep @Set),
       ("Value", SomeTypeRep $ typeRep @Value),
       ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig),
-      ("Tagged", SomeTypeRep $ typeRep @Tagged),
+      ("()", SomeTypeRep $ typeRep @()),
+
+      -- Internal, not yet hidden types
       ("Record", SomeTypeRep $ typeRep @Record),
       ("Variant", SomeTypeRep $ typeRep @Variant),
       ("NilL", SomeTypeRep $ typeRep @('NilL)),
       ("ConsL", SomeTypeRep $ typeRep @('ConsL)),
-      ("()", SomeTypeRep $ typeRep @()),
+
+      -- Internal, hidden types
+      ("hell:Hell.Tagged", SomeTypeRep $ typeRep @Tagged),
       ("hell:Hell.Nullary", SomeTypeRep $ typeRep @Nullary)
     ]
 
@@ -1432,7 +1436,7 @@ polyLits =
                  "Variant.cons" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
                  "Variant.run" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
                  -- Tagged
-                 "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
+                 "hell:Hell.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
                  -- Operators
                  "$" (Function.$) :: forall a b. (a -> b) -> a -> b
                  "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
@@ -1629,6 +1633,15 @@ hellQName l string = HSE.Qual l (hellModule l) (HSE.Ident l string)
 
 hellTyCon :: l -> String -> HSE.Type l
 hellTyCon l string = HSE.TyCon l $ hellQName l string
+
+hellCon :: l -> String -> HSE.Exp l
+hellCon l string = HSE.Con l $ hellQName l string
+
+hellTaggedTyCon :: l -> HSE.Type l
+hellTaggedTyCon l = hellTyCon l "Tagged"
+
+hellTaggedCon :: l -> HSE.Exp l
+hellTaggedCon l = hellCon l "Tagged"
 
 --------------------------------------------------------------------------------
 -- Accessor for ExitCode
