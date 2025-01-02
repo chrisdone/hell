@@ -212,11 +212,11 @@ parseModule _ = fail "Module headers aren't supported."
 
 -- data Value = Text Text | Number Int
 -- \ x ->
---   Tagged.Tagged @"Main.Value"
+--   hell:Hell.Tagged @"Main.Value"
 --     @(Variant (ConsL "Number" Int (ConsL "Text" Text NilL)))
 --     (Variant.left @"Number" x)
 -- \ x ->
---   Tagged.Tagged @"Main.Value"
+--   hell:Hell.Tagged @"Main.Value"
 --     @(Variant (ConsL "Number" Int (ConsL "Text" Text NilL)))
 --     (Variant.right (Variant.left @"Text" x))
 parseSumDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> [HSE.QualConDecl l] -> HSE.ParseResult ([(String, HSE.Exp HSE.SrcSpanInfo)],
@@ -229,12 +229,11 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
   let taggedVariantType =
         -- Example:              Tagged  "Main.Person"  (Variant ..)
         --                       vvvvvv  vvvvvvvv       vvvvvvvvvvv
-        HSE.TyApp l (HSE.TyApp l taggedT (tySym qualifiedName)) variantType
+        HSE.TyApp l (HSE.TyApp l (hellTaggedTyCon l) (tySym qualifiedName)) variantType
   -- Note: the constructors are sorted by name, to provide a canonical ordering.
   let terms = map (makeCons conDecls variantType) $ Map.toList conDecls
   pure (terms, tyname, taggedVariantType)
   where
-    taggedT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Tagged"))
     l = HSE.noSrcSpan
     makeCons conDecls variantType (conName, typ)
       | HSE.TyCon _ (HSE.Qual _ (HSE.ModuleName _ "hell:Hell") (HSE.Ident _ "Nullary")) <- typ =
@@ -255,7 +254,7 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
           l
           ( HSE.App
               l
-              (HSE.Con l (HSE.Qual l (HSE.ModuleName l "Tagged") (HSE.Ident l "Tagged")))
+              (hellTaggedCon l)
               (HSE.TypeApp l (tySym qualifiedName))
           )
           (HSE.TypeApp l ty)
@@ -266,8 +265,7 @@ parseSumDecl _ _ =
 desugarVariantCon :: Bool -> [String] -> String -> HSE.Exp HSE.SrcSpanInfo
 desugarVariantCon nullary cons thisCon = rights $ left
   where
-    right _ =
-      HSE.Var l (HSE.Qual l (HSE.ModuleName l "Variant") (HSE.Ident l "right"))
+    right _ = HSE.Var l (hellQName l "RightV")
     rights e = foldr (HSE.App l) e $ map right $ takeWhile (/= thisCon) cons
     left =
       if nullary
@@ -275,7 +273,7 @@ desugarVariantCon nullary cons thisCon = rights $ left
           HSE.App
             l
             left0
-            (HSE.Con l (HSE.Qual l (HSE.ModuleName l "hell:Hell") (HSE.Ident l "Nullary")))
+            (HSE.Con l (hellQName l "Nullary"))
         else
           HSE.App
             l
@@ -285,7 +283,7 @@ desugarVariantCon nullary cons thisCon = rights $ left
         left0 =
           ( HSE.App
               l
-              (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Variant") (HSE.Ident l "left")))
+              (HSE.Var l (hellQName l "LeftV"))
               (HSE.TypeApp l (tySym thisCon))
           )
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
@@ -297,27 +295,17 @@ desugarVariantType = appRecord . foldr appCons nilL
     appCons (name, typ) rest =
       HSE.TyApp l (HSE.TyApp l (HSE.TyApp l consL (tySym name)) typ) rest
     appRecord x =
-      HSE.TyParen l (HSE.TyApp l recordT x)
+      HSE.TyParen l (HSE.TyApp l (hellVariantTyCon l) x)
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
-    nilL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "NilL"))
-    consL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "ConsL"))
-    recordT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Variant"))
+    nilL = hellNilTyCon l
+    consL = hellConsTyCon l
     l = HSE.noSrcSpan
 
 parseConDecl :: (MonadFail f) => HSE.QualConDecl l -> f (String, HSE.Type l)
 parseConDecl (HSE.QualConDecl _ Nothing Nothing (HSE.ConDecl _ (HSE.Ident _ consName) [slot])) =
   pure (consName, slot)
 parseConDecl (HSE.QualConDecl l Nothing Nothing (HSE.ConDecl _ (HSE.Ident _ consName) [])) =
-  pure
-    ( consName,
-      HSE.TyCon
-        l
-        ( HSE.Qual
-            l
-            (HSE.ModuleName l "hell:Hell")
-            (HSE.Ident l "Nullary")
-        )
-    )
+  pure ( consName, hellTyCon l "Nullary")
 parseConDecl _ = fail "Unsupported constructor declaration format."
 
 parseDataDecl :: (l ~ HSE.SrcSpanInfo) =>
@@ -358,15 +346,14 @@ makeConstructor name fields = (appTagged recordType, taggedRecordType)
     taggedRecordType =
       -- Example:              Tagged  "Main.Person"  (Record ..)
       --                       vvvvvv  vvvvvvvv       vvvvvvvvvvv
-      HSE.TyApp l (HSE.TyApp l taggedT (tySym qualifiedName)) recordType
+      HSE.TyApp l (HSE.TyApp l (hellTaggedTyCon l) (tySym qualifiedName)) recordType
     qualifiedName = "Main." ++ name
-    taggedT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Tagged"))
     appTagged ty =
       HSE.App
         l
         ( HSE.App
             l
-            (HSE.Con l (HSE.Qual l (HSE.ModuleName l "Tagged") (HSE.Ident l "Tagged")))
+            (hellTaggedCon l)
             (HSE.TypeApp l (tySym qualifiedName))
         )
         (HSE.TypeApp l ty)
@@ -385,14 +372,14 @@ makeConstructRecord qname fields =
                     l
                     ( HSE.App
                         l
-                        (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Record") (HSE.Ident l "cons")))
+                        (HSE.Var l (hellQName l "ConsR"))
                         (HSE.TypeApp l (tySym name))
                     )
                     expr
                 )
                 rest
       )
-      (HSE.Var l (HSE.Qual l (HSE.ModuleName l "Record") (HSE.Ident l "nil")))
+      (HSE.Var l (hellQName l "NilR"))
     $ List.sortBy (Ord.comparing fst)
     $ map
       ( \case
@@ -409,11 +396,10 @@ desugarRecordType = appRecord . foldr appCons nilL
     appCons (name, typ) rest =
       HSE.TyApp l (HSE.TyApp l (HSE.TyApp l consL (tySym name)) typ) rest
     appRecord x =
-      HSE.TyApp l recordT x
+      HSE.TyApp l (hellRecordTyCon l) x
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
-    nilL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "NilL"))
-    consL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "ConsL"))
-    recordT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Record"))
+    nilL = hellNilTyCon l
+    consL = hellConsTyCon l
     l = HSE.noSrcSpan
 
 --------------------------------------------------------------------------------
@@ -797,20 +783,13 @@ desugarCase l scrutinee xs = do
     nil =
       ( HSE.Var
           l
-          ( HSE.Qual
-              l
-              (HSE.ModuleName l "Variant")
-              (HSE.Ident l "nil")
+          ( hellQName l "NilA"
           )
       )
     run =
       ( HSE.Var
           l
-          ( HSE.Qual
-              l
-              (HSE.ModuleName l "Variant")
-              (HSE.Ident l "run")
-          )
+          ( hellQName l "runAccessor")
       )
     desugarAlt
       ( HSE.Alt
@@ -832,11 +811,7 @@ desugarCase l scrutinee xs = do
                   l'
                   ( HSE.Var
                       l'
-                      ( HSE.Qual
-                          l'
-                          (HSE.ModuleName l' "Variant")
-                          (HSE.Ident l' "cons")
-                      )
+                      ( hellQName l' "ConsA")
                   )
                   (HSE.TypeApp l' (tySym name))
               )
@@ -862,11 +837,7 @@ desugarCase l scrutinee xs = do
                   l'
                   ( HSE.Var
                       l'
-                      ( HSE.Qual
-                          l'
-                          (HSE.ModuleName l' "Variant")
-                          (HSE.Ident l' "cons")
-                      )
+                      ( hellQName l' "ConsA")
                   )
                   (HSE.TypeApp l' (tySym name))
               )
@@ -1133,7 +1104,9 @@ freeVariablesSpec = do
 supportedTypeConstructors :: Map String SomeTypeRep
 supportedTypeConstructors =
   Map.fromList
-    [ ("Bool", SomeTypeRep $ typeRep @Bool),
+    [
+      -- Standard Haskell types
+      ("Bool", SomeTypeRep $ typeRep @Bool),
       ("Int", SomeTypeRep $ typeRep @Int),
       ("Double", SomeTypeRep $ typeRep @Double),
       ("Char", SomeTypeRep $ typeRep @Char),
@@ -1148,12 +1121,14 @@ supportedTypeConstructors =
       ("Set", SomeTypeRep $ typeRep @Set),
       ("Value", SomeTypeRep $ typeRep @Value),
       ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig),
-      ("Tagged", SomeTypeRep $ typeRep @Tagged),
-      ("Record", SomeTypeRep $ typeRep @Record),
-      ("Variant", SomeTypeRep $ typeRep @Variant),
-      ("NilL", SomeTypeRep $ typeRep @('NilL)),
-      ("ConsL", SomeTypeRep $ typeRep @('ConsL)),
       ("()", SomeTypeRep $ typeRep @()),
+
+      -- Internal, hidden types
+      ("hell:Hell.NilL", SomeTypeRep $ typeRep @('NilL)),
+      ("hell:Hell.ConsL", SomeTypeRep $ typeRep @('ConsL)),
+      ("hell:Hell.Variant", SomeTypeRep $ typeRep @Variant),
+      ("hell:Hell.Record", SomeTypeRep $ typeRep @Record),
+      ("hell:Hell.Tagged", SomeTypeRep $ typeRep @Tagged),
       ("hell:Hell.Nullary", SomeTypeRep $ typeRep @Nullary)
     ]
 
@@ -1284,7 +1259,7 @@ supportedLits =
       ("Json.Array", lit' (Json.toJSON :: Vector Value -> Value)),
       ("Json.Object", lit' (Json.toJSON :: Map Text Value -> Value)),
       -- Records
-      ("Record.nil", lit' NilR),
+      ("hell:Hell.NilR", lit' NilR),
       -- Nullary
       ("hell:Hell.Nullary", lit' Nullary)
     ]
@@ -1430,18 +1405,18 @@ polyLits =
              [|
                do
                  -- Records
-                 "Record.cons" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
+                 "hell:Hell.ConsR" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
                  "Record.get" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). Tagged t (Record xs) -> a
                  "Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
                  "Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
                  -- Variants
-                 "Variant.left" LeftV :: forall (k :: Symbol) a (xs :: List). a -> Variant (ConsL k a xs)
-                 "Variant.right" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
-                 "Variant.nil" NilA :: forall r. Accessor 'NilL r
-                 "Variant.cons" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
-                 "Variant.run" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
+                 "hell:Hell.LeftV" LeftV :: forall (k :: Symbol) a (xs :: List). a -> Variant (ConsL k a xs)
+                 "hell:Hell.RightV" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
+                 "hell:Hell.NilA" NilA :: forall r. Accessor 'NilL r
+                 "hell:Hell.ConsA" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
+                 "hell:Hell.runAccessor" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
                  -- Tagged
-                 "Tagged.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
+                 "hell:Hell.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
                  -- Operators
                  "$" (Function.$) :: forall a b. (a -> b) -> a -> b
                  "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
@@ -1626,6 +1601,39 @@ unsafeGetForall :: String -> HSE.SrcSpanInfo -> UTerm ()
 unsafeGetForall key l = Maybe.fromMaybe (error $ "Bad compile-time lookup for " ++ key) $ do
   (forall', vars, irep, _) <- Map.lookup key polyLits
   pure (UForall l () [] forall' vars irep [])
+
+--------------------------------------------------------------------------------
+-- Hidden terms and types, implementation-detail, used by Hell
+
+hellModule :: l -> HSE.ModuleName l
+hellModule l = HSE.ModuleName l "hell:Hell"
+
+hellQName :: l -> String -> HSE.QName l
+hellQName l string = HSE.Qual l (hellModule l) (HSE.Ident l string)
+
+hellTyCon :: l -> String -> HSE.Type l
+hellTyCon l string = HSE.TyCon l $ hellQName l string
+
+hellCon :: l -> String -> HSE.Exp l
+hellCon l string = HSE.Con l $ hellQName l string
+
+hellTaggedTyCon :: l -> HSE.Type l
+hellTaggedTyCon l = hellTyCon l "Tagged"
+
+hellRecordTyCon :: l -> HSE.Type l
+hellRecordTyCon l = hellTyCon l "Record"
+
+hellVariantTyCon :: l -> HSE.Type l
+hellVariantTyCon l = hellTyCon l "Variant"
+
+hellNilTyCon :: l -> HSE.Type l
+hellNilTyCon l = hellTyCon l "NilL"
+
+hellConsTyCon :: l -> HSE.Type l
+hellConsTyCon l = hellTyCon l "ConsL"
+
+hellTaggedCon :: l -> HSE.Exp l
+hellTaggedCon l = hellCon l "Tagged"
 
 --------------------------------------------------------------------------------
 -- Accessor for ExitCode
@@ -2206,11 +2214,16 @@ _generateApiDocs = do
         h1_ "Hell's API"
         p_ $ a_ [href_ "../"] $ "Back to homepage"
         h2_ "Types"
+        let excludeHidden = filter (not . List.isPrefixOf "hell:Hell." . fst)
         ul_ do
-          for_ (Map.toList supportedTypeConstructors) typeConsToHtml
+          for_ (excludeHidden $ Map.toList supportedTypeConstructors) typeConsToHtml
         h2_ "Terms"
-        let groups = Map.toList $ fmap (Left . snd) supportedLits
-        let groups' = Map.toList $ fmap (\(_, _, _, ty) -> Right ty) polyLits
+        let groups =
+              excludeHidden $
+              Map.toList $ fmap (Left . snd) $
+               supportedLits
+        let groups' = excludeHidden  $
+              Map.toList $ fmap (\(_, _, _, ty) -> Right ty) polyLits
         for_ (List.groupBy (Function.on (==) (takeWhile (/= '.') . fst)) $ List.sortOn fst $ groups <> groups') \group -> do
           h3_ $ for_ (take 1 group) \(x, _) -> toHtml $ takeWhile (/= '.') x
           ul_ do
