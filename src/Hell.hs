@@ -296,11 +296,10 @@ desugarVariantType = appRecord . foldr appCons nilL
     appCons (name, typ) rest =
       HSE.TyApp l (HSE.TyApp l (HSE.TyApp l consL (tySym name)) typ) rest
     appRecord x =
-      HSE.TyParen l (HSE.TyApp l recordT x)
+      HSE.TyParen l (HSE.TyApp l (hellVariantTyCon l) x)
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
     nilL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "NilL"))
     consL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "ConsL"))
-    recordT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Variant"))
     l = HSE.noSrcSpan
 
 parseConDecl :: (MonadFail f) => HSE.QualConDecl l -> f (String, HSE.Type l)
@@ -398,11 +397,10 @@ desugarRecordType = appRecord . foldr appCons nilL
     appCons (name, typ) rest =
       HSE.TyApp l (HSE.TyApp l (HSE.TyApp l consL (tySym name)) typ) rest
     appRecord x =
-      HSE.TyApp l recordT x
+      HSE.TyApp l (hellRecordTyCon l) x
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
     nilL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "NilL"))
     consL = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "ConsL"))
-    recordT = HSE.TyCon l (HSE.UnQual l (HSE.Ident l "Record"))
     l = HSE.noSrcSpan
 
 --------------------------------------------------------------------------------
@@ -1142,12 +1140,12 @@ supportedTypeConstructors =
       ("()", SomeTypeRep $ typeRep @()),
 
       -- Internal, not yet hidden types
-      ("Record", SomeTypeRep $ typeRep @Record),
-      ("Variant", SomeTypeRep $ typeRep @Variant),
       ("NilL", SomeTypeRep $ typeRep @('NilL)),
       ("ConsL", SomeTypeRep $ typeRep @('ConsL)),
 
       -- Internal, hidden types
+      ("hell:Hell.Variant", SomeTypeRep $ typeRep @Variant),
+      ("hell:Hell.Record", SomeTypeRep $ typeRep @Record),
       ("hell:Hell.Tagged", SomeTypeRep $ typeRep @Tagged),
       ("hell:Hell.Nullary", SomeTypeRep $ typeRep @Nullary)
     ]
@@ -1639,6 +1637,12 @@ hellCon l string = HSE.Con l $ hellQName l string
 
 hellTaggedTyCon :: l -> HSE.Type l
 hellTaggedTyCon l = hellTyCon l "Tagged"
+
+hellRecordTyCon :: l -> HSE.Type l
+hellRecordTyCon l = hellTyCon l "Record"
+
+hellVariantTyCon :: l -> HSE.Type l
+hellVariantTyCon l = hellTyCon l "Variant"
 
 hellTaggedCon :: l -> HSE.Exp l
 hellTaggedCon l = hellCon l "Tagged"
