@@ -1,0 +1,21 @@
+-- Basic example of a tree data structure.
+main = do
+  let tree =
+        Tree.Node "1" [
+          Tree.Node "1.a" [],
+          Tree.Node "1.b" [
+            Tree.Node "1.b.x" []
+          ]
+        ]
+  -- Do a trivial map, include the length of the tag in the nodes.
+  let tree' = Tree.map (\a -> (a, Text.length a)) tree
+  -- Write the tree out in a Lisp syntax.
+  Tree.foldTree
+    (\(a, len) children -> do
+      Text.putStr "("
+      Text.putStr a
+      Text.putStr " "
+      Text.putStr $ Show.show len
+      Monad.forM_ children (\m -> do Text.putStr " "; m)
+      Text.putStr ")")
+    tree'
