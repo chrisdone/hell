@@ -1119,6 +1119,7 @@ supportedTypeConstructors =
       ("IO", SomeTypeRep $ typeRep @IO),
       ("Vector", SomeTypeRep $ typeRep @Vector),
       ("Set", SomeTypeRep $ typeRep @Set),
+      ("Tree", SomeTypeRep $ typeRep @Tree),
       ("Value", SomeTypeRep $ typeRep @Value),
       ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig),
       ("()", SomeTypeRep $ typeRep @()),
