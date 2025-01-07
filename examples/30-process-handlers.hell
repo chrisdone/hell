@@ -1,0 +1,8 @@
+main = do
+  Temp.withSystemTempFile "example" \filePath handle -> do
+    Text.putStrLn $ Text.concat ["Created temp file ", filePath]
+    let proc = Process.setStdout (Process.useHandleClose handle) $ 
+         Process.proc "ls" ["-al"]
+    Process.runProcess_ proc
+    contents <- Text.readFile filePath
+    Text.putStrLn contents
