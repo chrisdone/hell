@@ -506,4 +506,20 @@ class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a 
 <span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>      <span class="dt">Monad</span><span class="op">.</span>forM_ children (\m <span class="ot">-&gt;</span> <span class="kw">do</span> Text.putStr <span class="st">&quot; &quot;</span>; m)</span>
 <span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>      Text.putStr <span class="st">&quot;)&quot;</span>)</span>
 <span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    tree&#39;</span></code></pre></div>
+<h2>29-temp-files.hell</h2><div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  Temp.withSystemTempDirectory <span class="st">&quot;example&quot;</span> \dirPath <span class="ot">-&gt;</span> <span class="kw">do</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn <span class="op">$</span> Text.concat [<span class="st">&quot;Created temp directory &quot;</span>, dirPath]</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  Temp.withSystemTempFile <span class="st">&quot;example&quot;</span> \filePath handle <span class="ot">-&gt;</span> <span class="kw">do</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn <span class="op">$</span> Text.concat [<span class="st">&quot;Created temp file &quot;</span>, filePath]</span></code></pre></div>
+<h2>30-process-handlers.hell</h2><div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  Temp.withSystemTempFile <span class="st">&quot;example&quot;</span> \filePath handle <span class="ot">-&gt;</span> <span class="kw">do</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn <span class="op">$</span> Text.concat [<span class="st">&quot;Created temp file &quot;</span>, filePath]</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> proc <span class="ot">=</span> Process.setStdout (Process.useHandleClose handle) <span class="op">$</span> </span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>         Process.proc <span class="st">&quot;ls&quot;</span> [<span class="st">&quot;-al&quot;</span>]</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    Process.runProcess_ proc</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    contents <span class="ot">&lt;-</span> Text.readFile filePath</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn contents</span></code></pre></div>
 </html>
