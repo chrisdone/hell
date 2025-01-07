@@ -1243,6 +1243,7 @@ supportedLits =
       -- Process
       ("Process.proc", lit' $ \n xs -> proc (Text.unpack n) (map Text.unpack xs)),
       ("Process.setEnv", lit' $ Process.setEnv @() @() @() . map (bimap Text.unpack Text.unpack)),
+
       -- Exit
       ("Exit.ExitSuccess", lit' Exit.ExitSuccess),
       ("Exit.ExitFailure", lit' Exit.ExitFailure),
@@ -1581,6 +1582,8 @@ polyLits =
                  -- Process 
                  "Process.runProcess" runProcess :: forall a b c. ProcessConfig a b c -> IO ExitCode
                  "Process.runProcess_" runProcess_ :: forall a b c. ProcessConfig a b c -> IO ()
+                 "Process.setStdout" setStdout :: forall stdin stdout stdout' stderr. StreamSpec 'STOutput stdout' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout' stderr
+                 "Process.useHandleClose" useHandleClose :: forall (a :: StreamType). IO.Handle -> StreamSpec a () 
                |]
      )
 
