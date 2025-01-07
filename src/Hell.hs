@@ -1243,8 +1243,6 @@ supportedLits =
       -- Process
       ("Process.proc", lit' $ \n xs -> proc (Text.unpack n) (map Text.unpack xs)),
       ("Process.setEnv", lit' $ Process.setEnv @() @() @() . map (bimap Text.unpack Text.unpack)),
-      ("Process.runProcess", lit' $ runProcess @IO @() @() @()),
-      ("Process.runProcess_", lit' $ runProcess_ @IO @() @() @()),
       -- Exit
       ("Exit.ExitSuccess", lit' Exit.ExitSuccess),
       ("Exit.ExitFailure", lit' Exit.ExitFailure),
@@ -1580,6 +1578,9 @@ polyLits =
                  -- Temp
                  "Temp.withSystemTempFile" temp_withSystemTempFile :: forall a. Text -> (Text -> IO.Handle -> IO a) -> IO a
                  "Temp.withSystemTempDirectory" temp_withSystemTempDirectory :: forall a. Text -> (Text -> IO a) -> IO a
+                 -- Process 
+                 "Process.runProcess" runProcess :: forall a b c. ProcessConfig a b c -> IO ExitCode
+                 "Process.runProcess_" runProcess_ :: forall a b c. ProcessConfig a b c -> IO ()
                |]
      )
 
