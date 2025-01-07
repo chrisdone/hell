@@ -28,6 +28,7 @@ dependencies:
 - th-lift
 - th-orphans
 - aeson
+- temporary
 
 ghc-options:
   - -Wall
