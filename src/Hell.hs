@@ -96,6 +96,7 @@ import qualified System.Directory as Dir
 import System.Environment
 import qualified System.Exit as Exit
 import qualified System.IO as IO
+import qualified System.IO.Temp as Temp
 import System.Process.Typed as Process
 import qualified System.Timeout as Timeout
 import Test.Hspec
@@ -1576,6 +1577,9 @@ polyLits =
                  "Async.pooledForConcurrently" Async.pooledForConcurrently :: forall a b. [a] -> (a -> IO b) -> IO [b]
                  -- JSON
                  "Json.value" json_value :: forall a. a -> (Bool -> a) -> (Text -> a) -> (Double -> a) -> (Vector Value -> a) -> (Map Text Value -> a) -> Value -> a
+                 -- Temp
+                 "Temp.withSystemTempFile" temp_withSystemTempFile :: forall a. Text -> (Text -> IO.Handle -> IO a) -> IO a
+                 "Temp.withSystemTempDirectory" temp_withSystemTempDirectory :: forall a. Text -> (Text -> IO a) -> IO a
                |]
      )
 
@@ -1734,6 +1738,15 @@ b_readProcessStdout_ :: ProcessConfig () () () -> IO ByteString
 b_readProcessStdout_ c = do
   out <- readProcessStdout_ c
   pure (L.toStrict out)
+
+--------------------------------------------------------------------------------
+-- Temp file operations
+
+temp_withSystemTempFile :: forall a. Text -> (Text -> IO.Handle -> IO a) -> IO a
+temp_withSystemTempFile template action = Temp.withSystemTempFile (Text.unpack template) $ \fp h -> action (Text.pack fp) h
+
+temp_withSystemTempDirectory :: forall a. Text -> (Text -> IO a) -> IO a
+temp_withSystemTempDirectory template action = Temp.withSystemTempDirectory (Text.unpack template) $ \fp -> action (Text.pack fp)
 
 --------------------------------------------------------------------------------
 -- Inference type representation

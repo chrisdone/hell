@@ -1,0 +1,6 @@
+main = do
+  Temp.withSystemTempDirectory "example" \dirPath -> do
+    Text.putStrLn $ Text.concat ["Created temp directory ", dirPath]
+  
+  Temp.withSystemTempFile "example" \filePath handle -> do
+    Text.putStrLn $ Text.concat ["Created temp file ", filePath]
