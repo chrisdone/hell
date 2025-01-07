@@ -462,6 +462,7 @@ data Binding = Singleton String | Tuple [String]
 data Forall where
   NoClass :: (forall (a :: Type). TypeRep a -> Forall) -> Forall
   SymbolOf :: (forall (a :: Symbol). TypeRep a -> Forall) -> Forall
+  StreamTypeOf :: (forall (a :: StreamType). TypeRep a -> Forall) -> Forall
   ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
   Monadic :: (forall (m :: Type -> Type). (Monad m) => TypeRep m -> Forall) -> Forall
@@ -584,6 +585,8 @@ tc (UForall _ _ _ fall _ _ reps0) _env = go reps0 fall
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @List) = go reps (f rep)
     go (SomeTypeRep rep : reps) (SymbolOf f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @Symbol) = go reps (f rep)
+    go (SomeTypeRep rep : reps) (StreamTypeOf f)
+      | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @StreamType) = go reps (f rep)
     go (StarTypeRep rep : reps) (OrdEqShow f) =
       if
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
@@ -621,6 +624,7 @@ tc (UForall _ _ _ fall _ _ reps0) _env = go reps0 fall
         showR = \case
           NoClass {} -> "NoClass"
           SymbolOf {} -> "SymbolOf"
+          StreamTypeOf {} -> "StreamTypeOf"
           ListOf {} -> "ListOf"
           OrdEqShow {} -> "OrdEqShow"
           Monadic {} -> "Monadic"
@@ -1123,6 +1127,9 @@ supportedTypeConstructors =
       ("Tree", SomeTypeRep $ typeRep @Tree),
       ("Value", SomeTypeRep $ typeRep @Value),
       ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig),
+      ("StreamType", SomeTypeRep $ typeRep @StreamType),
+      ("STInput", SomeTypeRep $ typeRep @STInput),
+      ("STOutput", SomeTypeRep $ typeRep @STOutput),
       ("()", SomeTypeRep $ typeRep @()),
 
       -- Internal, hidden types
@@ -1387,6 +1394,13 @@ polyLits =
                            (TH.KindedTV v TH.SpecifiedSpec (TH.ConT v_k)) | v_k == ''List -> \rest ->
                              TH.appE
                                (TH.conE 'ListOf)
+                               ( TH.lamE
+                                   [pure $ TH.ConP 'TypeRep [TH.SigT (TH.VarT v) (TH.ConT v_k)] []]
+                                   rest
+                               )
+                           (TH.KindedTV v TH.SpecifiedSpec (TH.ConT v_k)) | v_k == ''StreamType -> \rest ->
+                             TH.appE
+                               (TH.conE 'StreamTypeOf)
                                ( TH.lamE
                                    [pure $ TH.ConP 'TypeRep [TH.SigT (TH.VarT v) (TH.ConT v_k)] []]
                                    rest

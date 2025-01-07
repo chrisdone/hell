@@ -35,8 +35,8 @@ executable hell
     , syb
     , tagged
     , template-haskell
-    , text
     , temporary
+    , text
     , th-lift
     , th-orphans
     , typed-process
