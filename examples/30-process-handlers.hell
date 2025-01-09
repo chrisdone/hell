@@ -1,8 +1,23 @@
 main = do
+  -- 1. close the handle after the process
   Temp.withSystemTempFile "example" \filePath handle -> do
     Text.putStrLn $ Text.concat ["Created temp file ", filePath]
     let proc = Process.setStdout (Process.useHandleClose handle) $ 
          Process.proc "ls" ["-al"]
     Process.runProcess_ proc
+    contents <- Text.readFile filePath
+    Text.putStrLn contents
+
+  -- 2. keep the handle open after the process
+  Temp.withSystemTempFile "example-open" \filePath handle -> do
+    Text.putStrLn $ Text.concat ["Created temp file ", filePath]
+    let proc0 = Process.setStdout (Process.useHandleOpen handle) $ 
+         Process.proc "echo" ["hello"]
+    -- second time around we we make sure to close the handle 
+    -- so we can then read the file later
+    let proc1 = Process.setStdout (Process.useHandleClose handle) $ 
+         Process.proc "echo" ["world"]
+    Process.runProcess_ proc0
+    Process.runProcess_ proc1
     contents <- Text.readFile filePath
     Text.putStrLn contents
