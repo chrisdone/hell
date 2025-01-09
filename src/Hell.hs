@@ -1432,6 +1432,8 @@ polyLits =
                  "hell:Hell.runAccessor" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
                  -- Tagged
                  "hell:Hell.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
+                 -- Functor
+                 "Functor.fmap" fmap :: forall f a b. Functor f => (a -> b) -> f a -> f b
                  -- Operators
                  "$" (Function.$) :: forall a b. (a -> b) -> a -> b
                  "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c

@@ -4,7 +4,7 @@ main = do
   -- Maybe monad works!
   Maybe.maybe (Text.putStrLn "Oops!") Text.putStrLn
      (do path <- List.lookup "PATH" env
-         home <- List.lookup "HOME" env
+         home <- Functor.fmap Text.reverse $ List.lookup "HOME" env
          Monad.return (Text.concat [path, " and ", home]))
 
   -- Either monad works!
