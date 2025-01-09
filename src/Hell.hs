@@ -141,9 +141,13 @@ commandParser =
       Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version")
     ]
 
+-- | Version of Hell.
+hellVersion :: Text
+hellVersion = "2025-01-09"
+
 -- | Dispatch on the command.
 dispatch :: Command -> IO ()
-dispatch Version = putStrLn "2024-12-04"
+dispatch Version = Text.putStrLn hellVersion
 dispatch (Run filePath) = do
   action <- compileFile filePath
   eval () action
@@ -2246,6 +2250,7 @@ _generateApiDocs = do
         title_ "Hell's API"
       body_ do
         h1_ "Hell's API"
+        h2_ $ do "Version: "; toHtml hellVersion
         p_ $ a_ [href_ "../"] $ "Back to homepage"
         h2_ "Types"
         let excludeHidden = filter (not . List.isPrefixOf "hell:Hell." . fst)
