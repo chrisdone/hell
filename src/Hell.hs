@@ -1232,6 +1232,7 @@ supportedLits =
       ("IO.NoBuffering", lit' IO.NoBuffering),
       ("IO.LineBuffering", lit' IO.LineBuffering),
       ("IO.BlockBuffering", lit' IO.BlockBuffering),
+      ("IO.hClose", lit' IO.hClose),
       -- Concurrent stuff
       ("Concurrent.threadDelay", lit' Concurrent.threadDelay),
       -- Bool
