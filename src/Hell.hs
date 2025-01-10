@@ -1130,10 +1130,6 @@ supportedTypeConstructors =
       ("Set", SomeTypeRep $ typeRep @Set),
       ("Tree", SomeTypeRep $ typeRep @Tree),
       ("Value", SomeTypeRep $ typeRep @Value),
-      ("ProcessConfig", SomeTypeRep $ typeRep @ProcessConfig),
-      ("StreamType", SomeTypeRep $ typeRep @StreamType),
-      ("STInput", SomeTypeRep $ typeRep @STInput),
-      ("STOutput", SomeTypeRep $ typeRep @STOutput),
       ("()", SomeTypeRep $ typeRep @()),
 
       -- Internal, hidden types
