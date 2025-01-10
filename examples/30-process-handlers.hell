@@ -21,3 +21,14 @@ main = do
     Process.runProcess_ proc1
     contents <- Text.readFile filePath
     Text.putStrLn contents
+
+  -- 3. manually close the handle
+  Temp.withSystemTempFile "example-manual-close" \filePath handle -> do
+    Text.putStrLn $ Text.concat ["Created temp file ", filePath]
+    let proc = Process.setStdout (Process.useHandleOpen handle) $ 
+         Process.proc "echo" ["hello"]
+    Process.runProcess_ proc
+    -- manually close the handle so we can open the file to be read
+    IO.hClose handle
+    contents <- Text.readFile filePath
+    Text.putStrLn contents
