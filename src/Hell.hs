@@ -1600,8 +1600,9 @@ polyLits =
                  "Process.runProcess" runProcess :: forall a b c. ProcessConfig a b c -> IO ExitCode
                  "Process.runProcess_" runProcess_ :: forall a b c. ProcessConfig a b c -> IO ()
                  "Process.setStdout" setStdout :: forall stdin stdout stdout' stderr. StreamSpec 'STOutput stdout' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout' stderr
-                 "Process.useHandleClose" useHandleClose :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
-                 "Process.useHandleOpen" useHandleOpen :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
+                 "Process.useHandleClose" useHandleClose :: forall (a :: StreamType). IO.Handle -> StreamSpec a () 
+                 "Process.useHandleOpen" useHandleOpen :: forall (a :: StreamType). IO.Handle -> StreamSpec a () 
+                 "Process.setWorkingDir" process_setWorkingDir :: forall a b c. Text -> ProcessConfig a b c -> ProcessConfig a b c
                |]
      )
 
@@ -1769,6 +1770,12 @@ temp_withSystemTempFile template action = Temp.withSystemTempFile (Text.unpack t
 
 temp_withSystemTempDirectory :: forall a. Text -> (Text -> IO a) -> IO a
 temp_withSystemTempDirectory template action = Temp.withSystemTempDirectory (Text.unpack template) $ \fp -> action (Text.pack fp)
+
+--------------------------------------------------------------------------------
+-- Process operations
+
+process_setWorkingDir :: forall a b c. Text -> ProcessConfig a b c -> ProcessConfig a b c
+process_setWorkingDir filepath = Process.setWorkingDir (Text.unpack filepath)
 
 --------------------------------------------------------------------------------
 -- Inference type representation

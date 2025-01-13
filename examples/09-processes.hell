@@ -14,4 +14,7 @@ main = do
 
   let config = Process.proc "false" []
   code <- Process.runProcess config
+
+  Process.runProcess $ Process.setWorkingDir "/etc/" $ Process.proc "pwd" []
+
   Text.putStrLn "Done."
