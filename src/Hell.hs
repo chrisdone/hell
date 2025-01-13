@@ -1229,6 +1229,11 @@ supportedLits =
       ("IO.LineBuffering", lit' IO.LineBuffering),
       ("IO.BlockBuffering", lit' IO.BlockBuffering),
       ("IO.hClose", lit' IO.hClose),
+      ("IO.openFile", lit' (\f m -> IO.openFile (Text.unpack f) m)),
+      ("IO.ReadMode", lit' IO.ReadMode),
+      ("IO.WriteMode", lit' IO.WriteMode),
+      ("IO.AppendMode", lit' IO.AppendMode),
+      ("IO.ReadWriteMode", lit' IO.ReadWriteMode),
       -- Concurrent stuff
       ("Concurrent.threadDelay", lit' Concurrent.threadDelay),
       -- Bool

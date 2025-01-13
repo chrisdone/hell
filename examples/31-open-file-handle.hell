@@ -1,0 +1,10 @@
+main = do
+  let filepath = "out.txt"
+  handle <- IO.openFile filepath IO.WriteMode
+  let proc = Process.setStdout (Process.useHandleClose handle) $ 
+         Process.proc "ls" ["-al"]
+  Process.runProcess_ proc
+  IO.hClose handle
+
+  contents <- Text.readFile filepath
+  Text.putStrLn contents
