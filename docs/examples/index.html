@@ -96,7 +96,10 @@ class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a 
 <span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> config <span class="ot">=</span> Process.proc <span class="st">&quot;false&quot;</span> []</span>
 <span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  code <span class="ot">&lt;-</span> Process.runProcess config</span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="st">&quot;Done.&quot;</span></span></code></pre></div>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  Process.runProcess <span class="op">$</span> Process.setWorkingDir <span class="st">&quot;/etc/&quot;</span> <span class="op">$</span> Process.proc <span class="st">&quot;pwd&quot;</span> []</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="st">&quot;Done.&quot;</span></span></code></pre></div>
 <h2>10-current-directory.hell</h2><div class="sourceCode" id="cb1"><pre
 class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  dir <span class="ot">&lt;-</span> Directory.getCurrentDirectory</span>
@@ -515,11 +518,62 @@ class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a 
 <span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn <span class="op">$</span> Text.concat [<span class="st">&quot;Created temp file &quot;</span>, filePath]</span></code></pre></div>
 <h2>30-process-handlers.hell</h2><div class="sourceCode" id="cb1"><pre
 class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  Temp.withSystemTempFile <span class="st">&quot;example&quot;</span> \filePath handle <span class="ot">-&gt;</span> <span class="kw">do</span></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn <span class="op">$</span> Text.concat [<span class="st">&quot;Created temp file &quot;</span>, filePath]</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> proc <span class="ot">=</span> Process.setStdout (Process.useHandleClose handle) <span class="op">$</span> </span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- 1. close the handle after the process</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  Temp.withSystemTempFile <span class="st">&quot;example&quot;</span> \filePath handle <span class="ot">-&gt;</span> <span class="kw">do</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn <span class="op">$</span> Text.concat [<span class="st">&quot;Created temp file &quot;</span>, filePath]</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> proc <span class="ot">=</span> Process.setStdout (Process.useHandleClose handle) <span class="op">$</span> </span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>         Process.proc <span class="st">&quot;ls&quot;</span> [<span class="st">&quot;-al&quot;</span>]</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    Process.runProcess_ proc</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    contents <span class="ot">&lt;-</span> Text.readFile filePath</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn contents</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- 2. keep the handle open after the process</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  Temp.withSystemTempFile <span class="st">&quot;example-open&quot;</span> \filePath handle <span class="ot">-&gt;</span> <span class="kw">do</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn <span class="op">$</span> Text.concat [<span class="st">&quot;Created temp file &quot;</span>, filePath]</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> proc0 <span class="ot">=</span> Process.setStdout (Process.useHandleOpen handle) <span class="op">$</span> </span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>         Process.proc <span class="st">&quot;echo&quot;</span> [<span class="st">&quot;hello&quot;</span>]</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- second time around we we make sure to close the handle </span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- so we can then read the file later</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> proc1 <span class="ot">=</span> Process.setStdout (Process.useHandleClose handle) <span class="op">$</span> </span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>         Process.proc <span class="st">&quot;echo&quot;</span> [<span class="st">&quot;world&quot;</span>]</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    Process.runProcess_ proc0</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    Process.runProcess_ proc1</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    contents <span class="ot">&lt;-</span> Text.readFile filePath</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn contents</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- 3. manually close the handle</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>  Temp.withSystemTempFile <span class="st">&quot;example-manual-close&quot;</span> \filePath handle <span class="ot">-&gt;</span> <span class="kw">do</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn <span class="op">$</span> Text.concat [<span class="st">&quot;Created temp file &quot;</span>, filePath]</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> proc <span class="ot">=</span> Process.setStdout (Process.useHandleOpen handle) <span class="op">$</span> </span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>         Process.proc <span class="st">&quot;echo&quot;</span> [<span class="st">&quot;hello&quot;</span>]</span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>    Process.runProcess_ proc</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- manually close the handle so we can open the file to be read</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>    <span class="dt">IO</span><span class="op">.</span>hClose handle</span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>    contents <span class="ot">&lt;-</span> Text.readFile filePath</span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn contents</span></code></pre></div>
+<h2>31-open-file-handle.hell</h2><div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> filepath <span class="ot">=</span> <span class="st">&quot;out.txt&quot;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  handle <span class="ot">&lt;-</span> <span class="dt">IO</span><span class="op">.</span>openFile filepath <span class="dt">IO</span><span class="op">.</span><span class="dt">WriteMode</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> proc <span class="ot">=</span> Process.setStdout (Process.useHandleClose handle) <span class="op">$</span> </span>
 <span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>         Process.proc <span class="st">&quot;ls&quot;</span> [<span class="st">&quot;-al&quot;</span>]</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    Process.runProcess_ proc</span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    contents <span class="ot">&lt;-</span> Text.readFile filePath</span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    Text.putStrLn contents</span></code></pre></div>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  Process.runProcess_ proc</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">IO</span><span class="op">.</span>hClose handle</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  contents <span class="ot">&lt;-</span> Text.readFile filepath</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn contents</span></code></pre></div>
+<h2>31-optparse.hell</h2><div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Includes example of Semigroup.</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">Opts</span> <span class="ot">=</span> <span class="dt">Opts</span> {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ot">  quiet ::</span> <span class="dt">Bool</span>,</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ot">  filePath ::</span> <span class="dt">Text</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a> }</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>options <span class="ot">=</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  (\quiet path <span class="ot">-&gt;</span> <span class="dt">Main.Opts</span> { quiet <span class="ot">=</span> quiet, filePath <span class="ot">=</span> path })</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>       <span class="op">&lt;$&gt;</span> Options.switch (Flag.long <span class="st">&quot;quiet&quot;</span> <span class="op">&lt;&gt;</span> Flag.help <span class="st">&quot;Be quiet?&quot;</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>       <span class="op">&lt;*&gt;</span> Options.strOption (Option.long <span class="st">&quot;path&quot;</span> <span class="op">&lt;&gt;</span> Option.help <span class="st">&quot;The filepath to export&quot;</span>)</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  opts <span class="ot">&lt;-</span> Options.execParser (Options.info (Main.options <span class="op">&lt;**&gt;</span> Options.helper) Options.fullDesc)</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> Record.get <span class="op">@</span><span class="st">&quot;filePath&quot;</span> opts</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> <span class="dt">Show</span><span class="op">.</span><span class="fu">show</span> <span class="op">@</span><span class="dt">Bool</span> <span class="op">$</span> Record.get <span class="op">@</span><span class="st">&quot;quiet&quot;</span> opts</span></code></pre></div>
 </html>
