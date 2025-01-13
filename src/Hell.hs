@@ -92,6 +92,7 @@ import Language.Haskell.TH.Instances ()
 import qualified Language.Haskell.TH.Syntax as TH
 import Lucid hiding (Term, for_, term)
 import qualified Options.Applicative as Options
+import Options.Applicative (Parser)
 import qualified System.Directory as Dir
 import System.Environment
 import qualified System.Exit as Exit
@@ -469,6 +470,8 @@ data Forall where
   StreamTypeOf :: (forall (a :: StreamType). TypeRep a -> Forall) -> Forall
   ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
+  Monoidal :: (forall m. (Monoid m) => TypeRep m -> Forall) -> Forall
+  Applicable :: (forall (m :: Type -> Type). (Applicative m) => TypeRep m -> Forall) -> Forall
   Monadic :: (forall (m :: Type -> Type). (Monad m) => TypeRep m -> Forall) -> Forall
   GetOf ::
     TypeRep (k :: Symbol) ->
@@ -600,7 +603,7 @@ tc (UForall _ _ _ fall _ _ reps0) _env = go reps0 fall
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Text) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ByteString) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ExitCode) -> go reps (f rep)
-          | otherwise -> error $ "type doesn't have enough instances " ++ show rep
+          | otherwise -> error $ "[OrdEqShow] type doesn't have enough instances " ++ show rep
     go (SomeTypeRep rep : reps) (Monadic f) =
       if
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @IO) -> go reps (f rep)
@@ -610,7 +613,31 @@ tc (UForall _ _ _ fall _ _ reps0) _env = go reps0 fall
           | Type.App either' _ <- rep,
             Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) ->
               go reps (f rep)
-          | otherwise -> error $ "type doesn't have enough instances " ++ show rep
+          | otherwise -> error $ "[Monad] type doesn't have enough instances " ++ show rep
+    go (SomeTypeRep rep : reps) (Applicable f) =
+      if
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @IO) -> go reps (f rep)
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Options.Parser) -> go reps (f rep)
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Maybe) -> go reps (f rep)
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @[]) -> go reps (f rep)
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Tree) -> go reps (f rep)
+          | Type.App either' _ <- rep,
+            Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) ->
+              go reps (f rep)
+          | otherwise -> error $ "[Applicative] type doesn't have enough instances " ++ show rep
+    go (SomeTypeRep rep : reps) (Monoidal f) =
+      if
+          | Type.App either' _ <- rep,
+            Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Vector) ->
+              go reps (f rep)
+          | Type.App (Type.App either' _) _ <- rep,
+            Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Options.Mod) ->
+              go reps (f rep)
+          | Type.App either' _ <- rep,
+            Just Type.HRefl <- Type.eqTypeRep either' (typeRep @[]) ->
+              go reps (f rep)
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Text) -> go reps (f rep)
+          | otherwise -> error $ "[Monoid] type doesn't have enough instances " ++ show rep
     go reps (GetOf k0 a0 t0 r0 f) =
       case makeAccessor k0 r0 a0 t0 of
         Just accessor -> go reps (f accessor)
@@ -632,6 +659,8 @@ tc (UForall _ _ _ fall _ _ reps0) _env = go reps0 fall
           ListOf {} -> "ListOf"
           OrdEqShow {} -> "OrdEqShow"
           Monadic {} -> "Monadic"
+          Applicable {} -> "Applicable"
+          Monoidal {} -> "Monoidal"
           GetOf {} -> "GetOf"
           SetOf {} -> "SetOf"
           ModifyOf {} -> "ModifyOf"
@@ -1275,7 +1304,11 @@ supportedLits =
       -- Records
       ("hell:Hell.NilR", lit' NilR),
       -- Nullary
-      ("hell:Hell.Nullary", lit' Nullary)
+      ("hell:Hell.Nullary", lit' Nullary),
+      -- Options
+      ("Options.switch", lit' Options.switch),
+      ("Options.strOption", lit' (Options.strOption @Text)),
+      ("Options.strArgument", lit' (Options.strArgument @Text))
     ]
   where
     lit' :: forall a. (Type.Typeable a) => a -> (UTerm (), SomeTypeRep)
@@ -1340,7 +1373,12 @@ polyLits =
                        )
                        vars
                    ordEqShow = Set.fromList [''Ord, ''Eq, ''Show]
-                   monadics = Set.fromList [''Functor, ''Applicative, ''Monad]
+                   monadics = Set.fromList [''Monad]
+                   -- When we add a type that is a Functor but not an
+                   -- Applicative, we should add a Functor class or
+                   -- this will try to raise it to an Applicative.
+                   applicables = Set.fromList [''Functor, ''Applicative]
+                   monoidals = Set.fromList [''Semigroup, ''Monoid]
                    finalExpr =
                      if
                          | string == "Record.get" ->
@@ -1382,6 +1420,8 @@ polyLits =
                                        Just constraints'
                                          | Set.isSubsetOf constraints' ordEqShow -> 'OrdEqShow
                                          | Set.isSubsetOf constraints' monadics -> 'Monadic
+                                         | Set.isSubsetOf constraints' applicables -> 'Applicable
+                                         | Set.isSubsetOf constraints' monoidals -> 'Monoidal
                                        _ -> error "I'm not sure what to do with this variable."
                                    )
                                )
@@ -1443,10 +1483,16 @@ polyLits =
                  -- Operators
                  "$" (Function.$) :: forall a b. (a -> b) -> a -> b
                  "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
+                 "<>" (<>) :: forall m. Semigroup m => m -> m -> m
                  -- Monad
                  "Monad.bind" (Prelude.>>=) :: forall m a b. (Monad m) => m a -> (a -> m b) -> m b
                  "Monad.then" (Prelude.>>) :: forall m a b. (Monad m) => m a -> m b -> m b
                  "Monad.return" return :: forall a m. (Monad m) => a -> m a
+                 -- Applicative operations
+                 "Applicative.pure" pure :: forall f a. Applicative f => a -> f a
+                 "<*>" (<*>) :: forall f a b. Applicative f => f (a -> b) -> f a -> f b
+                 "<$>" (<$>) :: forall f a b. Functor f => (a -> b) -> f a -> f b
+                 "<**>" (Options.<**>) :: forall f a b. Applicative f => f a -> f (a -> b) -> f b
                  -- Monadic operations
                  "Monad.mapM_" mapM_ :: forall a m. (Monad m) => (a -> m ()) -> [a] -> m ()
                  "Monad.forM_" forM_ :: forall a m. (Monad m) => [a] -> (a -> m ()) -> m ()
@@ -1605,14 +1651,47 @@ polyLits =
                  "Process.runProcess" runProcess :: forall a b c. ProcessConfig a b c -> IO ExitCode
                  "Process.runProcess_" runProcess_ :: forall a b c. ProcessConfig a b c -> IO ()
                  "Process.setStdout" setStdout :: forall stdin stdout stdout' stderr. StreamSpec 'STOutput stdout' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout' stderr
-                 "Process.useHandleClose" useHandleClose :: forall (a :: StreamType). IO.Handle -> StreamSpec a () 
-                 "Process.useHandleOpen" useHandleOpen :: forall (a :: StreamType). IO.Handle -> StreamSpec a () 
+                 "Process.useHandleClose" useHandleClose :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
+                 "Process.useHandleOpen" useHandleOpen :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
                  "Process.setWorkingDir" process_setWorkingDir :: forall a b c. Text -> ProcessConfig a b c -> ProcessConfig a b c
+                 -- Options
+                 "Options.execParser" Options.execParser :: forall a. Options.ParserInfo a -> IO a
+                 "Options.info" Options.info :: forall a. Options.Parser a -> Options.InfoMod a -> Options.ParserInfo a
+                 "Options.helper" Options.helper :: forall a. Options.Parser (a -> a)
+                 "Options.fullDesc" Options.fullDesc :: forall a. Options.InfoMod a
+                 "Options.flag" Options.flag :: forall a. a -> a -> Options.Mod Options.FlagFields a -> Parser a
+                 "Options.flag'" Options.flag' :: forall a. a -> Options.Mod Options.FlagFields a -> Parser a
+                 "Option.long" option_long :: forall a. Text -> Options.Mod Options.OptionFields a
+                 "Option.help" options_help :: forall a. Text -> Options.Mod Options.OptionFields a
+                 "Flag.help" options_help :: forall a. Text -> Options.Mod Options.FlagFields a
+                 "Flag.long" flag_long :: forall a. Text -> Options.Mod Options.FlagFields a
+                 "Option.value" option_value :: forall a. a -> Options.Mod Options.OptionFields a
+                 "Argument.value" argument_value :: forall a. a -> Options.Mod Options.ArgumentFields a
+                 "Argument.metavar" argument_metavar :: forall a. Text -> Options.Mod Options.ArgumentFields a
+                 "Argument.help" options_help :: forall a. Text -> Options.Mod Options.ArgumentFields a
                |]
      )
 
 --------------------------------------------------------------------------------
 -- Internal-use only, used by the desugarer
+
+argument_metavar :: forall a. Text -> Options.Mod Options.ArgumentFields a
+argument_metavar = Options.metavar . Text.unpack
+
+option_value :: forall a. a -> Options.Mod Options.OptionFields a
+option_value = Options.value
+
+argument_value :: forall a. a -> Options.Mod Options.ArgumentFields a
+argument_value = Options.value
+
+options_help :: forall f a. Text -> Options.Mod f a
+options_help = Options.help . Text.unpack
+
+option_long :: forall a. Text -> Options.Mod Options.OptionFields a
+option_long = Options.long . Text.unpack
+
+flag_long :: forall a. Text -> Options.Mod Options.FlagFields a
+flag_long = Options.long . Text.unpack
 
 cons' :: HSE.SrcSpanInfo -> UTerm ()
 cons' = unsafeGetForall "List.cons"
