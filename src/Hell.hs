@@ -2253,6 +2253,25 @@ instance Pretty IMetaVar where
     "t"
       <> ByteString.byteString (Text.encodeUtf8 $ Text.pack $ show i)
 
+instance Pretty (UTerm t) where
+  pretty = \case
+    UVar _ _ v -> pretty v
+    UApp _ _ f x -> "(" <> pretty f <> " " <> pretty x <> ")"
+    UForall prim _ _ _ _ _ _ _ -> pretty prim
+    ULam _ _ binding _ t ->
+      "(\\" <> pretty binding <> " -> " <> pretty t <> ")"
+
+instance Pretty Prim where
+  pretty = \case
+    LitP p -> pretty $ HSE.prettyPrint p
+    NameP s -> pretty s
+    UnitP -> "()"
+
+instance Pretty Binding where
+  pretty = \case
+    Singleton v -> pretty v
+    Tuple xs -> "(" <> mconcat (List.intersperse ", " (map pretty xs)) <> ")"
+
 instance (Pretty a) => Pretty (IRep a) where
   pretty = \case
     IVar a -> pretty a
