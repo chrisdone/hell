@@ -20,8 +20,10 @@
         devShells.default = haskellPackages.shellFor {
           packages = p: [ p.hell ];
           buildInputs = with haskellPackages; [
+            stack
             cabal-install
             haskell-language-server
+            pandoc-cli
           ];
         };
       }

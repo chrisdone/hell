@@ -2354,6 +2354,7 @@ instance Pretty InferError where
 _generateApiDocs :: IO ()
 _generateApiDocs = do
   css <- Text.readFile "docs/style.css"
+  js <- Text.readFile "docs/index.js"
   Lucid.renderToFile "docs/api/index.html" do
     doctypehtml_ do
       style_ css
@@ -2363,6 +2364,7 @@ _generateApiDocs = do
         h1_ "Hell's API"
         h2_ $ do "Version: "; toHtml hellVersion
         p_ $ a_ [href_ "../"] $ "Back to homepage"
+        input_ [type_ "text", id_ "search", placeholder_ "Filter..."]
         h2_ "Types"
         let excludeHidden = filter (not . List.isPrefixOf "hell:Hell." . fst)
         ul_ do
@@ -2370,20 +2372,62 @@ _generateApiDocs = do
         h2_ "Terms"
         let groups =
               excludeHidden $
-              Map.toList $ fmap (Left . snd) $
-               supportedLits
-        let groups' = excludeHidden  $
-              Map.toList $ fmap (\(_, _, _, ty) -> Right ty) polyLits
+                Map.toList $
+                  fmap (Left . snd) $
+                    supportedLits
+        let groups' =
+              excludeHidden $
+                Map.toList $
+                  fmap (\(_, _, _, ty) -> Right ty) polyLits
         for_ (List.groupBy (Function.on (==) (takeWhile (/= '.') . fst)) $ List.sortOn fst $ groups <> groups') \group -> do
-          h3_ $ for_ (take 1 group) \(x, _) -> toHtml $ takeWhile (/= '.') x
+          h3_ [class_ "searchableHeading"] $ for_ (take 1 group) \(x, _) -> toHtml $ takeWhile (/= '.') x
           ul_ do
             for_ group \(x, a) -> case a of
               Left e -> litToHtml (x, e)
               Right e -> polyToHtml (x, e)
+      script_ [id_ "searchIndex"] $ Json.encode makeSearchIndex
+      script_ [type_ "text/javascript"] js
+
+makeSearchIndex :: Json.Value
+makeSearchIndex = Json.Array $ typeConstructorsIndex <> litsIndex <> polysIndex
+  where
+    typeConstructorsIndex =
+      Vector.fromList $
+        map
+          ( \(name, _) ->
+              Json.object
+                [ ("elementId", Json.String $ nameToElementId name),
+                  ("text", Json.String $ Text.pack name)
+                ]
+          )
+          (Map.toList supportedTypeConstructors)
+    litsIndex =
+      Vector.fromList $
+        map
+          ( \(name, _) ->
+              Json.object
+                [ ("elementId", Json.String $ nameToElementId name),
+                  ("text", Json.String $ Text.pack name)
+                ]
+          )
+          (Map.toList supportedLits)
+    polysIndex =
+      Vector.fromList $
+        map
+          ( \(name, _) ->
+              Json.object
+                [ ("elementId", Json.String $ nameToElementId name),
+                  ("text", Json.String $ Text.pack name)
+                ]
+          )
+          (Map.toList polyLits)
+
+nameToElementId :: String -> Text
+nameToElementId = Text.pack
 
 typeConsToHtml :: (String, SomeTypeRep) -> Html ()
 typeConsToHtml (name, SomeTypeRep rep) =
-  li_ do
+  li_ [id_ (nameToElementId name), class_ "searchable"] $ do
     code_ do
       em_ "data "
       strong_ $ toHtml name
@@ -2392,7 +2436,7 @@ typeConsToHtml (name, SomeTypeRep rep) =
 
 litToHtml :: (String, SomeTypeRep) -> Html ()
 litToHtml (name, SomeTypeRep rep) =
-  li_ do
+  li_ [id_ (nameToElementId name), class_ "searchable"] $ do
     code_ do
       strong_ $ toHtml name
       em_ " :: "
@@ -2400,7 +2444,7 @@ litToHtml (name, SomeTypeRep rep) =
 
 polyToHtml :: (String, TH.Type) -> Html ()
 polyToHtml (name, ty) =
-  li_ do
+  li_ [id_ (nameToElementId name), class_ "searchable"] $ do
     code_ do
       strong_ $ toHtml name
       em_ " :: "
