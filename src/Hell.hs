@@ -47,6 +47,7 @@ module Main (main) where
 #if __GLASGOW_HASKELL__ >= 906
 import Control.Monad
 #endif
+import Control.Exception (evaluate)
 import qualified Control.Concurrent as Concurrent
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -153,7 +154,7 @@ dispatch (Run filePath) = do
   action <- compileFile filePath
   eval () action
 dispatch (Check filePath) = do
-  void $ compileFile filePath
+  compileFile filePath >>= void . evaluate
 
 --------------------------------------------------------------------------------
 -- Compiler
