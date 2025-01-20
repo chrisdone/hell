@@ -1165,6 +1165,7 @@ supportedTypeConstructors =
       ("Tree", SomeTypeRep $ typeRep @Tree),
       ("Value", SomeTypeRep $ typeRep @Value),
       ("()", SomeTypeRep $ typeRep @()),
+      ("Handle", SomeTypeRep $ typeRep @IO.Handle),
 
       -- Internal, hidden types
       ("hell:Hell.NilL", SomeTypeRep $ typeRep @('NilL)),
