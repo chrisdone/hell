@@ -1653,7 +1653,9 @@ polyLits =
                  -- Process
                  "Process.runProcess" runProcess :: forall a b c. ProcessConfig a b c -> IO ExitCode
                  "Process.runProcess_" runProcess_ :: forall a b c. ProcessConfig a b c -> IO ()
+                 "Process.setStdin" setStdin :: forall stdin stdin' stdout stderr. StreamSpec 'STInput stdin' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin' stdout stderr
                  "Process.setStdout" setStdout :: forall stdin stdout stdout' stderr. StreamSpec 'STOutput stdout' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout' stderr
+                 "Process.setStderr" setStderr :: forall stdin stdout stderr stderr'. StreamSpec 'STOutput stderr' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout stderr'
                  "Process.useHandleClose" useHandleClose :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
                  "Process.useHandleOpen" useHandleOpen :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
                  "Process.setWorkingDir" process_setWorkingDir :: forall a b c. Text -> ProcessConfig a b c -> ProcessConfig a b c
