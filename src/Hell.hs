@@ -535,7 +535,10 @@ data TypeCheckError
   | LambdaIsNotAFunBug
   | InferredCheckedDisagreeBug
   | LambdaMustBeStarBug
+  | ConstraintResolutionProblem HSE.SrcSpanInfo Forall String
   deriving (Show)
+
+instance Show Forall where show = showR
 
 typed :: (Type.Typeable a) => a -> Typed (Term g)
 typed l = Typed (Type.typeOf l) (Lit l)
@@ -586,7 +589,7 @@ tc (UApp _ _ e1 e2) env =
                     _ -> Left TypeCheckMismatch
     Right {} -> Left TypeOfApplicandIsNotFunction
 -- Polytyped terms, must be, syntactically, fully-saturated
-tc (UForall _ _ _ _ fall _ _ reps0) _env = go reps0 fall
+tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
   where
     go :: [SomeTypeRep] -> Forall -> Either TypeCheckError (Typed (Term g))
     go [] (Final typed') = pure typed'
@@ -597,7 +600,7 @@ tc (UForall _ _ _ _ fall _ _ reps0) _env = go reps0 fall
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @Symbol) = go reps (f rep)
     go (SomeTypeRep rep : reps) (StreamTypeOf f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @StreamType) = go reps (f rep)
-    go (StarTypeRep rep : reps) (OrdEqShow f) =
+    go (StarTypeRep rep : reps) fa@(OrdEqShow f) =
       if
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Double) -> go reps (f rep)
@@ -606,8 +609,9 @@ tc (UForall _ _ _ _ fall _ _ reps0) _env = go reps0 fall
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Text) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ByteString) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @ExitCode) -> go reps (f rep)
-          | otherwise -> error $ "[OrdEqShow] type doesn't have enough instances " ++ show rep
-    go (SomeTypeRep rep : reps) (Monadic f) =
+          | otherwise -> problem fa $ "type doesn't have enough instances " ++ show rep
+
+    go (SomeTypeRep rep : reps) fa@(Monadic f) =
       if
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @IO) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Maybe) -> go reps (f rep)
@@ -616,8 +620,8 @@ tc (UForall _ _ _ _ fall _ _ reps0) _env = go reps0 fall
           | Type.App either' _ <- rep,
             Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) ->
               go reps (f rep)
-          | otherwise -> error $ "[Monad] type doesn't have enough instances " ++ show rep
-    go (SomeTypeRep rep : reps) (Applicable f) =
+          | otherwise -> problem fa $ "type doesn't have enough instances " ++ show rep
+    go (SomeTypeRep rep : reps) fa@(Applicable f) =
       if
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @IO) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Options.Parser) -> go reps (f rep)
@@ -627,8 +631,8 @@ tc (UForall _ _ _ _ fall _ _ reps0) _env = go reps0 fall
           | Type.App either' _ <- rep,
             Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) ->
               go reps (f rep)
-          | otherwise -> error $ "[Applicative] type doesn't have enough instances " ++ show rep
-    go (SomeTypeRep rep : reps) (Monoidal f) =
+          | otherwise -> problem fa $ "type doesn't have enough instances " ++ show rep
+    go (SomeTypeRep rep : reps) fa@(Monoidal f) =
       if
           | Type.App either' _ <- rep,
             Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Vector) ->
@@ -640,34 +644,38 @@ tc (UForall _ _ _ _ fall _ _ reps0) _env = go reps0 fall
             Just Type.HRefl <- Type.eqTypeRep either' (typeRep @[]) ->
               go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Text) -> go reps (f rep)
-          | otherwise -> error $ "[Monoid] type doesn't have enough instances " ++ show rep
-    go reps (GetOf k0 a0 t0 r0 f) =
+          | otherwise -> problem fa $ "type doesn't have enough instances " ++ show rep
+    go reps fa@(GetOf k0 a0 t0 r0 f) =
       case makeAccessor k0 r0 a0 t0 of
         Just accessor -> go reps (f accessor)
-        Nothing -> error $ "missing field for field access"
-    go reps (SetOf k0 a0 t0 r0 f) =
+        Nothing -> problem fa $ "missing field for field access"
+    go reps fa@(SetOf k0 a0 t0 r0 f) =
       case makeSetter k0 r0 a0 t0 of
         Just accessor -> go reps (f accessor)
-        Nothing -> error $ "missing field for field set"
-    go reps (ModifyOf k0 a0 t0 r0 f) =
+        Nothing -> problem fa $ "missing field for field set"
+    go reps fa@(ModifyOf k0 a0 t0 r0 f) =
       case makeModify k0 r0 a0 t0 of
         Just accessor -> go reps (f accessor)
-        Nothing -> error $ "missing field for field modify"
-    go tys r = error $ "forall type arguments mismatch: " ++ show tys ++ " for " ++ showR r
-      where
-        showR = \case
-          NoClass {} -> "NoClass"
-          SymbolOf {} -> "SymbolOf"
-          StreamTypeOf {} -> "StreamTypeOf"
-          ListOf {} -> "ListOf"
-          OrdEqShow {} -> "OrdEqShow"
-          Monadic {} -> "Monadic"
-          Applicable {} -> "Applicable"
-          Monoidal {} -> "Monoidal"
-          GetOf {} -> "GetOf"
-          SetOf {} -> "SetOf"
-          ModifyOf {} -> "ModifyOf"
-          Final {} -> "Final"
+        Nothing -> problem fa $ "missing field for field modify"
+    go tys r = problem r $ "forall type arguments mismatch: " ++ show tys ++ " for " ++ showR r
+
+    problem :: Forall -> String -> Either TypeCheckError a
+    problem fa = Left . ConstraintResolutionProblem forallLoc fa
+
+showR :: Forall -> String
+showR = \case
+  NoClass {} -> "forall a."
+  SymbolOf {} -> "forall s. s :: Symbol"
+  StreamTypeOf {} -> "forall s. s :: StreamType"
+  ListOf {} -> "forall l. l :: List"
+  OrdEqShow {} -> "forall a. (Ord a, Eq a, Show a)"
+  Monadic {} -> "forall a. Monad a"
+  Applicable {} -> "forall a. Applicable a"
+  Monoidal {} -> "forall a. Monoid a"
+  GetOf {} -> "<record getter>"
+  SetOf {} -> "<record setter>"
+  ModifyOf {} -> "<record modifier>"
+  Final {} -> "<final>"
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
 -- embedded in the untyped AST.
@@ -2334,6 +2342,16 @@ instance Pretty TypeCheckError where
     LambdaIsNotAFunBug -> "BUG: LambdaIsNotAFunBug. Please report."
     InferredCheckedDisagreeBug -> "BUG: Inferred type disagrees with checked type. Please report."
     LambdaMustBeStarBug -> "BUG: Lambda should be of kind *, but isn't. Please report."
+    ConstraintResolutionProblem loc forall' msg ->
+      mconcat $
+        List.intersperse
+          "\n\n"
+          [ "Couldn't resolve constraint",
+            "  " <> pretty (showR forall'),
+            "due to problem",
+            "  " <> pretty msg,
+            "arising from " <> pretty loc
+          ]
 
 instance Pretty DesugarError where
   pretty = \case
