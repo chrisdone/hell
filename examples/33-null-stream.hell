@@ -1,0 +1,3 @@
+main = do
+  -- discard stdout
+  Process.runProcess_ $ Process.setStdout Process.nullStream $ Process.proc "ls" []
