@@ -5,7 +5,7 @@ author: "Chris Done"
 copyright: "2023 Chris Done"
 synopsis: "Haskell-based shell scripting language"
 dependencies:
-- base >= 4.17.2.1 && < 4.18
+- base >= 4.17.2.1 && < 4.19
 - haskell-src-exts
 - ghc-prim
 - containers
