@@ -670,7 +670,7 @@ showR = \case
   ListOf {} -> "forall l. l :: List"
   OrdEqShow {} -> "forall a. (Ord a, Eq a, Show a)"
   Monadic {} -> "forall a. Monad a"
-  Applicable {} -> "forall a. Applicable a"
+  Applicable {} -> "forall a. Applicative a"
   Monoidal {} -> "forall a. Monoid a"
   GetOf {} -> "<record getter>"
   SetOf {} -> "<record setter>"
