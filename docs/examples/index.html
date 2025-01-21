@@ -562,7 +562,7 @@ class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a 
 <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  contents <span class="ot">&lt;-</span> Text.readFile filepath</span>
 <span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn contents</span></code></pre></div>
-<h2>31-optparse.hell</h2><div class="sourceCode" id="cb1"><pre
+<h2>32-optparse.hell</h2><div class="sourceCode" id="cb1"><pre
 class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Includes example of Semigroup.</span></span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">Opts</span> <span class="ot">=</span> <span class="dt">Opts</span> {</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ot">  quiet ::</span> <span class="dt">Bool</span>,</span>
@@ -576,4 +576,8 @@ class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a 
 <span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  opts <span class="ot">&lt;-</span> Options.execParser (Options.info (Main.options <span class="op">&lt;**&gt;</span> Options.helper) Options.fullDesc)</span>
 <span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> Record.get <span class="op">@</span><span class="st">&quot;filePath&quot;</span> opts</span>
 <span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> <span class="dt">Show</span><span class="op">.</span><span class="fu">show</span> <span class="op">@</span><span class="dt">Bool</span> <span class="op">$</span> Record.get <span class="op">@</span><span class="st">&quot;quiet&quot;</span> opts</span></code></pre></div>
+<h2>33-null-stream.hell</h2><div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- discard stdout</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  Process.runProcess_ <span class="op">$</span> Process.setStdout Process.nullStream <span class="op">$</span> Process.proc <span class="st">&quot;ls&quot;</span> []</span></code></pre></div>
 </html>
