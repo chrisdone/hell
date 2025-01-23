@@ -1,0 +1,9 @@
+data Foo = Foo { bar, mu :: Int }
+main :: IO () =
+  Main.foo
+
+foo = do
+  let bar = 123
+  let mu = 666
+  let r = Main.Foo{bar,mu}
+  IO.print $ (Record.get @"bar" r :: Int)

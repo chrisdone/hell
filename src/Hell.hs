@@ -208,13 +208,18 @@ parseModule (HSE.Module _ Nothing [] [] decls) = do
     parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
       pure ([(string, exp')], types)
         where types = []
+    parseDecl (HSE.PatBind _ (HSE.PatTypeSig l (HSE.PVar _ (HSE.Ident _ string))
+                                               typ)
+                             (HSE.UnGuardedRhs _ exp') Nothing) =
+      pure ([(string, HSE.ExpTypeSig l exp' typ)], types)
+        where types = []
     parseDecl (HSE.DataDecl _ HSE.DataType {} Nothing (HSE.DHead _ name) [qualConDecl] []) =
       do (termName,termExpr,typeName,typ) <- parseDataDecl name qualConDecl
          pure ([(termName,termExpr)], [(typeName,typ)])
     parseDecl (HSE.DataDecl _ HSE.DataType {} Nothing (HSE.DHead _ name) qualConDecls []) =
       do (terms, tyname, typ) <- parseSumDecl name qualConDecls
          pure (terms, [(tyname,typ)])
-    parseDecl _ = fail "Can't parse that!"
+    parseDecl d = fail $ "Can't parse that! " ++ show d
 parseModule _ = fail "Module headers aren't supported."
 
 -- data Value = Text Text | Number Int
@@ -452,6 +457,7 @@ data UTerm t
   = UVar HSE.SrcSpanInfo t String
   | ULam HSE.SrcSpanInfo t Binding (Maybe SomeStarType) (UTerm t)
   | UApp HSE.SrcSpanInfo t (UTerm t) (UTerm t)
+  | USig HSE.SrcSpanInfo t (UTerm t) SomeStarType
   | -- IRep below: The variables are poly types, they aren't metavars,
     -- and need to be instantiated.
     UForall Prim HSE.SrcSpanInfo t [SomeTypeRep] Forall [TH.Uniq] (IRep TH.Uniq) [t]
@@ -462,6 +468,7 @@ typeOf = \case
   UVar _ t _ -> t
   ULam _ t _ _ _ -> t
   UApp _ t _ _ -> t
+  USig _ t _ _ -> t
   UForall _ _ t _ _ _ _ _ -> t
 
 data Binding = Singleton String | Tuple [String]
@@ -507,6 +514,9 @@ litWithSpan name srcSpanInfo l = UForall name srcSpanInfo () [] (Final (Typed (T
 data Prim = LitP (HSE.Literal HSE.SrcSpanInfo) | NameP String | UnitP
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
+
+instance Pretty SomeStarType where
+  pretty (SomeStarType a) = pretty a
 
 deriving instance Show SomeStarType
 
@@ -555,6 +565,14 @@ check = tc
 
 -- Type check a term given an environment of names.
 tc :: (UTerm SomeTypeRep) -> TyEnv g -> Either TypeCheckError (Typed (Term g))
+tc (USig _l _ e (SomeStarType someStarType)) env = do
+  case tc e env of
+    Left err -> Left err
+    Right typed'@(Typed ty _)
+      | Just {} <- Type.eqTypeRep ty someStarType ->
+        pure typed'
+      | otherwise ->
+        Left TypeCheckMismatch
 tc (UVar _ _ v) env = do
   Typed ty v' <- lookupVar v env
   pure $ Typed ty (Var v')
@@ -747,6 +765,10 @@ desugarExp ::
 desugarExp userDefinedTypeAliases globals = go mempty
   where
     go scope = \case
+      HSE.ExpTypeSig l e ty -> do
+        e' <- go scope e
+        ty' <- desugarStarType userDefinedTypeAliases ty
+        pure $ USig l () e' ty'
       HSE.Case l e alts -> do
         e' <- desugarCase l e alts
         go scope e'
@@ -1968,6 +1990,10 @@ elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty .
     getEqualities (term, Elaborate {equalities}) = (term, equalities)
     go :: UTerm () -> ReaderT (Map String (IRep IMetaVar)) (StateT Elaborate (Either ElaborateError)) (UTerm (IRep IMetaVar))
     go = \case
+      USig l () e ty -> do
+        e' <- go e
+        equal l (typeOf e') (fromSomeStarType ty)
+        pure $ e'
       UVar l () string -> do
         env <- ask
         ty <- case Map.lookup string env of
@@ -2271,6 +2297,7 @@ instance Pretty (UTerm t) where
   pretty = \case
     UVar _ _ v -> pretty v
     UApp _ _ f x -> "(" <> pretty f <> " " <> pretty x <> ")"
+    USig _ _ f s -> "(" <> pretty f <> " :: " <> pretty s <> ")"
     UForall prim _ _ _ _ _ _ _ -> pretty prim
     ULam _ _ binding _ t ->
       "(\\" <> pretty binding <> " -> " <> pretty t <> ")"
