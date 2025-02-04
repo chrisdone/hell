@@ -55,6 +55,7 @@ import Data.Aeson (Value)
 import qualified Data.Aeson as Json
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Bifunctor
+import Control.Applicative (Alternative (..), optional)
 import qualified Data.Bool as Bool
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as ByteString
@@ -481,6 +482,7 @@ data Forall where
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
   Monoidal :: (forall m. (Monoid m) => TypeRep m -> Forall) -> Forall
   Applicable :: (forall (m :: Type -> Type). (Applicative m) => TypeRep m -> Forall) -> Forall
+  Alternable :: (forall (m :: Type -> Type). (Alternative m) => TypeRep m -> Forall) -> Forall
   Monadic :: (forall (m :: Type -> Type). (Monad m) => TypeRep m -> Forall) -> Forall
   GetOf ::
     TypeRep (k :: Symbol) ->
@@ -651,6 +653,11 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
             Just Type.HRefl <- Type.eqTypeRep either' (typeRep @Either) ->
               go reps (f rep)
           | otherwise -> problem fa $ "type doesn't have enough instances " ++ show rep
+    go (SomeTypeRep rep : reps) fa@(Alternable f) =
+      if
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Options.Parser) -> go reps (f rep)
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Maybe) -> go reps (f rep)
+          | otherwise -> problem fa $ "type doesn't have enough instances " ++ show rep
     go (SomeTypeRep rep : reps) fa@(Monoidal f) =
       if
           | Type.App either' _ <- rep,
@@ -690,6 +697,7 @@ showR = \case
   OrdEqShow {} -> "forall a. (Ord a, Eq a, Show a)"
   Monadic {} -> "forall a. Monad a"
   Applicable {} -> "forall a. Applicative a"
+  Alternable {} -> "forall a. Alternative a"
   Monoidal {} -> "forall a. Monoid a"
   GetOf {} -> "<record getter>"
   SetOf {} -> "<record setter>"
@@ -1414,6 +1422,7 @@ polyLits =
                    -- Applicative, we should add a Functor class or
                    -- this will try to raise it to an Applicative.
                    applicables = Set.fromList [''Functor, ''Applicative]
+                   alternables = Set.fromList [''Functor, ''Applicative, ''Alternative]
                    monoidals = Set.fromList [''Semigroup, ''Monoid]
                    finalExpr =
                      if
@@ -1457,6 +1466,7 @@ polyLits =
                                          | Set.isSubsetOf constraints' ordEqShow -> 'OrdEqShow
                                          | Set.isSubsetOf constraints' monadics -> 'Monadic
                                          | Set.isSubsetOf constraints' applicables -> 'Applicable
+                                         | Set.isSubsetOf constraints' alternables -> 'Alternable
                                          | Set.isSubsetOf constraints' monoidals -> 'Monoidal
                                        _ -> error "I'm not sure what to do with this variable."
                                    )
@@ -1529,6 +1539,8 @@ polyLits =
                  "<*>" (<*>) :: forall f a b. Applicative f => f (a -> b) -> f a -> f b
                  "<$>" (<$>) :: forall f a b. Functor f => (a -> b) -> f a -> f b
                  "<**>" (Options.<**>) :: forall f a b. Applicative f => f a -> f (a -> b) -> f b
+                 -- Alternative operations
+                 "Alternative.optional" (optional) :: forall f a. Alternative f => f a -> f (Maybe a)
                  -- Monadic operations
                  "Monad.mapM_" mapM_ :: forall a m. (Monad m) => (a -> m ()) -> [a] -> m ()
                  "Monad.forM_" forM_ :: forall a m. (Monad m) => [a] -> (a -> m ()) -> m ()
