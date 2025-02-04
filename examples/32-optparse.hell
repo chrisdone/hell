@@ -1,13 +1,13 @@
 -- Includes example of Semigroup.
 data Opts = Opts {
   quiet :: Bool,
-  filePath :: Text
+  filePath :: Maybe Text
  }
 options =
   (\quiet path -> Main.Opts { quiet = quiet, filePath = path })
        <$> Options.switch (Flag.long "quiet" <> Flag.help "Be quiet?")
-       <*> Options.strOption (Option.long "path" <> Option.help "The filepath to export")
+       <*> (Alternative.optional $ Options.strOption (Option.long "path" <> Option.help "The filepath to export"))
 main = do
   opts <- Options.execParser (Options.info (Main.options <**> Options.helper) Options.fullDesc)
-  Text.putStrLn $ Record.get @"filePath" opts
+  Text.putStrLn $ Maybe.maybe "No file path" Function.id (Record.get @"filePath" opts)
   Text.putStrLn $ Show.show @Bool $ Record.get @"quiet" opts
