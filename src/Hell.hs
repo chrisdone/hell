@@ -1996,9 +1996,9 @@ data ElaborateError = UnsupportedTupleSize | BadInstantiationBug | VariableNotIn
 --
 -- Output type /does/ contain meta vars.
 elaborate :: UTerm () -> Either ElaborateError (UTerm (IRep IMetaVar), Set (Equality (IRep IMetaVar)))
-elaborate = fmap getEqualities . flip runStateT empty . flip runReaderT mempty . go
+elaborate = fmap getEqualities . flip runStateT empty' . flip runReaderT mempty . go
   where
-    empty = Elaborate {counter = 0, equalities = mempty}
+    empty' = Elaborate {counter = 0, equalities = mempty}
     getEqualities (term, Elaborate {equalities}) = (term, equalities)
     go :: UTerm () -> ReaderT (Map String (IRep IMetaVar)) (StateT Elaborate (Either ElaborateError)) (UTerm (IRep IMetaVar))
     go = \case
