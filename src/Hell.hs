@@ -45,12 +45,16 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+-- import qualified Vty
+
 #if __GLASGOW_HASKELL__ >= 906
 import Control.Monad
 #endif
-import Control.Exception (evaluate)
+import System.IO.Unsafe
+import qualified Control.Exception as Ex (try, SomeException(SomeException), evaluate)
 import qualified Control.Concurrent as Concurrent
 import Control.Monad.Reader
+import Control.DeepSeq
 import Control.Monad.State.Strict
 import Data.Aeson (Value)
 import qualified Data.Aeson as Json
@@ -68,6 +72,7 @@ import qualified Data.Either as Either
 import qualified Data.Eq as Eq
 import Data.Foldable
 import qualified Data.Function as Function
+import GHC.Generics (Generic)
 import qualified Data.Generics as SYB
 import qualified Data.Graph as Graph
 import qualified Data.List as List
@@ -120,6 +125,7 @@ import qualified UnliftIO.Async as Async
 data Command
   = Run FilePath
   | Check FilePath
+  | Present FilePath
   | Version
 
 -- | Main entry point.
@@ -145,6 +151,7 @@ commandParser =
   Options.asum
     [ Run <$> Options.strArgument (Options.metavar "FILE" <> Options.help "Run the given .hell file"),
       Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file"),
+      Present <$> Options.strOption (Options.long "present" <> Options.metavar "FILE" <> Options.help "Compile, run and present the given .hell file's main"),
       Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version")
     ]
 
@@ -159,7 +166,9 @@ dispatch (Run filePath) = do
   action <- compileFile filePath
   eval () action
 dispatch (Check filePath) = do
-  compileFile filePath >>= void . evaluate
+  compileFile filePath >>= void . Ex.evaluate
+dispatch (Present filePath) = do
+  compileFileAndPresent filePath
 
 --------------------------------------------------------------------------------
 -- Compiler
@@ -194,6 +203,33 @@ compileFile filePath = do
                                 Just Type.HRefl ->
                                   pure ex
                                 Nothing -> error $ "Type isn't IO (), but: " ++ show t
+
+compileFileAndPresent :: FilePath -> IO ()
+compileFileAndPresent filePath = do
+  result <- parseFile filePath
+  case result of
+    Left e -> error $ e
+    Right File{terms,types}
+      | anyCycles terms -> error "Cyclic bindings are not supported!"
+      | anyCycles types -> error "Cyclic types are not supported!"
+      | otherwise ->
+          case desugarAll types terms of
+            Left err -> error $ prettyString err
+            Right dterms ->
+              case lookup "main" dterms of
+                Nothing -> error "No main declaration!"
+                Just main' ->
+                  case inferExp mempty main' of
+                    Left err -> error $ prettyString err
+                    Right uterm ->
+                      case check uterm Nil of
+                        Left err -> error $ prettyString err
+                        Right (Typed t ex) ->
+                          case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
+                            Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
+                            Just Type.HRefl ->
+                              print $ present t $ eval () ex
+
 
 --------------------------------------------------------------------------------
 -- Get declarations from the module
@@ -2582,3 +2618,153 @@ cleanUpTHType = SYB.everywhere unqualify
         Nothing -> a
         Just Type.HRefl ->
           TH.mkName $ TH.nameBase a
+
+--------------------------------------------------------------------------------
+-- Presentations
+
+-- | A presentation of a value.
+data Present
+  -- We don't know how to present it, but that's okay, we can show you
+  -- the type of it. This includes things like IO.
+  = UnrepresentableP SomeTypeRep
+
+  -- Literal values
+  | IntP Int
+  | DoubleP Double
+  | TextP Text
+  | CharP Char
+  | ByteStringP ByteString
+
+  -- Lazy containers
+  | ConsP Present Present | NilP
+
+  -- Spine-strict containers
+  | VectorP [Present]
+  | SetP [Present]
+  | MapP [(Present,Present)]
+
+  -- Sum types
+  | SumP Text {- Constructor -} Present
+
+  -- Records
+  | RecordP Text {- Constructor -} [(Text, Present)]
+
+  -- Exceptions. Rather than completely breaking the entire
+  -- presentation, just say that this part threw an exception.
+  | ExceptionP SomeTypeRep Present
+  deriving (Show)
+
+-- | Give me a value and I'll give you a present!
+--
+-- Generates a presentation from any value.
+present :: forall a. TypeRep a -> a -> Present
+present typeRep' a
+
+  -- Literal values
+  | Just Type.HRefl <- Type.eqTypeRep typeRep' (TypeRep @Int) =
+    protect IntP $ fromIntegral a
+  | Just Type.HRefl <- Type.eqTypeRep typeRep' (TypeRep @Char) =
+    protect CharP a
+  | Just Type.HRefl <- Type.eqTypeRep typeRep' (TypeRep @Double) =
+    protect DoubleP a
+  | Just Type.HRefl <- Type.eqTypeRep typeRep' (TypeRep @Text) =
+    protect TextP a
+  | Just Type.HRefl <- Type.eqTypeRep typeRep' (TypeRep @ByteString) =
+    protect ByteStringP a
+
+  -- Containers
+  | Type.App vector' a' <- typeRep',
+    Just Type.HRefl <- Type.eqTypeRep vector' (typeRep @Vector),
+    Just Type.HRefl <- Type.eqTypeRep (typeRepKind a') (typeRep @Type) =
+    protect VectorP $ List.map (present a') $ Vector.toList a
+  | Type.App list' a' <- typeRep',
+    Just Type.HRefl <- Type.eqTypeRep list' (typeRep @[]),
+    Just Type.HRefl <- Type.eqTypeRep (typeRepKind a') (typeRep @Type) =
+    protect id $ case a of
+      [] -> NilP
+      (x:xs) -> ConsP (present a' x) (present typeRep' xs)
+  | Type.App set' a' <- typeRep',
+    Just Type.HRefl <- Type.eqTypeRep set' (typeRep @Set),
+    Just Type.HRefl <- Type.eqTypeRep (typeRepKind a') (typeRep @Type) =
+    protect SetP $ List.map (present a') $ Set.toList a
+  | Type.App (Type.App map' k') v' <- typeRep',
+    Just Type.HRefl <- Type.eqTypeRep map' (typeRep @Map),
+    Just Type.HRefl <- Type.eqTypeRep (typeRepKind k') (typeRep @Type),
+    Just Type.HRefl <- Type.eqTypeRep (typeRepKind v') (typeRep @Type) =
+    protect MapP $ List.map (\(k,v) -> (present k' k, present v' v)) (Map.toList a)
+
+  -- Unrepresentable types of things
+  | otherwise =
+    UnrepresentableP (SomeTypeRep typeRep')
+
+-- | Protect a presentation from exceptions.
+protect :: (a -> Present) -> a -> Present
+protect f a = case trySpoon a of
+  Left (Ex.SomeException exception) ->
+     ExceptionP
+       (SomeTypeRep (Type.typeOf exception))
+       -- By using present again, we protect from exceptions in the
+       -- error message itself. Rare, but can happen.
+       (present Type.TypeRep (Text.pack (show exception)))
+  Right a' -> f a'
+
+-- | Try to get a non-bottom value from the @a@, otherwise return the
+-- exception.
+trySpoon :: a -> Either Ex.SomeException a
+trySpoon a = unsafePerformIO (Ex.try (Ex.evaluate a))
+
+-- | A presentation of a value.
+data Whnf
+  -- We don't know how to present it, but that's okay, we can show you
+  -- the type of it. This includes things like IO.
+  = UnrepresentableW SomeTypeRep
+
+  -- Literal values
+  | IntW Int
+  | DoubleW Double
+  | TextW Text
+  | CharW Char
+  | ByteStringW ByteString
+
+  -- Lazy containers
+  | ConsW Index Index | NilW
+
+  -- Spine-strict containers
+  | VectorW [Index]
+  | SetW [Index]
+  | MapW [(Index,Index)]
+
+  -- Sum types
+  | SumW Text {- Constructor -} Index
+
+  -- Records
+  | RecordW Text {- Constructor -} [(Text, Index)]
+
+  -- Exceptions. Rather than completely breaking the entire
+  -- presentation, just say that this part threw an exception.
+  | ExceptionW SomeTypeRep Index
+  deriving (Show, NFData, Generic)
+
+-- | An index into a data structure.
+newtype Index = Index Int
+  deriving (Show, NFData, Generic)
+
+-- | Create a spine-strict single layer of representation for the
+-- Present.
+toWhnf :: Present -> Whnf
+toWhnf = force . \case
+    NilP -> NilW
+    UnrepresentableP t -> UnrepresentableW t
+    IntP x -> IntW x
+    DoubleP x -> DoubleW x
+    TextP x -> TextW x
+    CharP x -> CharW x
+    ByteStringP x -> ByteStringW x
+    ExceptionP x _ -> ExceptionW x (Index 0)
+    ConsP _ _ -> ConsW (Index 0) (Index 1)
+    VectorP xs -> VectorW (zipWith (const . Index) [0..] xs)
+    SetP xs -> VectorW (zipWith (const . Index) [0..] xs)
+    MapP xs -> MapW (zipWith (\i _ -> (Index i, Index (i + 1))) [0, 2 ..] xs)
+    SumP t _ -> SumW t (Index 0)
+    RecordP t xs ->
+     RecordW t $ (zipWith (\i (k, _) -> (k, Index i)) [0..] xs)
