@@ -1,0 +1,2 @@
+-- main = Map.fromList [(1,"a"),(2,Error.error "b"),(3,"c")]
+main = Maybe.Just 23
