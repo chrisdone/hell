@@ -2639,15 +2639,15 @@ data Present
   | ConsP Present Present | NilP
 
   -- Spine-strict containers
-  | VectorP [Present]
-  | SetP [Present]
-  | MapP [(Present,Present)]
+  | VectorP (Vector Present)
+  | SetP (Vector Present)
+  | MapP (Vector (Present,Present))
 
   -- Sum types
   | SumP Text {- Constructor -} Present
 
   -- Records
-  | RecordP Text {- Constructor -} [(Text, Present)]
+  | RecordP Text {- Constructor -} (Vector (Text, Present))
 
   -- Exceptions. Rather than completely breaking the entire
   -- presentation, just say that this part threw an exception.
@@ -2676,7 +2676,7 @@ present typeRep' a
   | Type.App vector' a' <- typeRep',
     Just Type.HRefl <- Type.eqTypeRep vector' (typeRep @Vector),
     Just Type.HRefl <- Type.eqTypeRep (typeRepKind a') (typeRep @Type) =
-    protect VectorP $ List.map (present a') $ Vector.toList a
+    protect VectorP $ fmap (present a') a
   | Type.App list' a' <- typeRep',
     Just Type.HRefl <- Type.eqTypeRep list' (typeRep @[]),
     Just Type.HRefl <- Type.eqTypeRep (typeRepKind a') (typeRep @Type) =
@@ -2686,12 +2686,15 @@ present typeRep' a
   | Type.App set' a' <- typeRep',
     Just Type.HRefl <- Type.eqTypeRep set' (typeRep @Set),
     Just Type.HRefl <- Type.eqTypeRep (typeRepKind a') (typeRep @Type) =
-    protect SetP $ List.map (present a') $ Set.toList a
+    protect SetP $ Vector.fromList $ List.map (present a') $ Set.toList a
   | Type.App (Type.App map' k') v' <- typeRep',
     Just Type.HRefl <- Type.eqTypeRep map' (typeRep @Map),
     Just Type.HRefl <- Type.eqTypeRep (typeRepKind k') (typeRep @Type),
     Just Type.HRefl <- Type.eqTypeRep (typeRepKind v') (typeRep @Type) =
-    protect MapP $ List.map (\(k,v) -> (present k' k, present v' v)) (Map.toList a)
+    protect MapP $
+      Vector.fromList $
+        List.map (\(k,v) -> (present k' k, present v' v))
+                 (Map.toList a)
 
   -- Unrepresentable types of things
   | otherwise =
@@ -2751,6 +2754,12 @@ newtype Index = Index Int
 
 -- | Create a spine-strict single layer of representation for the
 -- Present.
+--
+-- Why go to this much trouble? Well, any part of the spine may be
+-- expensive or a crash, so we want to be really really really sure
+-- that each layer of presentation that we peel off is itself free
+-- from issues, and its sub-parts can be queried independently, in
+-- parallel, and in a way that supports cancellation.
 toWhnf :: Present -> Whnf
 toWhnf = force . \case
     NilP -> NilW
@@ -2762,9 +2771,11 @@ toWhnf = force . \case
     ByteStringP x -> ByteStringW x
     ExceptionP x _ -> ExceptionW x (Index 0)
     ConsP _ _ -> ConsW (Index 0) (Index 1)
-    VectorP xs -> VectorW (zipWith (const . Index) [0..] xs)
-    SetP xs -> VectorW (zipWith (const . Index) [0..] xs)
-    MapP xs -> MapW (zipWith (\i _ -> (Index i, Index (i + 1))) [0, 2 ..] xs)
+    VectorP xs -> VectorW $ zipWith (const . Index) [0..] $ toList xs
+    SetP xs -> SetW $ zipWith (const . Index) [0..] $ toList xs
+    MapP xs ->
+      MapW $ zipWith (\i _ -> (Index i, Index (i + 1))) [0, 2 ..] $
+        toList xs
     SumP t _ -> SumW t (Index 0)
     RecordP t xs ->
-     RecordW t $ (zipWith (\i (k, _) -> (k, Index i)) [0..] xs)
+     RecordW t $ zipWith (\i (k, _) -> (k, Index i)) [0..] $ toList xs
