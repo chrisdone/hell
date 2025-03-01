@@ -2576,10 +2576,10 @@ data Present
   | CharP Char
   | ByteStringP ByteString
 
-  -- Lazy containers
+  -- Lazy containers. Indexing into this list will be O(n).
   | ConsP Present Present | NilP
 
-  -- Spine-strict containers
+  -- Spine-strict containers. Indexing into these will be O(1).
   | VectorP (Vector Present)
   | SetP (Vector Present)
   | MapP (Vector (Present,Present))
@@ -2587,7 +2587,7 @@ data Present
   -- Sum types
   | SumP Text {- Constructor -} Present
 
-  -- Records
+  -- Records. O(1) indexing
   | RecordP Text {- Constructor -} (Vector (Text, Present))
 
   -- Exceptions. Rather than completely breaking the entire
