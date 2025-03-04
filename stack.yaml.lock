@@ -3,7 +3,28 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: vty-crossplatform-0.4.0.0@sha256:50593f91ad16777d921138475a8d2784d538fd206addd30664c620278d6c8544,3172
+    pantry-tree:
+      sha256: ff010cf0ab3f48c43432268a00113e051599285d6ed60cfada7f53e44dbe00f8
+      size: 582
+  original:
+    hackage: vty-crossplatform-0.4.0.0@sha256:50593f91ad16777d921138475a8d2784d538fd206addd30664c620278d6c8544,3172
+- completed:
+    hackage: vty-6.2@sha256:3536dc83a3fee17d9a114baf58fe47b6f080c24987266f0cd0b7b4b1fcd9cf19,3520
+    pantry-tree:
+      sha256: 5e47e646809311e65684786521b785dbeedcc232c387117c176ab0397cf2db4d
+      size: 2104
+  original:
+    hackage: vty-6.2@sha256:3536dc83a3fee17d9a114baf58fe47b6f080c24987266f0cd0b7b4b1fcd9cf19,3520
+- completed:
+    hackage: vty-unix-0.2.0.0@sha256:2af3d0bdae3c4b7b7e567ee374efe32c7439fabdf9096465ce011a6c6736e9ae,2932
+    pantry-tree:
+      sha256: 0e3dd52406c263fd4b54d03123e71423d1ef6939fb8c179745486243c519fdf7
+      size: 1926
+  original:
+    hackage: vty-unix-0.2.0.0@sha256:2af3d0bdae3c4b7b7e567ee374efe32c7439fabdf9096465ce011a6c6736e9ae,2932
 snapshots:
 - completed:
     sha256: 867086a789eaf6da9f48a56bb5e8bfd6df27b120023c144cc7bbec5c95717915

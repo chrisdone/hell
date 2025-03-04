@@ -3,3 +3,9 @@ system-ghc: true
 allow-different-user: true # delete this line for Dockerfile cache re-use
 ghc-options:
   "$everything": "-split-sections -j"
+packages:
+- '.'
+extra-deps:
+- vty-crossplatform-0.4.0.0@sha256:50593f91ad16777d921138475a8d2784d538fd206addd30664c620278d6c8544,3172
+- vty-6.2@sha256:3536dc83a3fee17d9a114baf58fe47b6f080c24987266f0cd0b7b4b1fcd9cf19,3520
+- vty-unix-0.2.0.0@sha256:2af3d0bdae3c4b7b7e567ee374efe32c7439fabdf9096465ce011a6c6736e9ae,2932

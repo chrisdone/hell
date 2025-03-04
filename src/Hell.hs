@@ -2,6 +2,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveGeneric, DeriveAnyClass #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -2644,7 +2645,7 @@ data Present
   | MapP (Vector (Present,Present))
 
   -- Sum types
-  | SumP Text {- Constructor -} Present
+  | SumP Text {- Constructor -} (Maybe Present)
 
   -- Records. O(1) indexing
   | RecordP Text {- Constructor -} (Vector (Text, Present))

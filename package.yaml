@@ -29,6 +29,9 @@ dependencies:
 - aeson
 - temporary
 - these
+- vty
+- vty-crossplatform
+- deepseq
 
 ghc-options:
   - -Wall
