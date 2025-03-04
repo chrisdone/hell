@@ -566,18 +566,35 @@ class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a 
 class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Includes example of Semigroup.</span></span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">Opts</span> <span class="ot">=</span> <span class="dt">Opts</span> {</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ot">  quiet ::</span> <span class="dt">Bool</span>,</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ot">  filePath ::</span> <span class="dt">Text</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ot">  filePath ::</span> <span class="dt">Maybe</span> <span class="dt">Text</span></span>
 <span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a> }</span>
 <span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>options <span class="ot">=</span></span>
 <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  (\quiet path <span class="ot">-&gt;</span> <span class="dt">Main.Opts</span> { quiet <span class="ot">=</span> quiet, filePath <span class="ot">=</span> path })</span>
 <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>       <span class="op">&lt;$&gt;</span> Options.switch (Flag.long <span class="st">&quot;quiet&quot;</span> <span class="op">&lt;&gt;</span> Flag.help <span class="st">&quot;Be quiet?&quot;</span>)</span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>       <span class="op">&lt;*&gt;</span> Options.strOption (Option.long <span class="st">&quot;path&quot;</span> <span class="op">&lt;&gt;</span> Option.help <span class="st">&quot;The filepath to export&quot;</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>       <span class="op">&lt;*&gt;</span> (Alternative.optional <span class="op">$</span> Options.strOption (Option.long <span class="st">&quot;path&quot;</span> <span class="op">&lt;&gt;</span> Option.help <span class="st">&quot;The filepath to export&quot;</span>))</span>
 <span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
 <span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  opts <span class="ot">&lt;-</span> Options.execParser (Options.info (Main.options <span class="op">&lt;**&gt;</span> Options.helper) Options.fullDesc)</span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> Record.get <span class="op">@</span><span class="st">&quot;filePath&quot;</span> opts</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> <span class="dt">Maybe</span><span class="op">.</span><span class="fu">maybe</span> <span class="st">&quot;No file path&quot;</span> Function.id (Record.get <span class="op">@</span><span class="st">&quot;filePath&quot;</span> opts)</span>
 <span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> <span class="dt">Show</span><span class="op">.</span><span class="fu">show</span> <span class="op">@</span><span class="dt">Bool</span> <span class="op">$</span> Record.get <span class="op">@</span><span class="st">&quot;quiet&quot;</span> opts</span></code></pre></div>
 <h2>33-null-stream.hell</h2><div class="sourceCode" id="cb1"><pre
 class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="co">-- discard stdout</span></span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  Process.runProcess_ <span class="op">$</span> Process.setStdout Process.nullStream <span class="op">$</span> Process.proc <span class="st">&quot;ls&quot;</span> []</span></code></pre></div>
+<h2>34-field-puns.hell</h2><div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">Foo</span> <span class="ot">=</span> <span class="dt">Foo</span> { bar,<span class="ot"> mu ::</span> <span class="dt">Int</span> }</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> bar <span class="ot">=</span> <span class="dv">123</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> mu <span class="ot">=</span> <span class="dv">666</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> r <span class="ot">=</span> <span class="dt">Main.Foo</span>{bar,mu}</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">IO</span><span class="op">.</span><span class="fu">print</span> <span class="op">$</span> Record.get <span class="op">@</span><span class="st">&quot;bar&quot;</span> <span class="op">@</span><span class="dt">Int</span> r</span></code></pre></div>
+<h2>35-type-sigs.hell</h2><div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">data</span> <span class="dt">Foo</span> <span class="ot">=</span> <span class="dt">Foo</span> { bar,<span class="ot"> mu ::</span> <span class="dt">Int</span> }</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ot">main ::</span> <span class="dt">IO</span> () <span class="ot">=</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  Main.foo</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>foo <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> bar <span class="ot">=</span> <span class="dv">123</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> mu <span class="ot">=</span> <span class="dv">666</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> r <span class="ot">=</span> <span class="dt">Main.Foo</span>{bar,mu}</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">IO</span><span class="op">.</span><span class="fu">print</span> <span class="op">$</span> (Record.get <span class="op">@</span><span class="st">&quot;bar&quot;</span><span class="ot"> r ::</span> <span class="dt">Int</span>)</span></code></pre></div>
 </html>
