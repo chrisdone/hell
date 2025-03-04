@@ -1,6 +1,6 @@
 main = do
   Process.runProcess_ (Process.proc "docker" ["exec", "hell", "stack", "build","--ghc-options", "-static -optl-static -fforce-recomp", "--force-dirty"])
-  Directory.copyFile ".stack-work/dist/x86_64-linux/ghc-9.4.8/build/hell/hell" "hell-linux-x86-64bit"
+  Directory.copyFile ".stack-work/dist/x86_64-linux/ghc-9.8.2/build/hell/hell" "hell-linux-x86-64bit"
   Process.runProcess_ (Process.proc "strip" ["hell-linux-x86-64bit"])
   pwd <- Directory.getCurrentDirectory
   env <- Environment.getEnvironment
@@ -11,7 +11,7 @@ main = do
         ("PATH",
           Text.concat
             [pwd,
-             "/.stack-work/dist/x86_64-linux/ghc-9.4.8/build/hell/",
+             "/.stack-work/dist/x86_64-linux/ghc-9.8.2/build/hell/",
              ":",
              path])
         env) $

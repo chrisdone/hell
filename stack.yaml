@@ -1,6 +1,4 @@
-resolver: lts-21.24 # GHC-9.4.8
+resolver: nightly-2024-10-21
 system-ghc: true
 ghc-options:
   "$everything": "-split-sections -j"
-packages:
-- '.'
