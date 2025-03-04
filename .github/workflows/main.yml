@@ -22,8 +22,8 @@ jobs:
 
       env:
         # For the ~/.stack root.
-        HOME: /home/chris/
-        STACK_ROOT: /home/chris/.stack
+        HOME: /root/
+        STACK_ROOT: /root/.stack
 
         # This can be both of these, depending on whether it's a PR or
         # main. GitHub Actions is weird.
