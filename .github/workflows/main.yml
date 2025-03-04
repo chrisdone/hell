@@ -18,7 +18,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: "docker://ghcr.io/chrisdone/hell-build:2025-03-04@sha256:9ccd2a249765a87fd5f63a0ccca9a6747e791b653481f0ae054a1d06d1486380"
+      image: "docker://ghcr.io/chrisdone/hell-build:2025-03-04@sha256:ca21e3be038cf1f10fa18306123b4d5f0e2009fe8938cea3afcef7f900bbea71"
 
       env:
         # For the ~/.stack root.

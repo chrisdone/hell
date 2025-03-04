@@ -18,3 +18,5 @@ RUN stack build
 RUN apk add pandoc
 
 RUN apk add gmp-static
+
+RUN apk add git
