@@ -1,4 +1,5 @@
 resolver: nightly-2024-10-21
 system-ghc: true
+allow-different-user: true # delete this line for Dockerfile cache re-use
 ghc-options:
   "$everything": "-split-sections -j"
