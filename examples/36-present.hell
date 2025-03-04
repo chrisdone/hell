@@ -1,2 +1,9 @@
+data Node = Node { i :: Main.Yarr, label :: [Text] }
+data Yarr = Yes | No
+main = [
+  Main.Node { i = Main.Yes, label = ["OK, go!", Error.error "Nooo", "Done." ] },
+  Main.Node { i = Main.Yes, label = ["OK, go!", Error.error "Nooo", "Done." ] }
+  ]
+-- main = [Main.Yes, Main.No, Main.Yes]
+-- main = [1,Error.error "woop",3]
 -- main = Map.fromList [(1,"a"),(2,Error.error "b"),(3,"c")]
-main = Maybe.Just 23

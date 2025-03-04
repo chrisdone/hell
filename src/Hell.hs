@@ -1,7 +1,9 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveGeneric, DeriveAnyClass #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -45,7 +47,12 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
--- import qualified Vty
+import qualified Brick.Focus as Brick
+import Data.Generics.Labels ()
+import Lens.Micro.Mtl (zoom, use)
+import qualified Brick
+import qualified Brick.Widgets.Edit as Brick
+import qualified Graphics.Vty
 
 #if __GLASGOW_HASKELL__ >= 906
 import Control.Monad
@@ -126,7 +133,7 @@ data Command
   = Run FilePath
   | Check FilePath
   | Present FilePath
-  | Version
+  | Repl
 
 -- | Main entry point.
 main :: IO ()
@@ -139,7 +146,7 @@ main = do
   where
     opts =
       Options.info
-        (commandParser Options.<**> Options.helper)
+        (commandParser Options.<**> Options.helper Options.<**> Options.simpleVersioner hellVersion)
         ( Options.fullDesc
             <> Options.progDesc "Runs and typechecks Hell scripts"
             <> Options.header "hell - A Haskell-driven scripting language"
@@ -152,16 +159,15 @@ commandParser =
     [ Run <$> Options.strArgument (Options.metavar "FILE" <> Options.help "Run the given .hell file"),
       Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file"),
       Present <$> Options.strOption (Options.long "present" <> Options.metavar "FILE" <> Options.help "Compile, run and present the given .hell file's main"),
-      Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version")
+      pure Repl
     ]
 
 -- | Version of Hell.
-hellVersion :: Text
+hellVersion :: String
 hellVersion = "2025-03-04"
 
 -- | Dispatch on the command.
 dispatch :: Command -> IO ()
-dispatch Version = Text.putStrLn hellVersion
 dispatch (Run filePath) = do
   action <- compileFile filePath
   eval () action
@@ -169,6 +175,7 @@ dispatch (Check filePath) = do
   compileFile filePath >>= void . Ex.evaluate
 dispatch (Present filePath) = do
   compileFileAndPresent filePath
+dispatch Repl = repl
 
 --------------------------------------------------------------------------------
 -- Compiler
@@ -229,7 +236,6 @@ compileFileAndPresent filePath = do
                             Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
                             Just Type.HRefl ->
                               print $ present t $ eval () ex
-
 
 --------------------------------------------------------------------------------
 -- Get declarations from the module
@@ -2644,7 +2650,7 @@ data Present
   | MapP (Vector (Present,Present))
 
   -- Sum types
-  | SumP Text {- Constructor -} Present
+  | ConstructorP Text {- Constructor -} (Maybe Present)
 
   -- Records. O(1) indexing
   | RecordP Text {- Constructor -} (Vector (Text, Present))
@@ -2657,7 +2663,7 @@ data Present
 -- | Give me a value and I'll give you a present!
 --
 -- Generates a presentation from any value.
-present :: forall a. TypeRep a -> a -> Present
+present ::  forall a. TypeRep a -> a -> Present
 present typeRep' a
 
   -- Literal values
@@ -2695,6 +2701,42 @@ present typeRep' a
       Vector.fromList $
         List.map (\(k,v) -> (present k' k, present v' v))
                  (Map.toList a)
+
+  -- Record
+  | Type.App (Type.App tag' _sym) (Type.App rec' list') <- typeRep',
+    Just Type.HRefl <- Type.eqTypeRep tag' (typeRep @Tagged),
+    Just Type.HRefl <- Type.eqTypeRep rec' (typeRep @Record)
+   = let recordToPresent :: TypeRep r -> Tagged s (Record (r :: List)) -> Present
+         recordToPresent tr0 (Tagged name r) =
+           RecordP (Text.pack $ fromSSymbol name)
+                   (Vector.fromList $ go tr0 r)
+                 where
+           go :: TypeRep r -> Record r -> [(Text, Present)]
+           go tr r' = case (tr, r') of
+             (_, NilR) ->
+               []
+             (Type.App (Type.App _ value') rest', ConsR symbol value rest) ->
+               (Text.pack (fromSSymbol symbol), present value' value)
+               : go rest' rest
+     in protect id $ recordToPresent list' a
+
+  -- Variant
+  | Type.App (Type.App tag' _sym) (Type.App var' list') <- typeRep',
+    Just Type.HRefl <- Type.eqTypeRep tag' (typeRep @Tagged),
+    Just Type.HRefl <- Type.eqTypeRep var' (typeRep @Variant)
+   = let variantToPresent :: TypeRep r -> Tagged s (Variant (r :: List)) -> Present
+         variantToPresent tr0 (Tagged _name r) =
+           go tr0 r where
+           go :: TypeRep r -> Variant r -> Present
+           go tr r' = case (tr, r') of
+             (Type.App (Type.App _ value') _nil, LeftV symbol value) ->
+               ConstructorP (Text.pack (fromSSymbol symbol))
+                 case Type.eqTypeRep (typeRep @Nullary) value' of
+                   Just {} -> Nothing
+                   Nothing -> Just $ present value' value
+             (ty, RightV rest) | Type.App _ rest' <- ty ->
+               go rest' rest
+     in protect id $ variantToPresent list' a
 
   -- Unrepresentable types of things
   | otherwise =
@@ -2738,7 +2780,7 @@ data Whnf
   | MapW [(Index,Index)]
 
   -- Sum types
-  | SumW Text {- Constructor -} Index
+  | ConstructorW Text {- Constructor -} (Maybe Index)
 
   -- Records
   | RecordW Text {- Constructor -} [(Text, Index)]
@@ -2760,8 +2802,8 @@ newtype Index = Index Int
 -- that each layer of presentation that we peel off is itself free
 -- from issues, and its sub-parts can be queried independently, in
 -- parallel, and in a way that supports cancellation.
-toWhnf :: Present -> Whnf
-toWhnf = force . \case
+_toWhnf :: Present -> Whnf
+_toWhnf = force . \case
     NilP -> NilW
     UnrepresentableP t -> UnrepresentableW t
     IntP x -> IntW x
@@ -2776,6 +2818,67 @@ toWhnf = force . \case
     MapP xs ->
       MapW $ zipWith (\i _ -> (Index i, Index (i + 1))) [0, 2 ..] $
         toList xs
-    SumP t _ -> SumW t (Index 0)
+    ConstructorP t thing -> ConstructorW t (Index 0 <$ thing)
     RecordP t xs ->
      RecordW t $ zipWith (\i (k, _) -> (k, Index i)) [0..] $ toList xs
+
+--------------------------------------------------------------------------------
+-- REPL
+
+data State = State {
+    attrMap :: Brick.AttrMap,
+    focusRing :: Brick.FocusRing Name,
+    edit1 :: Brick.Editor Text Name
+  } deriving (Generic)
+
+data Name = Edit1
+ deriving (Show, Ord, Eq)
+
+repl :: IO ()
+repl = do
+  st <- Brick.defaultMain app initialState
+  print (Brick.getEditContents st.edit1)
+  where
+    app = Brick.App {
+      Brick.appDraw = drawState,
+      Brick.appChooseCursor = chooseCursor,
+      Brick.appHandleEvent = handleEvent,
+      Brick.appStartEvent = Brick.halt,
+      Brick.appAttrMap = (.attrMap)
+      }
+    initialState = State {
+      attrMap = Brick.attrMap Graphics.Vty.defAttr [],
+      edit1 = Brick.editor Edit1 (Just 1) "",
+      focusRing = Brick.focusRing [Edit1]
+      }
+
+handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
+handleEvent ev = do
+  case ev of
+    Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEsc []) -> Brick.halt
+    _ -> do
+     r <- use #focusRing
+     case Brick.focusGetCurrent r of
+       Just Edit1 ->
+         case ev of
+           Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> Brick.halt
+           _ -> zoom #edit1 $ Brick.handleEditorEvent ev
+       _ -> pure ()
+
+chooseCursor :: s -> [Brick.CursorLocation n] -> Maybe (Brick.CursorLocation n)
+chooseCursor = Brick.showFirstCursor
+
+drawState :: Main.State -> [Brick.Widget Name]
+drawState = replUi
+
+replUi :: Main.State -> [Brick.Widget Name]
+replUi s =
+  [
+    Brick.vBox [
+      Brick.txt "<output here>",
+      Brick.vLimit 1 $
+       Brick.withFocusRing s.focusRing
+        (Brick.renderEditor (Brick.txt . Text.unlines))
+        s.edit1
+    ]
+  ]

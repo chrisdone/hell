@@ -29,6 +29,12 @@ dependencies:
 - aeson
 - temporary
 - these
+- vty
+- vty-crossplatform
+- brick
+- generic-lens
+- microlens-mtl
+- deepseq
 
 ghc-options:
   - -Wall

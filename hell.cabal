@@ -23,14 +23,18 @@ executable hell
     , aeson
     , async
     , base
+    , brick
     , bytestring
     , constraints
     , containers
+    , deepseq
     , directory
+    , generic-lens
     , ghc-prim
     , haskell-src-exts
     , hspec
     , lucid2
+    , microlens-mtl
     , mtl
     , optparse-applicative
     , syb
@@ -43,4 +47,6 @@ executable hell
     , typed-process
     , unliftio
     , vector
+    , vty
+    , vty-crossplatform
   default-language: Haskell2010
