@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFoldable #-}
@@ -59,6 +60,7 @@ import Control.Applicative (Alternative (..), optional)
 import qualified Data.Bool as Bool
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as ByteString
+import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Builder as ByteString hiding (writeFile)
 import qualified Data.ByteString.Lazy as L
 import Data.Containers.ListUtils
@@ -1845,7 +1847,7 @@ t_putStr :: Text -> IO ()
 t_putStr = t_hPutStr IO.stdout
 
 t_getLine :: IO Text
-t_getLine = fmap Text.decodeUtf8 ByteString.getLine
+t_getLine = fmap Text.decodeUtf8 S8.getLine
 
 t_writeFile :: Text -> Text -> IO ()
 t_writeFile fp t = ByteString.writeFile (Text.unpack fp) (Text.encodeUtf8 t)
