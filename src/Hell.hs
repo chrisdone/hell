@@ -305,11 +305,16 @@ desugarVariantCon nullary cons thisCon = rights $ left
             (HSE.Var l (HSE.UnQual l (HSE.Ident l "x")))
       where
         left0 =
-          ( HSE.App
-              l
-              (HSE.Var l (hellQName l "LeftV"))
-              (HSE.TypeApp l (tySym thisCon))
-          )
+          HSE.App l
+            ( HSE.App
+                l
+                (HSE.Var l (hellQName l "LeftV"))
+                (HSE.TypeApp l (tySym thisCon))
+            )
+            (HSE.App
+             l
+              (hellSSymbolCon l)
+              (HSE.TypeApp l (tySym thisCon)))
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
     l = HSE.noSrcSpan
 
@@ -1563,7 +1568,7 @@ polyLits =
                  "Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
                  "Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
                  -- Variants
-                 "hell:Hell.LeftV" LeftV :: forall (k :: Symbol) a (xs :: List). a -> Variant (ConsL k a xs)
+                 "hell:Hell.LeftV" LeftV :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Variant (ConsL k a xs)
                  "hell:Hell.RightV" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
                  "hell:Hell.NilA" NilA :: forall r. Accessor 'NilL r
                  "hell:Hell.ConsA" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
@@ -2315,7 +2320,7 @@ makeModify k0 r0 a0 t0 = do
 
 -- | A variant; one of the given choices.
 data Variant (xs :: List) where
-  LeftV :: forall k a xs. a -> Variant (ConsL k a xs)
+  LeftV :: forall k a xs. SSymbol k -> a -> Variant (ConsL k a xs)
   RightV :: forall k a xs k'' a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
 
 -- | Accessor of a given variant. A record whose fields all correspond
@@ -2328,7 +2333,7 @@ data Accessor (xs :: List) r where
 -- | Run a total case-analysis against a variant, given an accessor
 -- record.
 runAccessor :: Tagged s (Variant xs) -> Accessor xs r -> r
-runAccessor (Tagged _ (LeftV a)) (ConsA f _) = f a
+runAccessor (Tagged _ (LeftV _k a)) (ConsA f _) = f a
 runAccessor (Tagged t (RightV xs)) (ConsA _ ys) = runAccessor (Tagged t xs) ys
 
 --------------------------------------------------------------------------------
