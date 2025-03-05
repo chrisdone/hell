@@ -7,12 +7,13 @@
   outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs    = nixpkgs.legacyPackages.${system};
+        pkgs = nixpkgs.legacyPackages.${system};
         overlay = final: prev: {
           hell = prev.callCabal2nix "hell" ./. { };
         };
-        haskellPackages = pkgs.haskellPackages.extend overlay;
-      in {
+        haskellPackages = pkgs.haskell.packages.ghc910.extend overlay;
+      in
+      {
         # nix build
         packages.default = haskellPackages.hell;
 
