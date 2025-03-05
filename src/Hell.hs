@@ -390,7 +390,10 @@ makeConstructRecord qname fields =
                     ( HSE.App
                         l
                         (HSE.Var l (hellQName l "ConsR"))
-                        (HSE.TypeApp l (tySym name))
+                        (HSE.App
+                          l
+                           (hellSSymbolCon l)
+                           (HSE.TypeApp l (tySym name)))
                     )
                     expr
                 )
@@ -519,15 +522,15 @@ litWithSpan name srcSpanInfo l =
   litWithSpanBare name srcSpanInfo (Type.typeOf l) l
 
 litWithSpanBare :: Prim -> HSE.SrcSpanInfo -> TypeRep a -> a -> UTerm ()
-litWithSpanBare name srcSpanInfo typeRep l =
+litWithSpanBare name srcSpanInfo typeRep' l =
   UForall
     name
     srcSpanInfo
     ()
     []
-    (Final (Typed typeRep (Lit l)))
+    (Final (Typed typeRep' (Lit l)))
     []
-    (fromSomeType (SomeTypeRep typeRep))
+    (fromSomeType (SomeTypeRep typeRep'))
     []
 
 data Prim =
@@ -1542,7 +1545,7 @@ polyLits =
              [|
                do
                  -- Records
-                 "hell:Hell.ConsR" ConsR :: forall (k :: Symbol) a (xs :: List). a -> Record xs -> Record (ConsL k a xs)
+                 "hell:Hell.ConsR" ConsR :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Record xs -> Record (ConsL k a xs)
                  "Record.get" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). Tagged t (Record xs) -> a
                  "Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
                  "Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
@@ -2218,7 +2221,7 @@ data List = NilL | ConsL Symbol Type List
 
 data Record (xs :: List) where
   NilR :: Record 'NilL
-  ConsR :: forall k a xs. a -> Record xs -> Record (ConsL k a xs)
+  ConsR :: forall k a xs. SSymbol k -> a -> Record xs -> Record (ConsL k a xs)
 
 -- | Build up a type-safe getter.
 makeAccessor ::
@@ -2244,11 +2247,11 @@ makeAccessor k r0 a _ = do
                 Just Type.HRefl <- Type.eqTypeRep (typeRepKind r') (typeRep @List) ->
                   case (Type.eqTypeRep k sym, Type.eqTypeRep a typ) of
                     (Just Type.HRefl, Just Type.HRefl) ->
-                      pure \(ConsR v _xs) -> v
+                      pure \(ConsR _k v _xs) -> v
                     _ -> do
                       accessor <- go r'
                       pure \case
-                        ConsR _a xs -> accessor xs
+                        ConsR _k _a xs -> accessor xs
             _ -> Nothing
 
 -- | Build up a type-safe setter.
@@ -2275,10 +2278,10 @@ makeSetter k r0 a _ = do
                 Just Type.HRefl <- Type.eqTypeRep (typeRepKind r') (typeRep @List) ->
                   case (Type.eqTypeRep k sym, Type.eqTypeRep a typ) of
                     (Just Type.HRefl, Just Type.HRefl) ->
-                      pure \a' (ConsR _a xs) -> ConsR a' xs
+                      pure \a' (ConsR k' _a xs) -> ConsR k' a' xs
                     _ -> do
                       setter <- go r'
-                      pure \a' (ConsR a0 xs) -> ConsR a0 (setter a' xs)
+                      pure \a' (ConsR k' a0 xs) -> ConsR k' a0 (setter a' xs)
             _ -> Nothing
 
 -- | Simply re-uses makeAccessor and makeSetter.
