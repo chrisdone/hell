@@ -268,13 +268,20 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
     appTagged ty =
       HSE.App l $
         HSE.App
-          l
-          ( HSE.App
-              l
-              (hellTaggedCon l)
-              (HSE.TypeApp l (tySym qualifiedName))
+          l (
+             HSE.App
+               l
+               ( HSE.App
+                   l
+                   (hellTaggedCon l)
+                   (HSE.TypeApp l (tySym qualifiedName))
+               )
+               (HSE.TypeApp l ty)
           )
-          (HSE.TypeApp l ty)
+          (HSE.App
+             l
+              (hellSSymbolCon l)
+              (HSE.TypeApp l (tySym qualifiedName)))
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
 parseSumDecl _ _ =
   fail "Sum type declaration not in supported format."
@@ -366,14 +373,20 @@ makeConstructor name fields = (appTagged recordType, taggedRecordType)
       HSE.TyApp l (HSE.TyApp l (hellTaggedTyCon l) (tySym qualifiedName)) recordType
     qualifiedName = "Main." ++ name
     appTagged ty =
-      HSE.App
-        l
-        ( HSE.App
-            l
-            (hellTaggedCon l)
-            (HSE.TypeApp l (tySym qualifiedName))
+      HSE.App l (
+        HSE.App
+          l
+          ( HSE.App
+              l
+              (hellTaggedCon l)
+              (HSE.TypeApp l (tySym qualifiedName))
+          )
+          (HSE.TypeApp l ty)
         )
-        (HSE.TypeApp l ty)
+         (HSE.App
+             l
+              (hellSSymbolCon l)
+              (HSE.TypeApp l (tySym qualifiedName)))
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
     l = HSE.noSrcSpan
 
@@ -1556,7 +1569,7 @@ polyLits =
                  "hell:Hell.ConsA" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
                  "hell:Hell.runAccessor" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
                  -- Tagged
-                 "hell:Hell.Tagged" Tagged :: forall (t :: Symbol) a. a -> Tagged t a
+                 "hell:Hell.Tagged" Tagged :: forall (t :: Symbol) a. SSymbol t -> a -> Tagged t a
                  -- Functor
                  "Functor.fmap" fmap :: forall f a b. Functor f => (a -> b) -> f a -> f b
                  -- Operators
@@ -2215,7 +2228,7 @@ _spec = do
 --------------------------------------------------------------------------------
 -- Records
 
-data Tagged (s :: Symbol) a = Tagged a
+data Tagged (s :: Symbol) a = Tagged (SSymbol s) a
 
 data List = NilL | ConsL Symbol Type List
 
@@ -2233,7 +2246,7 @@ makeAccessor ::
   Maybe (Tagged t (Record (r0 :: List)) -> a)
 makeAccessor k r0 a _ = do
   accessor <- go r0
-  pure \(Tagged r) -> accessor r
+  pure \(Tagged _ r) -> accessor r
   where
     go :: TypeRep (r :: List) -> Maybe (Record (r :: List) -> a)
     go r =
@@ -2264,7 +2277,7 @@ makeSetter ::
   Maybe (a -> Tagged t (Record (r0 :: List)) -> Tagged t (Record (r0 :: List)))
 makeSetter k r0 a _ = do
   setter <- go r0
-  pure \a' (Tagged r) -> Tagged (setter a' r)
+  pure \a' (Tagged t r) -> Tagged t (setter a' r)
   where
     go :: TypeRep (r :: List) -> Maybe (a -> Record (r :: List) -> Record (r :: List))
     go r =
@@ -2315,8 +2328,8 @@ data Accessor (xs :: List) r where
 -- | Run a total case-analysis against a variant, given an accessor
 -- record.
 runAccessor :: Tagged s (Variant xs) -> Accessor xs r -> r
-runAccessor (Tagged (LeftV a)) (ConsA f _) = f a
-runAccessor (Tagged (RightV xs)) (ConsA _ ys) = runAccessor (Tagged xs) ys
+runAccessor (Tagged _ (LeftV a)) (ConsA f _) = f a
+runAccessor (Tagged t (RightV xs)) (ConsA _ ys) = runAccessor (Tagged t xs) ys
 
 --------------------------------------------------------------------------------
 -- Pretty printing
