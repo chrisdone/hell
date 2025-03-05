@@ -515,9 +515,24 @@ lit :: Type.Typeable a => Prim -> a -> UTerm ()
 lit name = litWithSpan name HSE.noSrcSpan
 
 litWithSpan :: Type.Typeable a => Prim -> HSE.SrcSpanInfo -> a -> UTerm ()
-litWithSpan name srcSpanInfo l = UForall name srcSpanInfo () [] (Final (Typed (Type.typeOf l) (Lit l))) [] (fromSomeStarType (SomeStarType (Type.typeOf l))) []
+litWithSpan name srcSpanInfo l =
+  litWithSpanBare name srcSpanInfo (Type.typeOf l) l
 
-data Prim = LitP (HSE.Literal HSE.SrcSpanInfo) | NameP String | UnitP
+litWithSpanBare :: Prim -> HSE.SrcSpanInfo -> TypeRep a -> a -> UTerm ()
+litWithSpanBare name srcSpanInfo typeRep l =
+  UForall
+    name
+    srcSpanInfo
+    ()
+    []
+    (Final (Typed typeRep (Lit l)))
+    []
+    (fromSomeType (SomeTypeRep typeRep))
+    []
+
+data Prim =
+ LitP (HSE.Literal HSE.SrcSpanInfo) | NameP String | UnitP
+ | SSymbolP String
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 
@@ -804,6 +819,16 @@ desugarExp userDefinedTypeAliases globals = go mempty
           | Just dub <- Read.readMaybe str ->
               pure $ lit (LitP lit') (dub :: Double)
         _ -> Left $ UnsupportedLiteral
+      HSE.App l ssymbol typeapp
+        | void ssymbol == hellSSymbolCon (),
+          HSE.TypeApp _ (HSE.TyPromoted _ (HSE.PromotedString _ string _)) <- typeapp ->
+        withSomeSSymbol string \(sym@(SSymbol :: SSymbol s)) ->
+          pure $
+            litWithSpanBare
+              (SSymbolP string)
+              l
+              (typeRep @(SSymbol s))
+              sym
       app@HSE.App {} | Just (qname, tys) <- nestedTyApps app -> do
         reps <- traverse (desugarSomeType userDefinedTypeAliases) tys
         desugarQName scope globals qname reps
@@ -1808,6 +1833,9 @@ hellConsTyCon l = hellTyCon l "ConsL"
 hellTaggedCon :: l -> HSE.Exp l
 hellTaggedCon l = hellCon l "Tagged"
 
+hellSSymbolCon :: l -> HSE.Exp l
+hellSSymbolCon l = hellCon l "SSymbol"
+
 --------------------------------------------------------------------------------
 -- Accessor for ExitCode
 
@@ -2329,6 +2357,7 @@ instance Pretty Prim where
     LitP p -> pretty $ HSE.prettyPrint p
     NameP s -> pretty s
     UnitP -> "()"
+    SSymbolP s -> "SSymbol " <> pretty s
 
 instance Pretty Binding where
   pretty = \case
