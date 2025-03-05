@@ -1,0 +1,9 @@
+main = do
+  let things = [These.This 1, These.That "hello", These.These 2 "bonjour"]
+
+  Monad.forM_  things $ \thing -> Text.putStrLn $
+    These.these
+      (\i -> Show.show i)
+      (\s -> s)
+      (\i s -> Text.concat [Show.show i, " ", s])
+      thing

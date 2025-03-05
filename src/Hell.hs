@@ -80,6 +80,8 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Tree (Tree)
+import Data.These (These)
+import qualified Data.These as These
 import qualified Data.Tree as Tree
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
@@ -1203,6 +1205,7 @@ supportedTypeConstructors =
       ("IO", SomeTypeRep $ typeRep @IO),
       ("Vector", SomeTypeRep $ typeRep @Vector),
       ("Set", SomeTypeRep $ typeRep @Set),
+      ("These", SomeTypeRep $ typeRep @These),
       ("Tree", SomeTypeRep $ typeRep @Tree),
       ("Value", SomeTypeRep $ typeRep @Value),
       ("()", SomeTypeRep $ typeRep @()),
@@ -1588,6 +1591,11 @@ polyLits =
                  "Set.toList" Set.toList :: forall a. Set a -> [a]
                  "Set.size" Set.size :: forall a. Set a -> Int
                  "Set.singleton" Set.singleton :: forall a. (Ord a) => a -> Set a
+                 -- These
+                 "These.This" These.This :: forall a b. a -> These a b
+                 "These.That" These.That :: forall a b. b -> These a b
+                 "These.These" These.These :: forall a b. a -> b -> These a b
+                 "These.these" These.these :: forall a b c. (a -> c) -> (b -> c) -> (a -> b -> c) -> These a b -> c
                  -- Trees
                  "Tree.Node" Tree.Node :: forall a. a -> [Tree a] -> Tree a
                  "Tree.unfoldTree" Tree.unfoldTree :: forall a b. (b -> (a, [b])) -> b -> Tree a
