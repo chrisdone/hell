@@ -39,6 +39,7 @@ executable hell
     , text
     , th-lift
     , th-orphans
+    , these
     , typed-process
     , unliftio
     , vector

@@ -28,6 +28,7 @@ dependencies:
 - th-orphans
 - aeson
 - temporary
+- these
 
 ghc-options:
   - -Wall
