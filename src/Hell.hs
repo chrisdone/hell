@@ -1597,6 +1597,7 @@ polyLits =
                  "Monad.forM_" forM_ :: forall a m. (Monad m) => [a] -> (a -> m ()) -> m ()
                  "Monad.mapM" mapM :: forall a b m. (Monad m) => (a -> m b) -> [a] -> m [b]
                  "Monad.forM" forM :: forall a b m. (Monad m) => [a] -> (a -> m b) -> m [b]
+                 "Monad.sequence" sequence :: forall a m. (Monad m) => [m a] -> m [a]
                  "Monad.when" when :: forall m. (Monad m) => Bool -> m () -> m ()
                  -- IO
                  "IO.mapM_" mapM_ :: forall a. (a -> IO ()) -> [a] -> IO ()
