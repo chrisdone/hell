@@ -34,6 +34,7 @@ executable hell
     , haskell-src-exts
     , hspec
     , lucid2
+    , microlens
     , microlens-mtl
     , mtl
     , optparse-applicative
@@ -41,6 +42,7 @@ executable hell
     , template-haskell
     , temporary
     , text
+    , text-zipper
     , th-lift
     , th-orphans
     , these

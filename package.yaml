@@ -9,6 +9,8 @@ dependencies:
 - haskell-src-exts
 - ghc-prim
 - containers
+- microlens
+- text-zipper
 - text
 - bytestring
 - async

@@ -47,9 +47,12 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+import qualified Data.Text.Zipper as Zipper
+import Data.Dynamic
 import qualified Brick.Focus as Brick
 import Data.Generics.Labels ()
 import Lens.Micro.Mtl (zoom, use)
+import Lens.Micro (over)
 import qualified Brick
 import qualified Brick.Widgets.Edit as Brick
 import qualified Graphics.Vty
@@ -88,6 +91,8 @@ import Data.Map.Strict (Map)
 import qualified Data.Maybe as Maybe
 import qualified Data.Ord as Ord
 import Data.Set (Set)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -2828,11 +2833,17 @@ _toWhnf = force . \case
 data State = State {
     attrMap :: Brick.AttrMap,
     focusRing :: Brick.FocusRing Name,
-    edit1 :: Brick.Editor Text Name
+    edit1 :: Brick.Editor Text Name,
+    interactions :: Seq Interaction
   } deriving (Generic)
 
 data Name = Edit1
  deriving (Show, Ord, Eq)
+
+data Interaction = Interaction {
+  prompt :: Text,
+  result :: Dynamic
+ }
 
 repl :: IO ()
 repl = do
@@ -2849,7 +2860,8 @@ repl = do
     initialState = State {
       attrMap = Brick.attrMap Graphics.Vty.defAttr [],
       edit1 = Brick.editor Edit1 (Just 1) "",
-      focusRing = Brick.focusRing [Edit1]
+      focusRing = Brick.focusRing [Edit1],
+      interactions = mempty
       }
 
 handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
@@ -2861,7 +2873,13 @@ handleEvent ev = do
      case Brick.focusGetCurrent r of
        Just Edit1 ->
          case ev of
-           Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> Brick.halt
+           Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> do
+             st <- get
+             modify (over (#edit1 . Brick.editContentsL) Zipper.clearZipper)
+             let prompt = Text.concat $ Brick.getEditContents st.edit1
+                 result = toDyn ()
+                 interaction = Interaction { prompt, result }
+             modify (over #interactions (Seq.:|> interaction))
            _ -> zoom #edit1 $ Brick.handleEditorEvent ev
        _ -> pure ()
 
@@ -2874,11 +2892,21 @@ drawState = replUi
 replUi :: Main.State -> [Brick.Widget Name]
 replUi s =
   [
-    Brick.vBox [
-      Brick.txt "<output here>",
+    Brick.vBox [Brick.vBox $ toList $
+      fmap
+        (\interaction ->
+          Brick.vBox
+           [Brick.txt ("> " <> interaction.prompt),
+            Brick.txt $ Text.pack $ show interaction.result]
+
+        )
+        s.interactions,
+    Brick.hBox [
+      Brick.txt "> ",
       Brick.vLimit 1 $
        Brick.withFocusRing s.focusRing
         (Brick.renderEditor (Brick.txt . Text.unlines))
         s.edit1
+        ]
     ]
   ]
