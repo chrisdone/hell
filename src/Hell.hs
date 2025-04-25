@@ -47,15 +47,17 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
-import qualified Data.Text.Zipper as Zipper
-import Data.Dynamic
-import qualified Brick.Focus as Brick
-import Data.Generics.Labels ()
-import Lens.Micro.Mtl (zoom, use)
-import Lens.Micro (over)
-import qualified Brick
-import qualified Brick.Widgets.Edit as Brick
-import qualified Graphics.Vty
+-- import qualified Data.Text.Zipper as Zipper
+-- import Data.Dynamic
+-- import qualified Brick.Focus as Brick
+-- import Data.Generics.Labels ()
+-- import Lens.Micro.Mtl (zoom, use)
+-- import Lens.Micro (over)
+-- import qualified Brick
+-- import qualified Brick.Widgets.Edit as Brick
+-- import qualified Graphics.Vty
+-- import Data.Sequence (Seq)
+-- import qualified Data.Sequence as Seq
 
 #if __GLASGOW_HASKELL__ >= 906
 import Control.Monad
@@ -91,8 +93,6 @@ import Data.Map.Strict (Map)
 import qualified Data.Maybe as Maybe
 import qualified Data.Ord as Ord
 import Data.Set (Set)
-import Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -138,7 +138,6 @@ data Command
   = Run FilePath
   | Check FilePath
   | Present FilePath
-  | Repl
 
 -- | Main entry point.
 main :: IO ()
@@ -163,8 +162,7 @@ commandParser =
   Options.asum
     [ Run <$> Options.strArgument (Options.metavar "FILE" <> Options.help "Run the given .hell file"),
       Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file"),
-      Present <$> Options.strOption (Options.long "present" <> Options.metavar "FILE" <> Options.help "Compile, run and present the given .hell file's main"),
-      pure Repl
+      Present <$> Options.strOption (Options.long "present" <> Options.metavar "FILE" <> Options.help "Compile, run and present the given .hell file's main")
     ]
 
 -- | Version of Hell.
@@ -180,7 +178,6 @@ dispatch (Check filePath) = do
   compileFile filePath >>= void . Ex.evaluate
 dispatch (Present filePath) = do
   compileFileAndPresent filePath
-dispatch Repl = repl
 
 --------------------------------------------------------------------------------
 -- Compiler
@@ -2830,83 +2827,83 @@ _toWhnf = force . \case
 --------------------------------------------------------------------------------
 -- REPL
 
-data State = State {
-    attrMap :: Brick.AttrMap,
-    focusRing :: Brick.FocusRing Name,
-    edit1 :: Brick.Editor Text Name,
-    interactions :: Seq Interaction
-  } deriving (Generic)
+-- data State = State {
+--     attrMap :: Brick.AttrMap,
+--     focusRing :: Brick.FocusRing Name,
+--     edit1 :: Brick.Editor Text Name,
+--     interactions :: Seq Interaction
+--   } deriving (Generic)
 
-data Name = Edit1
- deriving (Show, Ord, Eq)
+-- data Name = Edit1
+--  deriving (Show, Ord, Eq)
 
-data Interaction = Interaction {
-  prompt :: Text,
-  result :: Dynamic
- }
+-- data Interaction = Interaction {
+--   prompt :: Text,
+--   result :: Dynamic
+--  }
 
-repl :: IO ()
-repl = do
-  st <- Brick.defaultMain app initialState
-  print (Brick.getEditContents st.edit1)
-  where
-    app = Brick.App {
-      Brick.appDraw = drawState,
-      Brick.appChooseCursor = chooseCursor,
-      Brick.appHandleEvent = handleEvent,
-      Brick.appStartEvent = Brick.halt,
-      Brick.appAttrMap = (.attrMap)
-      }
-    initialState = State {
-      attrMap = Brick.attrMap Graphics.Vty.defAttr [],
-      edit1 = Brick.editor Edit1 (Just 1) "",
-      focusRing = Brick.focusRing [Edit1],
-      interactions = mempty
-      }
+-- repl :: IO ()
+-- repl = do
+--   st <- Brick.defaultMain app initialState
+--   print (Brick.getEditContents st.edit1)
+--   where
+--     app = Brick.App {
+--       Brick.appDraw = drawState,
+--       Brick.appChooseCursor = chooseCursor,
+--       Brick.appHandleEvent = handleEvent,
+--       Brick.appStartEvent = Brick.halt,
+--       Brick.appAttrMap = (.attrMap)
+--       }
+--     initialState = State {
+--       attrMap = Brick.attrMap Graphics.Vty.defAttr [],
+--       edit1 = Brick.editor Edit1 (Just 1) "",
+--       focusRing = Brick.focusRing [Edit1],
+--       interactions = mempty
+--       }
 
-handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
-handleEvent ev = do
-  case ev of
-    Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEsc []) -> Brick.halt
-    _ -> do
-     r <- use #focusRing
-     case Brick.focusGetCurrent r of
-       Just Edit1 ->
-         case ev of
-           Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> do
-             st <- get
-             modify (over (#edit1 . Brick.editContentsL) Zipper.clearZipper)
-             let prompt = Text.concat $ Brick.getEditContents st.edit1
-                 result = toDyn ()
-                 interaction = Interaction { prompt, result }
-             modify (over #interactions (Seq.:|> interaction))
-           _ -> zoom #edit1 $ Brick.handleEditorEvent ev
-       _ -> pure ()
+-- handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
+-- handleEvent ev = do
+--   case ev of
+--     Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEsc []) -> Brick.halt
+--     _ -> do
+--      r <- use #focusRing
+--      case Brick.focusGetCurrent r of
+--        Just Edit1 ->
+--          case ev of
+--            Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> do
+--              st <- get
+--              modify (over (#edit1 . Brick.editContentsL) Zipper.clearZipper)
+--              let prompt = Text.concat $ Brick.getEditContents st.edit1
+--                  result = toDyn ()
+--                  interaction = Interaction { prompt, result }
+--              modify (over #interactions (Seq.:|> interaction))
+--            _ -> zoom #edit1 $ Brick.handleEditorEvent ev
+--        _ -> pure ()
 
-chooseCursor :: s -> [Brick.CursorLocation n] -> Maybe (Brick.CursorLocation n)
-chooseCursor = Brick.showFirstCursor
+-- chooseCursor :: s -> [Brick.CursorLocation n] -> Maybe (Brick.CursorLocation n)
+-- chooseCursor = Brick.showFirstCursor
 
-drawState :: Main.State -> [Brick.Widget Name]
-drawState = replUi
+-- drawState :: Main.State -> [Brick.Widget Name]
+-- drawState = replUi
 
-replUi :: Main.State -> [Brick.Widget Name]
-replUi s =
-  [
-    Brick.vBox [Brick.vBox $ toList $
-      fmap
-        (\interaction ->
-          Brick.vBox
-           [Brick.txt ("> " <> interaction.prompt),
-            Brick.txt $ Text.pack $ show interaction.result]
+-- replUi :: Main.State -> [Brick.Widget Name]
+-- replUi s =
+--   [
+--     Brick.vBox [Brick.vBox $ toList $
+--       fmap
+--         (\interaction ->
+--           Brick.vBox
+--            [Brick.txt ("> " <> interaction.prompt),
+--             Brick.txt $ Text.pack $ show interaction.result]
 
-        )
-        s.interactions,
-    Brick.hBox [
-      Brick.txt "> ",
-      Brick.vLimit 1 $
-       Brick.withFocusRing s.focusRing
-        (Brick.renderEditor (Brick.txt . Text.unlines))
-        s.edit1
-        ]
-    ]
-  ]
+--         )
+--         s.interactions,
+--     Brick.hBox [
+--       Brick.txt "> ",
+--       Brick.vLimit 1 $
+--        Brick.withFocusRing s.focusRing
+--         (Brick.renderEditor (Brick.txt . Text.unlines))
+--         s.edit1
+--         ]
+--     ]
+--   ]
