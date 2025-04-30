@@ -53,7 +53,7 @@ import Data.Coerce
 import qualified Brick.Focus as Brick
 import Data.Generics.Labels ()
 import Lens.Micro.Mtl (zoom, use)
-import Lens.Micro (over)
+import Lens.Micro (over, set)
 import qualified Brick
 import qualified Brick.Widgets.Edit as Brick
 import qualified Graphics.Vty
@@ -2870,8 +2870,8 @@ data State = State {
     attrMap :: Brick.AttrMap,
     focusRing :: Brick.FocusRing Name,
     edit1 :: Brick.Editor Text Name,
-    root :: Present,
-    paths :: Map Path Present
+    paths :: Map Path Present,
+    path :: Path
   } deriving (Generic)
 
 data Name = Edit1
@@ -2892,9 +2892,9 @@ runPresentation root = do
     initialState = State {
       attrMap = Brick.attrMap Graphics.Vty.defAttr [],
       focusRing = Brick.focusRing [Edit1],
-      root,
       paths = Map.singleton (Path mempty) root,
-      edit1 = Brick.editor Edit1 (Just 1) ""
+      edit1 = Brick.editor Edit1 (Just 1) "",
+      path = Path mempty
       }
 
 handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
@@ -2906,8 +2906,21 @@ handleEvent ev = do
      case Brick.focusGetCurrent r of
        Just Edit1 ->
          case ev of
-           Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> Brick.halt
-           _ -> zoom #edit1 $ Brick.handleEditorEvent ev
+           Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> do
+             st <- get
+             let string = Text.concat $
+                   Brick.getEditContents st.edit1
+             let mpath =
+                   fmap (Path . Seq.fromList) $
+                   mapM (fmap Index . Read.readMaybe . Text.unpack) $
+                   Text.splitOn "/" $
+                   string
+             if Text.null string
+                then modify \s -> s { path = Path mempty }
+                else for_ mpath \path -> do
+                  modify \s -> s { path }
+           _ -> do
+             zoom #edit1 $ Brick.handleEditorEvent ev
        _ -> pure ()
 
 -- | Derived from the docs, I'm not familiar with it
@@ -2919,7 +2932,10 @@ drawState :: Main.State -> [Brick.Widget Name]
 drawState s = [
   Brick.vBox [
     drawAddressBar s,
-    drawWhnf (Path mempty) $ toWhnf s.root
+    Brick.txt $ Text.pack $ show $ s.path,
+    case Map.lookup s.path s.paths of
+      Nothing -> Brick.txt "No such path, sorry!"
+      Just p -> drawWhnf s.path $ toWhnf p
     ]
   ]
 
