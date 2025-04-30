@@ -49,13 +49,14 @@ module Main (main) where
 
 -- import qualified Data.Text.Zipper as Zipper
 -- import Data.Dynamic
--- import qualified Brick.Focus as Brick
--- import Data.Generics.Labels ()
--- import Lens.Micro.Mtl (zoom, use)
+import qualified Brick.Focus as Brick
+import Data.Generics.Labels ()
+import Lens.Micro.Mtl (-- zoom,
+ use)
 -- import Lens.Micro (over)
--- import qualified Brick
+import qualified Brick
 -- import qualified Brick.Widgets.Edit as Brick
--- import qualified Graphics.Vty
+import qualified Graphics.Vty
 -- import Data.Sequence (Seq)
 -- import qualified Data.Sequence as Seq
 
@@ -237,7 +238,13 @@ compileFileAndPresent filePath = do
                           case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
                             Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
                             Just Type.HRefl ->
-                              print $ present t $ eval () ex
+                              if False
+                                 then print $ present t $ eval () ex
+                                 else
+                                   runPresentation
+                                    $ toWhnf
+                                    $ present t
+                                    $ eval () ex
 
 --------------------------------------------------------------------------------
 -- Get declarations from the module
@@ -2794,7 +2801,9 @@ data Whnf
 
 -- | An index into a data structure.
 newtype Index = Index Int
-  deriving (Show, NFData, Generic)
+  deriving (NFData, Generic)
+instance Show Index where
+  show (Index i) = "#<" <> show i <> ">"
 
 -- | Create a spine-strict single layer of representation for the
 -- Present.
@@ -2804,8 +2813,8 @@ newtype Index = Index Int
 -- that each layer of presentation that we peel off is itself free
 -- from issues, and its sub-parts can be queried independently, in
 -- parallel, and in a way that supports cancellation.
-_toWhnf :: Present -> Whnf
-_toWhnf = force . \case
+toWhnf :: Present -> Whnf
+toWhnf = force . \case
     NilP -> NilW
     UnrepresentableP t -> UnrepresentableW t
     IntP x -> IntW x
@@ -2825,85 +2834,98 @@ _toWhnf = force . \case
      RecordW t $ zipWith (\i (k, _) -> (k, Index i)) [0..] $ toList xs
 
 --------------------------------------------------------------------------------
--- REPL
+-- Presentation UI
 
--- data State = State {
---     attrMap :: Brick.AttrMap,
---     focusRing :: Brick.FocusRing Name,
---     edit1 :: Brick.Editor Text Name,
---     interactions :: Seq Interaction
---   } deriving (Generic)
+data State = State {
+    attrMap :: Brick.AttrMap,
+    focusRing :: Brick.FocusRing Name,
+    root :: Whnf
+  } deriving (Generic)
 
--- data Name = Edit1
---  deriving (Show, Ord, Eq)
+data Name = N
+ deriving (Show, Ord, Eq)
 
--- data Interaction = Interaction {
---   prompt :: Text,
---   result :: Dynamic
---  }
+runPresentation :: Whnf -> IO ()
+runPresentation whnf = do
+  _ <- Brick.defaultMain app initialState
+  pure ()
+  -- print (Brick.getEditContents st.edit1)
+  where
+    app = Brick.App {
+      Brick.appDraw = drawState,
+      Brick.appChooseCursor = chooseCursor,
+      Brick.appHandleEvent = handleEvent,
+      Brick.appStartEvent = Brick.halt,
+      Brick.appAttrMap = (.attrMap)
+      }
+    initialState = State {
+      attrMap = Brick.attrMap Graphics.Vty.defAttr [],
+      focusRing = Brick.focusRing [],
+      root = whnf
+      }
 
--- repl :: IO ()
--- repl = do
---   st <- Brick.defaultMain app initialState
---   print (Brick.getEditContents st.edit1)
---   where
---     app = Brick.App {
---       Brick.appDraw = drawState,
---       Brick.appChooseCursor = chooseCursor,
---       Brick.appHandleEvent = handleEvent,
---       Brick.appStartEvent = Brick.halt,
---       Brick.appAttrMap = (.attrMap)
---       }
---     initialState = State {
---       attrMap = Brick.attrMap Graphics.Vty.defAttr [],
---       edit1 = Brick.editor Edit1 (Just 1) "",
---       focusRing = Brick.focusRing [Edit1],
---       interactions = mempty
---       }
+handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
+handleEvent ev = do
+  case ev of
+    Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEsc []) -> Brick.halt
+    _ -> do
+     r <- use #focusRing
+     case Brick.focusGetCurrent r of
+       -- Just Edit1 ->
+       --   case ev of
+       --     Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> do
+       --       st <- get
+       --       modify (over (#edit1 . Brick.editContentsL) Zipper.clearZipper)
+       --       let prompt = Text.concat $ Brick.getEditContents st.edit1
+       --           result = toDyn ()
+       --           interaction = Interaction { prompt, result }
+       --       modify (over #interactions (Seq.:|> interaction))
+       --     _ -> zoom #edit1 $ Brick.handleEditorEvent ev
+       _ -> pure ()
 
--- handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
--- handleEvent ev = do
---   case ev of
---     Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEsc []) -> Brick.halt
---     _ -> do
---      r <- use #focusRing
---      case Brick.focusGetCurrent r of
---        Just Edit1 ->
---          case ev of
---            Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> do
---              st <- get
---              modify (over (#edit1 . Brick.editContentsL) Zipper.clearZipper)
---              let prompt = Text.concat $ Brick.getEditContents st.edit1
---                  result = toDyn ()
---                  interaction = Interaction { prompt, result }
---              modify (over #interactions (Seq.:|> interaction))
---            _ -> zoom #edit1 $ Brick.handleEditorEvent ev
---        _ -> pure ()
+chooseCursor :: s -> [Brick.CursorLocation n] -> Maybe (Brick.CursorLocation n)
+chooseCursor = Brick.showFirstCursor
 
--- chooseCursor :: s -> [Brick.CursorLocation n] -> Maybe (Brick.CursorLocation n)
--- chooseCursor = Brick.showFirstCursor
+drawState :: Main.State -> [Brick.Widget Name]
+drawState s = drawWhnf s.root
 
--- drawState :: Main.State -> [Brick.Widget Name]
--- drawState = replUi
+drawWhnf :: Whnf -> [Brick.Widget Name]
+drawWhnf = \case
+  UnrepresentableW{} -> [Brick.txt "UnrepresentableW"]
+  IntW{} -> [Brick.txt "IntW"]
+  DoubleW{} -> [Brick.txt "DoubleW"]
+  TextW{} -> [Brick.txt "TextW"]
+  CharW{} -> [Brick.txt "CharW"]
+  ByteStringW{} -> [Brick.txt "ByteStringW"]
+  ConsW x xs -> [ Brick.vBox [
+    Brick.txt "ConsW",
+    Brick.txt $ Text.pack $ show x,
+    Brick.txt $ Text.pack $ show xs
+    ] ]
+  VectorW{} -> [Brick.txt "VectorW"]
+  SetW{} -> [Brick.txt "SetW"]
+  MapW{} -> [Brick.txt "MapW"]
+  ConstructorW{} -> [Brick.txt "ConstructorW"]
+  RecordW{} -> [Brick.txt "RecordW"]
+  ExceptionW{} -> [Brick.txt "ExceptionW"]
+  NilW{} -> [Brick.txt "NilW"]
 
--- replUi :: Main.State -> [Brick.Widget Name]
--- replUi s =
---   [
---     Brick.vBox [Brick.vBox $ toList $
---       fmap
---         (\interaction ->
---           Brick.vBox
---            [Brick.txt ("> " <> interaction.prompt),
---             Brick.txt $ Text.pack $ show interaction.result]
+  -- [
+  --   Brick.vBox [Brick.vBox $ toList $
+  --     fmap
+  --       (\interaction ->
+  --         Brick.vBox
+  --          [Brick.txt ("> " <> interaction.prompt),
+  --           Brick.txt $ Text.pack $ show interaction.result]
 
---         )
---         s.interactions,
---     Brick.hBox [
---       Brick.txt "> ",
---       Brick.vLimit 1 $
---        Brick.withFocusRing s.focusRing
---         (Brick.renderEditor (Brick.txt . Text.unlines))
---         s.edit1
---         ]
---     ]
---   ]
+  --       )
+  --       s.interactions,
+  --   Brick.hBox [
+  --     Brick.txt "> ",
+  --     Brick.vLimit 1 $
+  --      Brick.withFocusRing s.focusRing
+  --       (Brick.renderEditor (Brick.txt . Text.unlines))
+  --       s.edit1
+  --       ]
+  --   ]
+  -- ]
