@@ -2801,9 +2801,11 @@ data Whnf
 
 -- | An index into a data structure.
 newtype Index = Index Int
-  deriving (NFData, Generic)
-instance Show Index where
-  show (Index i) = "#<" <> show i <> ">"
+  deriving (NFData, Generic, Show)
+
+-- | A path into a nested data structure.
+newtype Path = Path [Index]
+  deriving (NFData, Generic, Show)
 
 -- | Create a spine-strict single layer of representation for the
 -- Present.
@@ -2832,6 +2834,35 @@ toWhnf = force . \case
     ConstructorP t thing -> ConstructorW t (Index 0 <$ thing)
     RecordP t xs ->
      RecordW t $ zipWith (\i (k, _) -> (k, Index i)) [0..] $ toList xs
+
+-- | Access a presentation at a given index, yielding a
+-- | sub-presentation.
+atIndex :: Index -> Present -> Maybe Present
+atIndex (Index idx) = \case
+    -- Atomic
+    NilP -> Nothing
+    UnrepresentableP{} -> Nothing
+    IntP{} -> Nothing
+    DoubleP{} -> Nothing
+    TextP{} -> Nothing
+    CharP{} -> Nothing
+    ByteStringP{} -> Nothing
+
+    -- Composite
+    ExceptionP _ z | idx == 0 -> Just $!  z
+    VectorP xs -> xs Vector.!? idx
+    SetP xs -> xs Vector.!? idx
+    ConstructorP _ (Just x) | idx == 0 -> Just $!  x
+    RecordP _ xs -> fmap snd $! xs Vector.!? idx
+    ConsP x y | idx == 0 -> Just x
+              | idx == 1 -> Just y
+    MapP xs -> do
+       if even idx -- Sequence [0, 2 ...]
+          then fmap fst $! xs Vector.!? idx
+          else fmap snd $! xs Vector.!? idx
+
+    -- Wrong index or not applicable.
+    _ -> Nothing
 
 --------------------------------------------------------------------------------
 -- Presentation UI
@@ -2909,23 +2940,3 @@ drawWhnf = \case
   RecordW{} -> [Brick.txt "RecordW"]
   ExceptionW{} -> [Brick.txt "ExceptionW"]
   NilW{} -> [Brick.txt "NilW"]
-
-  -- [
-  --   Brick.vBox [Brick.vBox $ toList $
-  --     fmap
-  --       (\interaction ->
-  --         Brick.vBox
-  --          [Brick.txt ("> " <> interaction.prompt),
-  --           Brick.txt $ Text.pack $ show interaction.result]
-
-  --       )
-  --       s.interactions,
-  --   Brick.hBox [
-  --     Brick.txt "> ",
-  --     Brick.vLimit 1 $
-  --      Brick.withFocusRing s.focusRing
-  --       (Brick.renderEditor (Brick.txt . Text.unlines))
-  --       s.edit1
-  --       ]
-  --   ]
-  -- ]
