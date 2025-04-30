@@ -242,7 +242,6 @@ compileFileAndPresent filePath = do
                                  then print $ present t $ eval () ex
                                  else
                                    runPresentation
-                                    $ toWhnf
                                     $ present t
                                     $ eval () ex
 
@@ -2870,14 +2869,14 @@ atIndex (Index idx) = \case
 data State = State {
     attrMap :: Brick.AttrMap,
     focusRing :: Brick.FocusRing Name,
-    root :: Whnf
+    presentation :: Present
   } deriving (Generic)
 
 data Name = N
  deriving (Show, Ord, Eq)
 
-runPresentation :: Whnf -> IO ()
-runPresentation whnf = do
+runPresentation :: Present -> IO ()
+runPresentation presentation = do
   _ <- Brick.defaultMain app initialState
   pure ()
   -- print (Brick.getEditContents st.edit1)
@@ -2892,7 +2891,7 @@ runPresentation whnf = do
     initialState = State {
       attrMap = Brick.attrMap Graphics.Vty.defAttr [],
       focusRing = Brick.focusRing [],
-      root = whnf
+      presentation
       }
 
 handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
@@ -2918,7 +2917,7 @@ chooseCursor :: s -> [Brick.CursorLocation n] -> Maybe (Brick.CursorLocation n)
 chooseCursor = Brick.showFirstCursor
 
 drawState :: Main.State -> [Brick.Widget Name]
-drawState s = drawWhnf s.root
+drawState s = drawWhnf $ toWhnf s.presentation
 
 drawWhnf :: Whnf -> [Brick.Widget Name]
 drawWhnf = \case
