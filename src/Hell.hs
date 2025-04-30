@@ -2941,7 +2941,6 @@ drawState :: Main.State -> [Brick.Widget Name]
 drawState s = [
   Brick.vBox [
     drawAddressBar s,
-    Brick.txt $ Text.pack $ show $ s.path,
     case Map.lookup s.path s.paths of
       Nothing -> Brick.txt "No such path, sorry!"
       Just p -> drawWhnf s.path $ toWhnf p
@@ -2962,13 +2961,13 @@ drawAddressBar s =
 -- | Draw a single layer of a piece of data, either atomic, or if
 -- composite, with holes in it.
 drawWhnf :: Path -> Whnf -> Brick.Widget Name
-drawWhnf path = \case
-  UnrepresentableW{} -> Brick.txt "UnrepresentableW"
-  IntW{} -> Brick.txt "IntW"
-  DoubleW{} -> Brick.txt "DoubleW"
-  TextW{} -> Brick.txt "TextW"
-  CharW{} -> Brick.txt "CharW"
-  ByteStringW{} -> Brick.txt "ByteStringW"
+drawWhnf path thing = case thing of
+  UnrepresentableW{} -> Brick.txt $ Text.pack $ show thing
+  IntW{} -> Brick.txt $ Text.pack $ show thing
+  DoubleW{} -> Brick.txt $ Text.pack $ show thing
+  TextW{} -> Brick.txt $ Text.pack $ show thing
+  CharW{} -> Brick.txt $ Text.pack $ show thing
+  ByteStringW{} -> Brick.txt $ Text.pack $ show thing
   ConsW x xs ->  Brick.hBox [
     Brick.txt "ConsW",
     Brick.txt " ",
