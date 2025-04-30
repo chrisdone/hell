@@ -49,16 +49,16 @@ module Main (main) where
 
 -- import qualified Data.Text.Zipper as Zipper
 -- import Data.Dynamic
+import Data.Coerce
 import qualified Brick.Focus as Brick
 import Data.Generics.Labels ()
-import Lens.Micro.Mtl (-- zoom,
- use)
--- import Lens.Micro (over)
+import Lens.Micro.Mtl (zoom, use)
+import Lens.Micro (over)
 import qualified Brick
--- import qualified Brick.Widgets.Edit as Brick
+import qualified Brick.Widgets.Edit as Brick
 import qualified Graphics.Vty
 import Data.Sequence (Seq)
--- import qualified Data.Sequence as Seq
+import qualified Data.Sequence as Seq
 
 #if __GLASGOW_HASKELL__ >= 906
 import Control.Monad
@@ -2869,18 +2869,18 @@ atIndex (Index idx) = \case
 data State = State {
     attrMap :: Brick.AttrMap,
     focusRing :: Brick.FocusRing Name,
+    edit1 :: Brick.Editor Text Name,
     root :: Present,
     paths :: Map Path Present
   } deriving (Generic)
 
-data Name = N
+data Name = Edit1
  deriving (Show, Ord, Eq)
 
 runPresentation :: Present -> IO ()
 runPresentation root = do
   _ <- Brick.defaultMain app initialState
   pure ()
-  -- print (Brick.getEditContents st.edit1)
   where
     app = Brick.App {
       Brick.appDraw = drawState,
@@ -2891,9 +2891,10 @@ runPresentation root = do
       }
     initialState = State {
       attrMap = Brick.attrMap Graphics.Vty.defAttr [],
-      focusRing = Brick.focusRing [],
+      focusRing = Brick.focusRing [Edit1],
       root,
-      paths = Map.singleton (Path mempty) root
+      paths = Map.singleton (Path mempty) root,
+      edit1 = Brick.editor Edit1 (Just 1) ""
       }
 
 handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
@@ -2903,6 +2904,10 @@ handleEvent ev = do
     _ -> do
      r <- use #focusRing
      case Brick.focusGetCurrent r of
+       Just Edit1 ->
+         case ev of
+           Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> Brick.halt
+           _ -> zoom #edit1 $ Brick.handleEditorEvent ev
        _ -> pure ()
 
 -- | Derived from the docs, I'm not familiar with it
@@ -2911,27 +2916,53 @@ chooseCursor = Brick.showFirstCursor
 
 -- | Draw the entire state, top-level thing.
 drawState :: Main.State -> [Brick.Widget Name]
-drawState s = drawWhnf (Path mempty) $ toWhnf s.root
+drawState s = [
+  Brick.vBox [
+    drawAddressBar s,
+    drawWhnf (Path mempty) $ toWhnf s.root
+    ]
+  ]
+
+-- | Draw an editor box.
+drawAddressBar :: Main.State -> Brick.Widget Name
+drawAddressBar s =
+  Brick.hBox [
+    Brick.txt "/",
+    Brick.vLimit 1 $
+       Brick.withFocusRing s.focusRing
+        (Brick.renderEditor (Brick.txt . Text.unlines))
+        s.edit1
+  ]
 
 -- | Draw a single layer of a piece of data, either atomic, or if
 -- composite, with holes in it.
-drawWhnf :: Path -> Whnf -> [Brick.Widget Name]
+drawWhnf :: Path -> Whnf -> Brick.Widget Name
 drawWhnf path = \case
-  UnrepresentableW{} -> [Brick.txt "UnrepresentableW"]
-  IntW{} -> [Brick.txt "IntW"]
-  DoubleW{} -> [Brick.txt "DoubleW"]
-  TextW{} -> [Brick.txt "TextW"]
-  CharW{} -> [Brick.txt "CharW"]
-  ByteStringW{} -> [Brick.txt "ByteStringW"]
-  ConsW x xs -> [ Brick.vBox [
+  UnrepresentableW{} -> Brick.txt "UnrepresentableW"
+  IntW{} -> Brick.txt "IntW"
+  DoubleW{} -> Brick.txt "DoubleW"
+  TextW{} -> Brick.txt "TextW"
+  CharW{} -> Brick.txt "CharW"
+  ByteStringW{} -> Brick.txt "ByteStringW"
+  ConsW x xs ->  Brick.hBox [
     Brick.txt "ConsW",
-    Brick.txt $ Text.pack $ show x,
-    Brick.txt $ Text.pack $ show xs
-    ] ]
-  VectorW{} -> [Brick.txt "VectorW"]
-  SetW{} -> [Brick.txt "SetW"]
-  MapW{} -> [Brick.txt "MapW"]
-  ConstructorW{} -> [Brick.txt "ConstructorW"]
-  RecordW{} -> [Brick.txt "RecordW"]
-  ExceptionW{} -> [Brick.txt "ExceptionW"]
-  NilW{} -> [Brick.txt "NilW"]
+    Brick.txt " ",
+    drawIndex path x,
+    Brick.txt " ",
+    drawIndex path xs
+    ]
+  VectorW{} -> Brick.txt "VectorW"
+  SetW{} -> Brick.txt "SetW"
+  MapW{} -> Brick.txt "MapW"
+  ConstructorW{} -> Brick.txt "ConstructorW"
+  RecordW{} -> Brick.txt "RecordW"
+  ExceptionW{} -> Brick.txt "ExceptionW"
+  NilW{} -> Brick.txt "NilW"
+
+drawIndex :: Path -> Index -> Brick.Widget a
+drawIndex (Path xs) x =
+  Brick.txt $
+  Text.concat ["/",
+  Text.intercalate "/" $
+    map (Text.pack . show . (coerce :: Index -> Int)) $
+    toList (xs Seq.|> x)]
