@@ -57,7 +57,7 @@ import Lens.Micro.Mtl (-- zoom,
 import qualified Brick
 -- import qualified Brick.Widgets.Edit as Brick
 import qualified Graphics.Vty
--- import Data.Sequence (Seq)
+import Data.Sequence (Seq)
 -- import qualified Data.Sequence as Seq
 
 #if __GLASGOW_HASKELL__ >= 906
@@ -2800,11 +2800,11 @@ data Whnf
 
 -- | An index into a data structure.
 newtype Index = Index Int
-  deriving (NFData, Generic, Show)
+  deriving (NFData, Generic, Show, Eq, Ord)
 
 -- | A path into a nested data structure.
-newtype Path = Path [Index]
-  deriving (NFData, Generic, Show)
+newtype Path = Path (Seq Index)
+  deriving (NFData, Generic, Show, Ord, Eq)
 
 -- | Create a spine-strict single layer of representation for the
 -- Present.
@@ -2835,7 +2835,7 @@ toWhnf = force . \case
      RecordW t $ zipWith (\i (k, _) -> (k, Index i)) [0..] $ toList xs
 
 -- | Access a presentation at a given index, yielding a
--- | sub-presentation.
+-- sub-presentation.
 atIndex :: Index -> Present -> Maybe Present
 atIndex (Index idx) = \case
     -- Atomic
@@ -2869,14 +2869,15 @@ atIndex (Index idx) = \case
 data State = State {
     attrMap :: Brick.AttrMap,
     focusRing :: Brick.FocusRing Name,
-    presentation :: Present
+    root :: Present,
+    paths :: Map Path Present
   } deriving (Generic)
 
 data Name = N
  deriving (Show, Ord, Eq)
 
 runPresentation :: Present -> IO ()
-runPresentation presentation = do
+runPresentation root = do
   _ <- Brick.defaultMain app initialState
   pure ()
   -- print (Brick.getEditContents st.edit1)
@@ -2891,7 +2892,8 @@ runPresentation presentation = do
     initialState = State {
       attrMap = Brick.attrMap Graphics.Vty.defAttr [],
       focusRing = Brick.focusRing [],
-      presentation
+      root,
+      paths = Map.singleton (Path mempty) root
       }
 
 handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
@@ -2901,26 +2903,20 @@ handleEvent ev = do
     _ -> do
      r <- use #focusRing
      case Brick.focusGetCurrent r of
-       -- Just Edit1 ->
-       --   case ev of
-       --     Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> do
-       --       st <- get
-       --       modify (over (#edit1 . Brick.editContentsL) Zipper.clearZipper)
-       --       let prompt = Text.concat $ Brick.getEditContents st.edit1
-       --           result = toDyn ()
-       --           interaction = Interaction { prompt, result }
-       --       modify (over #interactions (Seq.:|> interaction))
-       --     _ -> zoom #edit1 $ Brick.handleEditorEvent ev
        _ -> pure ()
 
+-- | Derived from the docs, I'm not familiar with it
 chooseCursor :: s -> [Brick.CursorLocation n] -> Maybe (Brick.CursorLocation n)
 chooseCursor = Brick.showFirstCursor
 
+-- | Draw the entire state, top-level thing.
 drawState :: Main.State -> [Brick.Widget Name]
-drawState s = drawWhnf $ toWhnf s.presentation
+drawState s = drawWhnf (Path mempty) $ toWhnf s.root
 
-drawWhnf :: Whnf -> [Brick.Widget Name]
-drawWhnf = \case
+-- | Draw a single layer of a piece of data, either atomic, or if
+-- composite, with holes in it.
+drawWhnf :: Path -> Whnf -> [Brick.Widget Name]
+drawWhnf path = \case
   UnrepresentableW{} -> [Brick.txt "UnrepresentableW"]
   IntW{} -> [Brick.txt "IntW"]
   DoubleW{} -> [Brick.txt "DoubleW"]
