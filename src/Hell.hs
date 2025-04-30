@@ -2918,6 +2918,15 @@ handleEvent ev = do
              if Text.null string
                 then modify \s -> s { path = Path mempty }
                 else for_ mpath \path -> do
+                  let loop p@(Path (prefix Seq.:|> idx)) =
+                        case Map.lookup (Path prefix) st.paths of
+                          Nothing -> pure ()
+                          Just pre -> do
+                            case atIndex idx pre of
+                              Nothing -> pure ()
+                              Just p' -> modify \s -> s { paths = Map.insert p p' s.paths }
+                      loop _ = pure ()
+                  loop path
                   modify \s -> s { path }
            _ -> do
              zoom #edit1 $ Brick.handleEditorEvent ev
