@@ -2913,6 +2913,7 @@ handleEvent ev = do
              let mpath =
                    fmap (Path . Seq.fromList) $
                    mapM (fmap Index . Read.readMaybe . Text.unpack) $
+                   List.filter (not . Text.null) $
                    Text.splitOn "/" $
                    string
              if Text.null string
@@ -2962,26 +2963,44 @@ drawAddressBar s =
 -- composite, with holes in it.
 drawWhnf :: Path -> Whnf -> Brick.Widget Name
 drawWhnf path thing = case thing of
-  UnrepresentableW{} -> Brick.txt $ Text.pack $ show thing
-  IntW{} -> Brick.txt $ Text.pack $ show thing
-  DoubleW{} -> Brick.txt $ Text.pack $ show thing
-  TextW{} -> Brick.txt $ Text.pack $ show thing
-  CharW{} -> Brick.txt $ Text.pack $ show thing
-  ByteStringW{} -> Brick.txt $ Text.pack $ show thing
+  UnrepresentableW trep -> Brick.txt $ Text.pack $ show trep
+  IntW i -> Brick.txt $ Text.pack $ show i
+  DoubleW i -> Brick.txt $ Text.pack $ show i
+  TextW t -> Brick.txt $ Text.pack $ show t
+  CharW c -> Brick.txt $ Text.pack $ show c
+  ByteStringW s -> Brick.txt $ Text.pack $ show s
   ConsW x xs ->  Brick.hBox [
-    Brick.txt "ConsW",
-    Brick.txt " ",
     drawIndex path x,
-    Brick.txt " ",
+    Brick.txt " : ",
     drawIndex path xs
     ]
   VectorW{} -> Brick.txt "VectorW"
   SetW{} -> Brick.txt "SetW"
   MapW{} -> Brick.txt "MapW"
-  ConstructorW{} -> Brick.txt "ConstructorW"
-  RecordW{} -> Brick.txt "RecordW"
-  ExceptionW{} -> Brick.txt "ExceptionW"
-  NilW{} -> Brick.txt "NilW"
+  ConstructorW c Nothing -> Brick.hBox [Brick.txt c]
+  ConstructorW c (Just i) -> Brick.hBox [Brick.txt c, Brick.txt " ", drawIndex path i]
+  RecordW cons pairs ->
+    Brick.vBox [
+      Brick.txt $ cons <> " {",
+      Brick.vBox [
+        Brick.hBox [
+          Brick.txt "  ",
+          Brick.txt key,
+          Brick.txt " = ",
+          drawIndex path idx
+        ]
+        | (key,idx) <- pairs
+      ],
+      Brick.txt "}"
+    ]
+  ExceptionW trep idx ->
+    Brick.hBox [
+      Brick.txt "Exception ",
+      Brick.txt $ Text.pack $ show trep,
+      Brick.txt " ",
+      drawIndex path idx
+    ]
+  NilW{} -> Brick.txt "[]"
 
 drawIndex :: Path -> Index -> Brick.Widget a
 drawIndex (Path xs) x =
