@@ -1,6 +1,6 @@
 data Node = Node { i :: Main.Yarr, label :: [Text] }
 data Yarr = Yes | No
-main = [
+main = List.cycle [
   Main.Node { i = Main.Yes, label = ["OK, go!", Error.error "Nooo", "Done." ] },
   Main.Node { i = Main.Yes, label = ["OK, go!", Error.error "Nooo", "Done." ] }
   ]
