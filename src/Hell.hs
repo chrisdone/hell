@@ -2905,9 +2905,29 @@ handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
 handleEvent ev = do
   case ev of
     Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEsc []) -> Brick.halt
+    Brick.VtyEvent (Graphics.Vty.EvKey (Graphics.Vty.KChar '\t') []) -> do
+      modify $ over #focusRing Brick.focusNext
     _ -> do
      r <- use #focusRing
+     let navigate path = do
+           st <- get
+           let peelAndSave p@(Path (prefix Seq.:|> idx)) =
+                 case Map.lookup (Path prefix) st.paths of
+                   Nothing -> pure []
+                   Just pre -> do
+                     case atIndex idx pre of
+                       Nothing -> pure []
+                       Just p' -> do
+                         modify \s -> s { paths = Map.insert p p' s.paths }
+                         pure $ map (PathLink . extendPath p) $ whnfIndices $ toWhnf p'
+               peelAndSave _ = pure []
+           indices <- peelAndSave path
+           modify \s -> s { path,
+             focusRing = Brick.focusSetCurrent Edit1 $ Brick.focusRing $ Edit1 : indices
+             }
      case Brick.focusGetCurrent r of
+       Just (PathLink path) -> do
+         navigate path
        Just Edit1 ->
          case ev of
            Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEnter []) -> do
@@ -2922,21 +2942,7 @@ handleEvent ev = do
                    string
              if Text.null string
                 then modify \s -> s { path = Path mempty, focusRing = Brick.focusRing [Edit1] }
-                else for_ mpath \path -> do
-                  let peelAndSave p@(Path (prefix Seq.:|> idx)) =
-                        case Map.lookup (Path prefix) st.paths of
-                          Nothing -> pure []
-                          Just pre -> do
-                            case atIndex idx pre of
-                              Nothing -> pure []
-                              Just p' -> do
-                                modify \s -> s { paths = Map.insert p p' s.paths }
-                                pure $ map (PathLink . extendPath p) $ whnfIndices $ toWhnf p'
-                      peelAndSave _ = pure []
-                  indices <- peelAndSave path
-                  modify \s -> s { path,
-                    focusRing = Brick.focusSetCurrent Edit1 $ Brick.focusRing $ Edit1 : indices
-                    }
+                else for_ mpath navigate
            _ -> do
              zoom #edit1 $ Brick.handleEditorEvent ev
        _ -> pure ()
@@ -2945,7 +2951,7 @@ extendPath :: Path -> Index -> Path
 extendPath (Path inds) i = Path $ inds Seq.|> i
 
 -- | Derived from the docs, I'm not familiar with it
-chooseCursor :: s -> [Brick.CursorLocation n] -> Maybe (Brick.CursorLocation n)
+chooseCursor :: Main.State -> [Brick.CursorLocation Name] -> Maybe (Brick.CursorLocation Name)
 chooseCursor = Brick.showFirstCursor
 
 -- | Draw the entire state, top-level thing.
