@@ -49,6 +49,7 @@ module Main (main) where
 
 -- import qualified Data.Text.Zipper as Zipper
 -- import Data.Dynamic
+import Data.Data (Data)
 import Data.Coerce
 import qualified Brick.Focus as Brick
 import Data.Generics.Labels ()
@@ -2874,7 +2875,7 @@ data State = State {
     path :: Path
   } deriving (Generic)
 
-data Name = Edit1
+data Name = Edit1 | PathLink Path
  deriving (Show, Ord, Eq)
 
 runPresentation :: Present -> IO ()
@@ -2890,7 +2891,10 @@ runPresentation root = do
       Brick.appAttrMap = (.attrMap)
       }
     initialState = State {
-      attrMap = Brick.attrMap Graphics.Vty.defAttr [],
+      attrMap = Brick.attrMap Graphics.Vty.defAttr [
+        (Brick.attrName "link", Brick.fg Graphics.Vty.blue),
+        (Brick.attrName "highlight", Brick.bg Graphics.Vty.white)
+      ],
       focusRing = Brick.focusRing [Edit1],
       paths = Map.singleton (Path mempty) root,
       edit1 = Brick.editor Edit1 (Just 1) "",
@@ -2917,21 +2921,28 @@ handleEvent ev = do
                    Text.splitOn "/" $
                    string
              if Text.null string
-                then modify \s -> s { path = Path mempty }
+                then modify \s -> s { path = Path mempty, focusRing = Brick.focusRing [Edit1] }
                 else for_ mpath \path -> do
                   let peelAndSave p@(Path (prefix Seq.:|> idx)) =
                         case Map.lookup (Path prefix) st.paths of
-                          Nothing -> pure ()
+                          Nothing -> pure []
                           Just pre -> do
                             case atIndex idx pre of
-                              Nothing -> pure ()
-                              Just p' -> modify \s -> s { paths = Map.insert p p' s.paths }
-                      peelAndSave _ = pure ()
-                  peelAndSave path
-                  modify \s -> s { path }
+                              Nothing -> pure []
+                              Just p' -> do
+                                modify \s -> s { paths = Map.insert p p' s.paths }
+                                pure $ map (PathLink . extendPath p) $ whnfIndices $ toWhnf p'
+                      peelAndSave _ = pure []
+                  indices <- peelAndSave path
+                  modify \s -> s { path,
+                    focusRing = Brick.focusSetCurrent Edit1 $ Brick.focusRing $ Edit1 : indices
+                    }
            _ -> do
              zoom #edit1 $ Brick.handleEditorEvent ev
        _ -> pure ()
+
+extendPath :: Path -> Index -> Path
+extendPath (Path inds) i = Path $ inds Seq.|> i
 
 -- | Derived from the docs, I'm not familiar with it
 chooseCursor :: s -> [Brick.CursorLocation n] -> Maybe (Brick.CursorLocation n)
@@ -2941,10 +2952,11 @@ chooseCursor = Brick.showFirstCursor
 drawState :: Main.State -> [Brick.Widget Name]
 drawState s = [
   Brick.vBox [
+    Brick.txt $ Text.pack $ show $ Brick.focusRingToList s.focusRing,
     drawAddressBar s,
     case Map.lookup s.path s.paths of
       Nothing -> Brick.txt "No such path, sorry!"
-      Just p -> drawWhnf s.path $ toWhnf p
+      Just p -> drawWhnf s.focusRing s.path $ toWhnf p
     ]
   ]
 
@@ -2961,8 +2973,8 @@ drawAddressBar s =
 
 -- | Draw a single layer of a piece of data, either atomic, or if
 -- composite, with holes in it.
-drawWhnf :: Path -> Whnf -> Brick.Widget Name
-drawWhnf path thing = case thing of
+drawWhnf :: Brick.FocusRing Name -> Path -> Whnf -> Brick.Widget Name
+drawWhnf focusRing path thing = case thing of
   UnrepresentableW trep -> Brick.txt $ Text.pack $ show trep
   IntW i -> Brick.txt $ Text.pack $ show i
   DoubleW i -> Brick.txt $ Text.pack $ show i
@@ -2970,15 +2982,15 @@ drawWhnf path thing = case thing of
   CharW c -> Brick.txt $ Text.pack $ show c
   ByteStringW s -> Brick.txt $ Text.pack $ show s
   ConsW x xs ->  Brick.hBox [
-    drawIndex path x,
+    drawIndex focusRing path x,
     Brick.txt " : ",
-    drawIndex path xs
+    drawIndex focusRing path xs
     ]
   VectorW{} -> Brick.txt "VectorW"
   SetW{} -> Brick.txt "SetW"
   MapW{} -> Brick.txt "MapW"
   ConstructorW c Nothing -> Brick.hBox [Brick.txt c]
-  ConstructorW c (Just i) -> Brick.hBox [Brick.txt c, Brick.txt " ", drawIndex path i]
+  ConstructorW c (Just i) -> Brick.hBox [Brick.txt c, Brick.txt " ", drawIndex focusRing path i]
   RecordW cons pairs ->
     Brick.vBox [
       Brick.txt $ cons <> " {",
@@ -2987,7 +2999,7 @@ drawWhnf path thing = case thing of
           Brick.txt "  ",
           Brick.txt key,
           Brick.txt " = ",
-          drawIndex path idx
+          drawIndex focusRing path idx
         ]
         | (key,idx) <- pairs
       ],
@@ -2998,14 +3010,37 @@ drawWhnf path thing = case thing of
       Brick.txt "Exception ",
       Brick.txt $ Text.pack $ show trep,
       Brick.txt " ",
-      drawIndex path idx
+      drawIndex focusRing path idx
     ]
   NilW{} -> Brick.txt "[]"
 
-drawIndex :: Path -> Index -> Brick.Widget a
-drawIndex (Path xs) x =
+drawIndex :: Brick.FocusRing Name -> Path -> Index -> Brick.Widget a
+drawIndex focusRing path@(Path xs) x =
+  Brick.withAttr (
+    if Brick.focusGetCurrent focusRing == Just (PathLink $ extendPath path x)
+       then Brick.attrName "highlight"
+       else Brick.attrName "link"
+    ) $
   Brick.txt $
   Text.concat ["/",
   Text.intercalate "/" $
     map (Text.pack . show . (coerce :: Index -> Int)) $
     toList (xs Seq.|> x)]
+
+whnfIndices :: Whnf -> [Index]
+whnfIndices = \case
+  UnrepresentableW{} -> []
+  IntW{} -> []
+  DoubleW{} -> []
+  TextW{} -> []
+  CharW{} -> []
+  ByteStringW{} -> []
+  ConsW x xs -> [x,xs]
+  VectorW pairs -> toList pairs
+  SetW pairs -> toList pairs
+  MapW pairs -> map snd pairs
+  ConstructorW _ Nothing -> []
+  ConstructorW _ (Just i) -> [i]
+  RecordW _ pairs -> map snd pairs
+  ExceptionW _ idx -> [idx]
+  NilW{} -> []
