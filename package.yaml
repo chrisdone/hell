@@ -11,6 +11,7 @@ dependencies:
 - containers
 - microlens
 - text-zipper
+- safe-exceptions
 - text
 - bytestring
 - async

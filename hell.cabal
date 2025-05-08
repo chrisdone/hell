@@ -38,6 +38,7 @@ executable hell
     , microlens-mtl
     , mtl
     , optparse-applicative
+    , safe-exceptions
     , syb
     , template-haskell
     , temporary

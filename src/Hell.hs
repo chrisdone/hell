@@ -63,7 +63,8 @@ import qualified Data.Sequence as Seq
 import Control.Monad
 #endif
 import System.IO.Unsafe
-import qualified Control.Exception as Ex (try, SomeException(SomeException), evaluate)
+import qualified Control.Exception.Safe as Ex (try, SomeException(SomeException))
+import qualified Control.Exception as Ex (evaluate)
 import qualified Control.Concurrent as Concurrent
 import Control.Monad.Reader
 import Control.DeepSeq
