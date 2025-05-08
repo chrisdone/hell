@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric, DeriveAnyClass #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFoldable #-}
@@ -47,6 +48,8 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+import Brick.BChan (BChan)
+import qualified Brick.BChan as Brick
 import qualified Data.Text.Zipper as Zipper
 import Data.Coerce
 import qualified Brick.Focus as Brick
@@ -2867,27 +2870,51 @@ newtype Path = Path (Seq Index)
   deriving (NFData, Generic, Show, Ord, Eq)
 
 -- | Any given thing on the screen that can be evaluated and presented.
-data Thunk
+data ThunkState
   = Ready          -- A thunk ready to be evaluated.
   | Evaluating     -- Then it's evaluating.
   | Cancelled      -- It might be cancelled by the user.
-  | Complete !Whnf -- Or it might have completed evaluating.
+  | Whnf !Whnf -- Or it might have completed evaluating.
+
+data Thunk = Thunk {
+  source :: Present,
+  thunkState :: ThunkState
+  } deriving (Generic)
 
 data State = State {
     attrMap :: Brick.AttrMap,
     focusRing :: Brick.FocusRing Name,
     edit1 :: Brick.Editor Text Name,
-    paths :: Map Path Present,
-    path :: Path
+    paths :: Map Path Thunk,
+    path :: Path,
+    bchan :: BChan Cmd
   } deriving (Generic)
 
 data Name = Edit1 | PathLink Path
  deriving (Show, Ord, Eq)
 
+data Cmd =
+  ReportThunkState Path ThunkState
+
+forceThunk :: Path -> Present -> BChan Cmd -> IO ThunkState
+forceThunk path pres chan = do
+  Concurrent.threadDelay $ 1000 * 100
+  Brick.writeBChan chan $ ReportThunkState path Evaluating
+  mwhnf <- Timeout.timeout (1000 * 1000) $ Ex.evaluate $ toWhnf pres
+  Concurrent.threadDelay $ 1000 * 100
+  let state' = maybe Cancelled Whnf mwhnf
+  Brick.writeBChan chan $ ReportThunkState path state'
+  pure state'
+
 runPresentation :: Present -> IO ()
-runPresentation root = do
-  _ <- Brick.defaultMain app $ execState (navigate initialPath) initialState
-  pure ()
+runPresentation initialPresent = do
+  bchan <- Brick.newBChan 10
+  thunkState <- forceThunk initialPath initialPresent bchan
+  s <- execStateT (navigate initialPath) $ initialState bchan thunkState
+  let brick = Brick.customMainWithDefaultVty (Just bchan) app s
+  (_s, vty) <- brick
+  Graphics.Vty.shutdown vty
+
   where
     app = Brick.App {
       Brick.appDraw = drawState,
@@ -2896,36 +2923,43 @@ runPresentation root = do
       Brick.appStartEvent = Brick.halt,
       Brick.appAttrMap = (.attrMap)
       }
-    initialState = State {
+    initialState bchan thunkState = State {
       attrMap = Brick.attrMap Graphics.Vty.defAttr [
         (Brick.attrName "link", Brick.fg Graphics.Vty.blue),
         (Brick.attrName "highlight", Brick.bg Graphics.Vty.white)
       ],
       focusRing = Brick.focusRing [Edit1],
-      paths = Map.singleton initialPath root,
+      paths = Map.singleton initialPath Thunk { source = initialPresent, thunkState },
       edit1 = Brick.editor Edit1 edit1Limit "",
-      path = initialPath
+      path = initialPath,
+      bchan = bchan
       }
 
+initialPath :: Path
 initialPath = Path mempty
 
-navigate :: MonadState Main.State m => Path -> m ()
+navigate :: (MonadIO m, MonadState Main.State m) => Path -> m ()
 navigate path = do
   st <- get
-  let peelAndSave p@(Path (prefix Seq.:|> idx)) =
+  let peelAndSave p | Just thunk <- Map.lookup p st.paths =
+        case thunk of
+          Thunk{thunkState = Whnf whnf} -> do
+            pure $ map PathLink $ recursiveWhnfIndices st.paths p whnf
+          Thunk{thunkState = Ready, source = p'} -> do
+            void $ liftIO $ Concurrent.forkIO $ void $ forceThunk path p' st.bchan
+            pure []
+          _ -> pure []
+      peelAndSave p@(Path (prefix Seq.:|> idx))  =
         case Map.lookup (Path prefix) st.paths of
-          Nothing -> pure []
-          Just pre -> do
+          Just Thunk{thunkState = Whnf{}, source = pre} -> do
             case atIndex idx pre of
               Nothing -> pure []
               Just p' -> do
-                modify \s -> s { paths = Map.insert p p' s.paths }
-                pure $ map (PathLink . extendPath p) $ whnfIndices $ toWhnf p'
-      peelAndSave p =
-        case Map.lookup p st.paths of
-          Nothing -> pure []
-          Just p' ->
-            pure $ map (PathLink . extendPath p) $ whnfIndices $ toWhnf p'
+                modify \s -> s { paths = Map.insert p Thunk { source = p', thunkState = Ready } s.paths }
+                void $ liftIO $ Concurrent.forkIO $ void $ forceThunk path p' st.bchan
+                pure $ map PathLink $ recursiveWhnfIndices st.paths p $ toWhnf p'
+          _ -> pure []
+      peelAndSave _ = pure []
   indices <- peelAndSave path
   modify \s -> s {
     path,
@@ -2933,11 +2967,14 @@ navigate path = do
     edit1 = set Brick.editContentsL (Zipper.textZipper [drawPath path] edit1Limit) s.edit1
     }
 
+edit1Limit :: Maybe Int
 edit1Limit = (Just 1)
 
-handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
+handleEvent :: Brick.BrickEvent Name Cmd -> Brick.EventM Name Main.State ()
 handleEvent ev = do
   case ev of
+    Brick.AppEvent (ReportThunkState path thunkState) ->
+      modify $ over #paths $ Map.adjust (set #thunkState thunkState) path
     Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEsc []) -> Brick.halt
     Brick.VtyEvent (Graphics.Vty.EvKey (Graphics.Vty.KChar '\t') []) -> do
       modify $ over #focusRing Brick.focusNext
@@ -2978,11 +3015,20 @@ drawState s = [
   Brick.vBox [
     Brick.txt $ Text.pack $ show $ Brick.focusRingToList s.focusRing,
     drawAddressBar s,
-    case Map.lookup s.path s.paths of
-      Nothing -> Brick.txt "No such path, sorry!"
-      Just p -> drawWhnf s.focusRing s.path $ toWhnf p
+    drawThunk s.paths s.focusRing s.path
     ]
   ]
+
+drawThunk :: Map Path Thunk -> Brick.FocusRing Name -> Path -> Brick.Widget Name
+drawThunk paths focusRing path =
+  case Map.lookup path paths of
+      Nothing -> drawLink focusRing path
+      Just Thunk { thunkState } ->
+        case thunkState of
+          Ready -> Brick.txt "[ready]"
+          Evaluating -> Brick.txt "[evaluating]"
+          Cancelled -> Brick.txt "[cancelled]"
+          Whnf whnf -> drawWhnf paths focusRing path whnf
 
 -- | Draw an editor box.
 drawAddressBar :: Main.State -> Brick.Widget Name
@@ -2997,8 +3043,8 @@ drawAddressBar s =
 
 -- | Draw a single layer of a piece of data, either atomic, or if
 -- composite, with holes in it.
-drawWhnf :: Brick.FocusRing Name -> Path -> Whnf -> Brick.Widget Name
-drawWhnf focusRing path thing = case thing of
+drawWhnf :: Map Path Thunk -> Brick.FocusRing Name -> Path -> Whnf -> Brick.Widget Name
+drawWhnf paths focusRing path thing = case thing of
   UnrepresentableW trep -> Brick.txt $ Text.pack $ show trep
   IntW i -> Brick.txt $ Text.pack $ show i
   DoubleW i -> Brick.txt $ Text.pack $ show i
@@ -3006,15 +3052,15 @@ drawWhnf focusRing path thing = case thing of
   CharW c -> Brick.txt $ Text.pack $ show c
   ByteStringW s -> Brick.txt $ Text.pack $ show s
   ConsW x xs ->  Brick.hBox [
-    drawIndex focusRing path x,
+    drawIndex paths focusRing path x,
     Brick.txt " : ",
-    drawIndex focusRing path xs
+    drawIndex paths focusRing path xs
     ]
   VectorW{} -> Brick.txt "VectorW"
   SetW{} -> Brick.txt "SetW"
   MapW{} -> Brick.txt "MapW"
   ConstructorW c Nothing -> Brick.hBox [Brick.txt c]
-  ConstructorW c (Just i) -> Brick.hBox [Brick.txt c, Brick.txt " ", drawIndex focusRing path i]
+  ConstructorW c (Just i) -> Brick.hBox [Brick.txt c, Brick.txt " ", drawIndex paths focusRing path i]
   RecordW cons pairs ->
     Brick.vBox [
       Brick.txt $ cons <> " {",
@@ -3023,7 +3069,7 @@ drawWhnf focusRing path thing = case thing of
           Brick.txt "  ",
           Brick.txt key,
           Brick.txt " = ",
-          drawIndex focusRing path idx
+          drawIndex paths focusRing path idx
         ]
         | (key,idx) <- pairs
       ],
@@ -3034,25 +3080,43 @@ drawWhnf focusRing path thing = case thing of
       Brick.txt "Exception ",
       Brick.txt $ Text.pack $ show trep,
       Brick.txt " ",
-      drawIndex focusRing path idx
+      drawIndex paths focusRing path idx
     ]
   NilW{} -> Brick.txt "[]"
 
-drawIndex :: Brick.FocusRing Name -> Path -> Index -> Brick.Widget a
-drawIndex focusRing path@(Path xs) x =
+drawIndex :: Map Path Thunk -> Brick.FocusRing Name -> Path -> Index -> Brick.Widget Name
+drawIndex paths focusRing path x =
+  drawThunk paths focusRing (extendPath path x)
+
+drawLink :: Brick.FocusRing Name -> Path -> Brick.Widget a
+drawLink focusRing path =
   Brick.withAttr (
-    if Brick.focusGetCurrent focusRing == Just (PathLink $ extendPath path x)
+    if Brick.focusGetCurrent focusRing == Just (PathLink path)
        then Brick.attrName "highlight"
        else Brick.attrName "link"
     ) $
   Brick.txt $
   Text.concat ["/",
-  drawPath $ Path $ xs Seq.|> x]
+  drawPath path]
 
 drawPath :: Path -> Text
 drawPath (Path xs) = Text.intercalate "/" $
     map (Text.pack . show . (coerce :: Index -> Int)) $
     toList xs
+
+recursiveWhnfIndices :: Map Path Thunk -> Path -> Whnf -> [Path]
+recursiveWhnfIndices paths top = toList . go top where
+  go :: Path -> Whnf -> Seq Path
+  go parent whnf =
+    foldMap (\index ->
+      let path = extendPath parent index
+      in case Map.lookup path paths of
+           Just Thunk{thunkState = Whnf whnf'} ->
+             go path whnf'
+           _ -> pure path)
+      (Seq.fromList indices)
+
+    where indices = whnfIndices whnf
 
 whnfIndices :: Whnf -> [Index]
 whnfIndices = \case
