@@ -1,8 +1,9 @@
-data Node = Node { i :: Main.Yarr, label :: [Text] }
+data Person = Person { age :: Int, name :: Text }
+data Node = Node { i :: Main.Yarr, label :: [Text], person :: Main.Person }
 data Yarr = Yes | No
 main = List.cycle [
-  Main.Node { i = Main.Yes, label = ["OK, go!", Error.error "Nooo", "Done." ] },
-  Main.Node { i = Main.Yes, label = ["OK, go!", Error.error "Nooo", "Done." ] }
+  Main.Node { i = Main.Yes, label = ["OK, go!", Error.error "Nooo", "Done." ], person = Main.Person { name = "Chris", age = 23 } },
+  Main.Node { i = Main.Yes, label = ["Wibble" ], person = Main.Person { name = "Jerry", age = 32 } }
   ]
 -- main = [Main.Yes, Main.No, Main.Yes]
 -- main = [1,Error.error "woop",3]

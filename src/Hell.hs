@@ -2802,17 +2802,6 @@ data Whnf
 newtype Index = Index Int
   deriving (NFData, Generic, Show, Eq, Ord)
 
--- | A path into a nested data structure.
-newtype Path = Path (Seq Index)
-  deriving (NFData, Generic, Show, Ord, Eq)
-
--- | Any given thing on the screen that can be evaluated and presented.
-data Thunk
-  = Ready         -- A thunk ready to be evaluated.
-  | Evaluating    -- Then it's evaluating.
-  | Cancelled     -- It might be cancelled by the user.
-  | Complete Whnf -- Or it might have completed evaluating.
-
 -- | Create a spine-strict single layer of representation for the
 -- Present.
 --
@@ -2872,6 +2861,17 @@ atIndex (Index idx) = \case
 
 --------------------------------------------------------------------------------
 -- Presentation UI
+
+-- | A path into a nested data structure.
+newtype Path = Path (Seq Index)
+  deriving (NFData, Generic, Show, Ord, Eq)
+
+-- | Any given thing on the screen that can be evaluated and presented.
+data Thunk
+  = Ready          -- A thunk ready to be evaluated.
+  | Evaluating     -- Then it's evaluating.
+  | Cancelled      -- It might be cancelled by the user.
+  | Complete !Whnf -- Or it might have completed evaluating.
 
 data State = State {
     attrMap :: Brick.AttrMap,
