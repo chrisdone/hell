@@ -47,9 +47,7 @@ module Main (main) where
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
--- import qualified Data.Text.Zipper as Zipper
--- import Data.Dynamic
-import Data.Data (Data)
+import qualified Data.Text.Zipper as Zipper
 import Data.Coerce
 import qualified Brick.Focus as Brick
 import Data.Generics.Labels ()
@@ -2880,7 +2878,7 @@ data Name = Edit1 | PathLink Path
 
 runPresentation :: Present -> IO ()
 runPresentation root = do
-  _ <- Brick.defaultMain app initialState
+  _ <- Brick.defaultMain app $ execState (navigate initialPath) initialState
   pure ()
   where
     app = Brick.App {
@@ -2896,10 +2894,38 @@ runPresentation root = do
         (Brick.attrName "highlight", Brick.bg Graphics.Vty.white)
       ],
       focusRing = Brick.focusRing [Edit1],
-      paths = Map.singleton (Path mempty) root,
-      edit1 = Brick.editor Edit1 (Just 1) "",
-      path = Path mempty
+      paths = Map.singleton initialPath root,
+      edit1 = Brick.editor Edit1 edit1Limit "",
+      path = initialPath
       }
+
+initialPath = Path mempty
+
+navigate :: MonadState Main.State m => Path -> m ()
+navigate path = do
+  st <- get
+  let peelAndSave p@(Path (prefix Seq.:|> idx)) =
+        case Map.lookup (Path prefix) st.paths of
+          Nothing -> pure []
+          Just pre -> do
+            case atIndex idx pre of
+              Nothing -> pure []
+              Just p' -> do
+                modify \s -> s { paths = Map.insert p p' s.paths }
+                pure $ map (PathLink . extendPath p) $ whnfIndices $ toWhnf p'
+      peelAndSave p =
+        case Map.lookup p st.paths of
+          Nothing -> pure []
+          Just p' ->
+            pure $ map (PathLink . extendPath p) $ whnfIndices $ toWhnf p'
+  indices <- peelAndSave path
+  modify \s -> s {
+    path,
+    focusRing = Brick.focusSetCurrent Edit1 $ Brick.focusRing $ Edit1 : indices,
+    edit1 = set Brick.editContentsL (Zipper.textZipper [drawPath path] edit1Limit) s.edit1
+    }
+
+edit1Limit = (Just 1)
 
 handleEvent :: Brick.BrickEvent Name e -> Brick.EventM Name Main.State ()
 handleEvent ev = do
@@ -2907,24 +2933,10 @@ handleEvent ev = do
     Brick.VtyEvent (Graphics.Vty.EvKey Graphics.Vty.KEsc []) -> Brick.halt
     Brick.VtyEvent (Graphics.Vty.EvKey (Graphics.Vty.KChar '\t') []) -> do
       modify $ over #focusRing Brick.focusNext
+    Brick.VtyEvent (Graphics.Vty.EvKey (Graphics.Vty.KBackTab) []) -> do
+      modify $ over #focusRing Brick.focusPrev
     _ -> do
      r <- use #focusRing
-     let navigate path = do
-           st <- get
-           let peelAndSave p@(Path (prefix Seq.:|> idx)) =
-                 case Map.lookup (Path prefix) st.paths of
-                   Nothing -> pure []
-                   Just pre -> do
-                     case atIndex idx pre of
-                       Nothing -> pure []
-                       Just p' -> do
-                         modify \s -> s { paths = Map.insert p p' s.paths }
-                         pure $ map (PathLink . extendPath p) $ whnfIndices $ toWhnf p'
-               peelAndSave _ = pure []
-           indices <- peelAndSave path
-           modify \s -> s { path,
-             focusRing = Brick.focusSetCurrent Edit1 $ Brick.focusRing $ Edit1 : indices
-             }
      case Brick.focusGetCurrent r of
        Just (PathLink path) -> do
          navigate path
@@ -2940,9 +2952,7 @@ handleEvent ev = do
                    List.filter (not . Text.null) $
                    Text.splitOn "/" $
                    string
-             if Text.null string
-                then modify \s -> s { path = Path mempty, focusRing = Brick.focusRing [Edit1] }
-                else for_ mpath navigate
+             navigate $ Maybe.fromMaybe initialPath mpath
            _ -> do
              zoom #edit1 $ Brick.handleEditorEvent ev
        _ -> pure ()
@@ -3029,9 +3039,12 @@ drawIndex focusRing path@(Path xs) x =
     ) $
   Brick.txt $
   Text.concat ["/",
-  Text.intercalate "/" $
+  drawPath $ Path $ xs Seq.|> x]
+
+drawPath :: Path -> Text
+drawPath (Path xs) = Text.intercalate "/" $
     map (Text.pack . show . (coerce :: Index -> Int)) $
-    toList (xs Seq.|> x)]
+    toList xs
 
 whnfIndices :: Whnf -> [Index]
 whnfIndices = \case
