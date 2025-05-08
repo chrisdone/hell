@@ -2806,6 +2806,13 @@ newtype Index = Index Int
 newtype Path = Path (Seq Index)
   deriving (NFData, Generic, Show, Ord, Eq)
 
+-- | Any given thing on the screen that can be evaluated and presented.
+data Thunk
+  = Ready         -- A thunk ready to be evaluated.
+  | Evaluating    -- Then it's evaluating.
+  | Cancelled     -- It might be cancelled by the user.
+  | Complete Whnf -- Or it might have completed evaluating.
+
 -- | Create a spine-strict single layer of representation for the
 -- Present.
 --
