@@ -46,6 +46,7 @@ module Main (main) where
 -- guest language as such.
 
 #if __GLASGOW_HASKELL__ >= 906
+import Numeric
 import Control.Monad
 #endif
 import Control.Exception (evaluate)
@@ -1323,14 +1324,18 @@ supportedLits =
       lit' "Text.isInfixOf" Text.isInfixOf,
       lit' "Text.interact" (\f -> ByteString.interact (Text.encodeUtf8 . f . Text.decodeUtf8)),
       -- Int operations
+      lit' "Int.readMaybe" (Read.readMaybe @Int . Text.unpack),
       lit' "Int.show" (Text.pack . show @Int),
       lit' "Int.eq" ((==) @Int),
       lit' "Int.plus" ((+) @Int),
       lit' "Int.mult" ((*) @Int),
       lit' "Int.subtract" (subtract @Int),
       -- Double operations
+      lit' "Double.readMaybe" (Read.readMaybe @Double . Text.unpack),
       lit' "Double.fromInt" (fromIntegral :: Int -> Double),
       lit' "Double.show" (Text.pack . show @Double),
+      lit' "Double.showEFloat" (showsHelper showEFloat),
+      lit' "Double.showFFloat" (showsHelper showFFloat),
       lit' "Double.eq" ((==) @Double),
       lit' "Double.plus" ((+) @Double),
       lit' "Double.mult" ((*) @Double),
@@ -1408,6 +1413,11 @@ supportedLits =
   where
     lit' :: forall a. (Type.Typeable a) => String -> a -> (String, (UTerm (), SomeTypeRep))
     lit' str x = ( str, (lit (NameP str) x, SomeTypeRep $ Type.typeOf x) )
+
+    showsHelper :: (Maybe Int -> Double -> (String -> String))
+                -> (Maybe Int -> Double -> (Text -> Text))
+    showsHelper f = \mi a ->
+      \text -> Text.pack $ (f mi a) (Text.unpack text)
 
 --------------------------------------------------------------------------------
 -- Derive prims TH
