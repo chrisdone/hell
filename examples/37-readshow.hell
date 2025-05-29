@@ -1,0 +1,22 @@
+-- Reading and showing numbers
+
+main = do
+  -- Reading ints and floats
+
+  let mint = Int.readMaybe "123"
+  let mdouble = Double.readMaybe "123.456"
+  Maybe.maybe (IO.pure ()) IO.print mint
+  Maybe.maybe (IO.pure ()) IO.print mdouble
+
+  Text.putStrLn "Generic"
+  Text.putStrLn $ Double.show 123456789.123456789
+  Text.putStrLn $ Double.show 123.0
+  Text.putStrLn "Scientific"
+  Text.putStrLn $ Double.showEFloat Maybe.Nothing 123.0 ""
+  Text.putStrLn $ Double.showEFloat Maybe.Nothing 123456789.123456789 ""
+  Text.putStrLn $ Double.showEFloat (Maybe.Just 3) 123456789.123456789 ""
+  Text.putStrLn "Decimal"
+  Text.putStrLn $ Double.showFFloat Maybe.Nothing 123456789.123456789 ""
+  Text.putStrLn $ Double.showFFloat (Maybe.Just 3) 123456789.123456789 ""
+  Text.putStrLn $ Double.showFFloat (Maybe.Just 3) 123456789.0 ""
+  Text.putStrLn $ Double.showFFloat Maybe.Nothing 123456789.0 ""
