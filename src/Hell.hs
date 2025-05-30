@@ -46,9 +46,12 @@ module Main (main) where
 -- guest language as such.
 
 #if __GLASGOW_HASKELL__ >= 906
-import Numeric
 import Control.Monad
 #endif
+import qualified Data.Time.Format.ISO8601 as Time
+import qualified Data.Time as Time
+import Data.Time (Day)
+import Numeric
 import Control.Exception (evaluate)
 import qualified Control.Concurrent as Concurrent
 import Control.Monad.Reader
@@ -666,6 +669,7 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
       if
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Integer) -> go reps (f rep)
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Day) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Double) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Bool) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Char) -> go reps (f rep)
@@ -1259,6 +1263,7 @@ supportedTypeConstructors =
       ("Value", SomeTypeRep $ typeRep @Value),
       ("()", SomeTypeRep $ typeRep @()),
       ("Handle", SomeTypeRep $ typeRep @IO.Handle),
+      ("Day", SomeTypeRep $ typeRep @Day),
 
       -- Internal, hidden types
       ("hell:Hell.NilL", SomeTypeRep $ typeRep @('NilL)),
@@ -1291,6 +1296,14 @@ supportedLits =
       lit' "Text.readProcessStdout_" t_readProcessStdout_,
       lit' "Text.getContents" (fmap Text.decodeUtf8 ByteString.getContents),
       lit' "Text.setStdin" t_setStdin,
+
+      -- Dates
+      lit' "Day.fromGregorianValid" Time.fromGregorianValid,
+      lit' "Day.addDays" Time.addDays,
+      lit' "Day.diffDays" Time.diffDays,
+      lit' "Day.iso8601Show" (Text.pack . Time.iso8601Show :: Day -> Text),
+      lit' "Day.iso8601ParseM" (Time.iso8601ParseM . Text.unpack :: Text -> Maybe Day),
+
       -- Text operations
       lit' "Text.decodeUtf8" Text.decodeUtf8,
       lit' "Text.encodeUtf8" Text.encodeUtf8,

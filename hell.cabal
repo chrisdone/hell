@@ -40,6 +40,7 @@ executable hell
     , th-lift
     , th-orphans
     , these
+    , time
     , typed-process
     , unliftio
     , vector

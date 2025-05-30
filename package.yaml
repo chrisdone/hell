@@ -29,6 +29,7 @@ dependencies:
 - aeson
 - temporary
 - these
+- time
 
 ghc-options:
   - -Wall

@@ -1,0 +1,6 @@
+main = do
+  day1 :: Day <-
+    Maybe.maybe (Error.error "Invalid") IO.pure $ Day.fromGregorianValid (Int.toInteger 2025) 08 09
+  day2 <- Maybe.maybe (Error.error "Invalid") IO.pure $ Day.iso8601ParseM "2025-08-09"
+  IO.print $ Eq.eq day1 day2 -- True
+  Text.putStrLn $ Day.iso8601Show day1 -- 2025-08-09
