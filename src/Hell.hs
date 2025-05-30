@@ -665,6 +665,7 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
     go (StarTypeRep rep : reps) fa@(OrdEqShow f) =
       if
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Integer) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Double) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Bool) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Char) -> go reps (f rep)
@@ -1241,6 +1242,7 @@ supportedTypeConstructors =
       -- Standard Haskell types
       ("Bool", SomeTypeRep $ typeRep @Bool),
       ("Int", SomeTypeRep $ typeRep @Int),
+      ("Integer", SomeTypeRep $ typeRep @Integer),
       ("Double", SomeTypeRep $ typeRep @Double),
       ("Char", SomeTypeRep $ typeRep @Char),
       ("Text", SomeTypeRep $ typeRep @Text),
@@ -1330,6 +1332,13 @@ supportedLits =
       lit' "Int.plus" ((+) @Int),
       lit' "Int.mult" ((*) @Int),
       lit' "Int.subtract" (subtract @Int),
+      lit' "Int.fromInteger" (fromInteger :: Integer -> Int),
+      lit' "Int.toInteger" (toInteger :: Int -> Integer),
+      -- Integer operations
+      lit' "Integer.readMaybe" (Read.readMaybe @Integer . Text.unpack),
+      lit' "Integer.plus" ((+) @Integer),
+      lit' "Integer.mult" ((*) @Integer),
+      lit' "Integer.subtract" (subtract @Integer),
       -- Double operations
       lit' "Double.readMaybe" (Read.readMaybe @Double . Text.unpack),
       lit' "Double.fromInt" (fromIntegral :: Int -> Double),
