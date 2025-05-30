@@ -1,0 +1,17 @@
+main = do
+  now <- UTCTime.getCurrentTime
+  Text.putStrLn "Current time:"
+  IO.print now
+
+  Text.putStrLn "ISO8601:"
+  Text.putStrLn $ UTCTime.iso8601Show now
+
+  Text.putStrLn "Parsed:"
+  Maybe.maybe (Error.error "Impossible!") IO.print $ UTCTime.iso8601ParseM "2025-05-30T11:18:26.195147084Z"
+
+  Text.putStrLn "Increased:"
+  IO.print $ UTCTime.addUTCTime (Double.mult 60.0 60.0) now
+
+  Text.putStrLn "Parts:"
+  IO.print $ TimeOfDay.timeToTimeOfDay $ UTCTime.utctDayTime now
+  IO.print $ UTCTime.utctDay now
