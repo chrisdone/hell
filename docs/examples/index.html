@@ -630,4 +630,36 @@ class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a 
 <span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> <span class="dt">Double</span><span class="op">.</span>showFFloat (<span class="dt">Maybe</span><span class="op">.</span><span class="dt">Just</span> <span class="dv">3</span>) <span class="fl">123456789.123456789</span> <span class="st">&quot;&quot;</span></span>
 <span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> <span class="dt">Double</span><span class="op">.</span>showFFloat (<span class="dt">Maybe</span><span class="op">.</span><span class="dt">Just</span> <span class="dv">3</span>) <span class="fl">123456789.0</span> <span class="st">&quot;&quot;</span></span>
 <span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> <span class="dt">Double</span><span class="op">.</span>showFFloat <span class="dt">Maybe</span><span class="op">.</span><span class="dt">Nothing</span> <span class="fl">123456789.0</span> <span class="st">&quot;&quot;</span></span></code></pre></div>
+<h2>38-integer.hell</h2><div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- prints: 18446744073709551614</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">IO</span><span class="op">.</span><span class="fu">print</span> <span class="op">$</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="dt">Integer</span><span class="op">.</span>plus</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>      (<span class="dt">Int</span><span class="op">.</span><span class="fu">toInteger</span> <span class="dv">9223372036854775807</span>)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>      (<span class="dt">Int</span><span class="op">.</span><span class="fu">toInteger</span> <span class="dv">9223372036854775807</span>)</span></code></pre></div>
+<h2>39-day.hell</h2><div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ot">  day1 ::</span> <span class="dt">Day</span> <span class="ot">&lt;-</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">Maybe</span><span class="op">.</span><span class="fu">maybe</span> (Error.error <span class="st">&quot;Invalid&quot;</span>) <span class="dt">IO</span><span class="op">.</span><span class="fu">pure</span> <span class="op">$</span> Day.fromGregorianValid (<span class="dt">Int</span><span class="op">.</span><span class="fu">toInteger</span> <span class="dv">2025</span>) <span class="dv">08</span> <span class="dv">09</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  day2 <span class="ot">&lt;-</span> <span class="dt">Maybe</span><span class="op">.</span><span class="fu">maybe</span> (Error.error <span class="st">&quot;Invalid&quot;</span>) <span class="dt">IO</span><span class="op">.</span><span class="fu">pure</span> <span class="op">$</span> Day.iso8601ParseM <span class="st">&quot;2025-08-09&quot;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">IO</span><span class="op">.</span><span class="fu">print</span> <span class="op">$</span> <span class="dt">Eq</span><span class="op">.</span>eq day1 day2 <span class="co">-- True</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> Day.iso8601Show day1 <span class="co">-- 2025-08-09</span></span></code></pre></div>
+<h2>40-utctime.hell</h2><div class="sourceCode" id="cb1"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>main <span class="ot">=</span> <span class="kw">do</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  now <span class="ot">&lt;-</span> UTCTime.getCurrentTime</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="st">&quot;Current time:&quot;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">IO</span><span class="op">.</span><span class="fu">print</span> now</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="st">&quot;ISO8601:&quot;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="op">$</span> UTCTime.iso8601Show now</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="st">&quot;Parsed:&quot;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">Maybe</span><span class="op">.</span><span class="fu">maybe</span> (Error.error <span class="st">&quot;Impossible!&quot;</span>) <span class="dt">IO</span><span class="op">.</span><span class="fu">print</span> <span class="op">$</span> UTCTime.iso8601ParseM <span class="st">&quot;2025-05-30T11:18:26.195147084Z&quot;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="st">&quot;Increased:&quot;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="dt">IO</span><span class="op">.</span><span class="fu">print</span> <span class="op">$</span> UTCTime.addUTCTime (<span class="dt">Double</span><span class="op">.</span>mult <span class="fl">60.0</span> <span class="fl">60.0</span>) now</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  Text.putStrLn <span class="st">&quot;Parts:&quot;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="dt">IO</span><span class="op">.</span><span class="fu">print</span> <span class="op">$</span> TimeOfDay.timeToTimeOfDay <span class="op">$</span> UTCTime.utctDayTime now</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="dt">IO</span><span class="op">.</span><span class="fu">print</span> <span class="op">$</span> UTCTime.utctDay now</span></code></pre></div>
 </html>
