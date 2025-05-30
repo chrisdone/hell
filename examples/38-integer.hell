@@ -1,0 +1,6 @@
+-- prints: 18446744073709551614
+main = do
+  IO.print $
+    Integer.plus
+      (Int.toInteger 9223372036854775807)
+      (Int.toInteger 9223372036854775807)
