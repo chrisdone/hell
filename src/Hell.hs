@@ -50,7 +50,7 @@ import Control.Monad
 #endif
 import qualified Data.Time.Format.ISO8601 as Time
 import qualified Data.Time as Time
-import Data.Time (Day)
+import Data.Time (Day, UTCTime, TimeOfDay)
 import Numeric
 import Control.Exception (evaluate)
 import qualified Control.Concurrent as Concurrent
@@ -670,6 +670,8 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Integer) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Day) -> go reps (f rep)
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @UTCTime) -> go reps (f rep)
+          | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @TimeOfDay) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Double) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Bool) -> go reps (f rep)
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Char) -> go reps (f rep)
@@ -1264,6 +1266,8 @@ supportedTypeConstructors =
       ("()", SomeTypeRep $ typeRep @()),
       ("Handle", SomeTypeRep $ typeRep @IO.Handle),
       ("Day", SomeTypeRep $ typeRep @Day),
+      ("UTCTime", SomeTypeRep $ typeRep @UTCTime),
+      ("TimeOfDay", SomeTypeRep $ typeRep @TimeOfDay),
 
       -- Internal, hidden types
       ("hell:Hell.NilL", SomeTypeRep $ typeRep @('NilL)),
@@ -1303,6 +1307,32 @@ supportedLits =
       lit' "Day.diffDays" Time.diffDays,
       lit' "Day.iso8601Show" (Text.pack . Time.iso8601Show :: Day -> Text),
       lit' "Day.iso8601ParseM" (Time.iso8601ParseM . Text.unpack :: Text -> Maybe Day),
+
+      -- UTCTime
+      --
+      -- We're going to skip NominalDiffTime, DiffTime, etc. and thus
+      -- put a hard limit on dealing with leap-seconds in Hell
+      -- scripts.
+      --
+      lit' "UTCTime.UTCTime" (\d (t :: Double) -> Time.UTCTime d (realToFrac t)),
+      lit' "UTCTime.utctDay" Time.utctDay,
+      lit' "UTCTime.utctDayTime" (realToFrac . Time.utctDayTime :: UTCTime -> Double),
+      lit' "UTCTime.addUTCTime" \(d :: Double) t -> Time.addUTCTime (realToFrac d) t,
+      lit' "UTCTime.diffUTCTime" \a b -> realToFrac (Time.diffUTCTime a b) :: Double,
+      lit' "UTCTime.getCurrentTime" Time.getCurrentTime,
+      lit' "UTCTime.iso8601Show" (Text.pack . Time.iso8601Show :: UTCTime -> Text),
+      lit' "UTCTime.iso8601ParseM" (Time.iso8601ParseM . Text.unpack :: Text -> Maybe UTCTime),
+
+      -- TimeOfDay
+      lit' "TimeOfDay.timeToTimeOfDay" (Time.timeToTimeOfDay . realToFrac :: Double -> TimeOfDay),
+      lit' "TimeOfDay.todHour" Time.todHour,
+      lit' "TimeOfDay.todMin" Time.todMin,
+      lit' "TimeOfDay.todSec" (realToFrac . Time.todSec :: TimeOfDay -> Double),
+      lit' "TimeOfDay.midnight" Time.midnight,
+      lit' "TimeOfDay.midday" Time.midday,
+      lit' "TimeOfDay.makeTimeOfDayValid"
+        \h m (s :: Double) -> Time.makeTimeOfDayValid h m (realToFrac s),
+      lit' "TimeOfDay.timeOfDayToTime" (realToFrac . Time.timeOfDayToTime :: TimeOfDay -> Double),
 
       -- Text operations
       lit' "Text.decodeUtf8" Text.decodeUtf8,
