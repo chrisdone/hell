@@ -1435,6 +1435,8 @@ supportedLits =
       lit' "Directory.renameFile" (\x y -> Dir.renameFile (Text.unpack x) (Text.unpack y)),
       lit' "Directory.copyFile" (\x y -> Dir.copyFile (Text.unpack x) (Text.unpack y)),
       lit' "Directory.removeFile" (\x -> Dir.removeFile (Text.unpack x)),
+      lit' "Directory.doesFileExist" (\x -> Dir.doesFileExist (Text.unpack x)),
+      lit' "Directory.doesDirectoryExist" (\x -> Dir.doesDirectoryExist (Text.unpack x)),
       -- Process
       lit' "Process.proc" $ \n xs -> proc (Text.unpack n) (map Text.unpack xs),
       lit' "Process.setEnv" $ Process.setEnv @() @() @() . map (bimap Text.unpack Text.unpack),
