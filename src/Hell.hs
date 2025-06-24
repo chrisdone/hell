@@ -506,7 +506,7 @@ data Binding = Singleton String | Tuple [String]
 data Forall where
   -- All can be generalized via the same mechanism
   NoClass :: (forall (a :: Type). TypeRep a -> Forall) -> Forall
-  SymbolOf :: TypeRep (s :: Type) -> (forall (a :: s). TypeRep a -> Forall) -> Forall
+  OfKind :: TypeRep (s :: Type) -> (forall (a :: s). TypeRep a -> Forall) -> Forall
   StreamTypeOf :: (forall (a :: StreamType). TypeRep a -> Forall) -> Forall
   ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
 
@@ -668,7 +668,7 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
     go (StarTypeRep rep : reps) (NoClass f) = go reps (f rep)
     go (SomeTypeRep rep : reps) (ListOf f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @List) = go reps (f rep)
-    go (SomeTypeRep rep : reps) (SymbolOf sym f)
+    go (SomeTypeRep rep : reps) (OfKind sym f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) sym = go reps (f rep)
     go (SomeTypeRep rep : reps) (StreamTypeOf f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @StreamType) = go reps (f rep)
@@ -752,7 +752,7 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
 showR :: Forall -> String
 showR = \case
   NoClass {} -> "forall a."
-  SymbolOf {} -> "forall s. s :: Symbol"
+  OfKind ty _ -> "forall s. s :: " <> prettyString ty
   StreamTypeOf {} -> "forall s. s :: StreamType"
   ListOf {} -> "forall l. l :: List"
   OrdEqShow {} -> "forall a. (Ord a, Eq a, Show a)"
@@ -1614,7 +1614,7 @@ polyLits =
                                )
                            (TH.KindedTV v TH.SpecifiedSpec (TH.ConT v_k)) | v_k == ''Symbol -> \rest ->
                              TH.appE
-                               (TH.appE (TH.conE 'SymbolOf)
+                               (TH.appE (TH.conE 'OfKind)
                                  (TH.appTypeE
                                      (TH.conE 'TypeRep)
                                      (TH.conT ''Symbol))
