@@ -673,11 +673,15 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
     go (SomeTypeRep rep : reps) (StreamTypeOf f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @StreamType) = go reps (f rep)
     go (StarTypeRep rep : reps) fa@(DictFoo crep f) =
-     if
-        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int),
-          Just Type.HRefl <- Type.eqTypeRep crep (typeRep @Show)
-          -> go reps (f rep)
-        | otherwise -> problem fa $ "type " ++ show rep ++ " not an instance of " ++ show crep
+      if | Just Type.HRefl <- Type.eqTypeRep crep (typeRep @Show) ->
+           if | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) ->
+                go reps (f rep)
+              | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Double) ->
+                go reps (f rep)
+              | otherwise ->
+                problem fa $ "type " ++ show rep ++ " not an instance of " ++ show crep
+         | otherwise ->
+           problem fa $ "no such class " ++ show crep
     go (StarTypeRep rep : reps) fa@(OrdEqShow f) =
       if
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
@@ -764,7 +768,7 @@ showR = \case
   SetOf {} -> "<record setter>"
   ModifyOf {} -> "<record modifier>"
   Final {} -> "<final>"
-  DictFoo {} -> "<dict-foo>"
+  DictFoo c _ -> "forall a. (" <> prettyString c <> " a)"
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
 -- embedded in the untyped AST.
