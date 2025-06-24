@@ -504,15 +504,20 @@ typeOf = \case
 data Binding = Singleton String | Tuple [String]
 
 data Forall where
+  -- All can be generalized via the same mechanism
   NoClass :: (forall (a :: Type). TypeRep a -> Forall) -> Forall
-  SymbolOf :: (forall (a :: Symbol). TypeRep a -> Forall) -> Forall
+  SymbolOf :: TypeRep (s :: Type) -> (forall (a :: s). TypeRep a -> Forall) -> Forall
   StreamTypeOf :: (forall (a :: StreamType). TypeRep a -> Forall) -> Forall
   ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
+
+  -- How to generalize the classes?
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
   Monoidal :: (forall m. (Monoid m) => TypeRep m -> Forall) -> Forall
   Applicable :: (forall (m :: Type -> Type). (Applicative m) => TypeRep m -> Forall) -> Forall
   Alternable :: (forall (m :: Type -> Type). (Alternative m) => TypeRep m -> Forall) -> Forall
   Monadic :: (forall (m :: Type -> Type). (Monad m) => TypeRep m -> Forall) -> Forall
+
+  -- Leave as-is?
   GetOf ::
     TypeRep (k :: Symbol) ->
     TypeRep (a :: Type) ->
@@ -661,8 +666,8 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
     go (StarTypeRep rep : reps) (NoClass f) = go reps (f rep)
     go (SomeTypeRep rep : reps) (ListOf f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @List) = go reps (f rep)
-    go (SomeTypeRep rep : reps) (SymbolOf f)
-      | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @Symbol) = go reps (f rep)
+    go (SomeTypeRep rep : reps) (SymbolOf sym f)
+      | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) sym = go reps (f rep)
     go (SomeTypeRep rep : reps) (StreamTypeOf f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @StreamType) = go reps (f rep)
     go (StarTypeRep rep : reps) fa@(OrdEqShow f) =
@@ -1592,7 +1597,11 @@ polyLits =
                                )
                            (TH.KindedTV v TH.SpecifiedSpec (TH.ConT v_k)) | v_k == ''Symbol -> \rest ->
                              TH.appE
-                               (TH.conE 'SymbolOf)
+                               (TH.appE (TH.conE 'SymbolOf)
+                                 (TH.appTypeE
+                                     (TH.conE 'TypeRep)
+                                     (TH.conT ''Symbol))
+                                 )
                                ( TH.lamE
                                    [pure $ TH.ConP 'TypeRep [TH.SigT (TH.VarT v) (TH.ConT v_k)] []]
                                    rest
