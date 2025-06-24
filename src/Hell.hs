@@ -511,6 +511,8 @@ data Forall where
   ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
 
   -- How to generalize the classes?
+  DictFoo :: forall c. TypeRep c -> (forall a. c a => TypeRep a -> Forall) -> Forall
+
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
   Monoidal :: (forall m. (Monoid m) => TypeRep m -> Forall) -> Forall
   Applicable :: (forall (m :: Type -> Type). (Applicative m) => TypeRep m -> Forall) -> Forall
@@ -670,6 +672,12 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) sym = go reps (f rep)
     go (SomeTypeRep rep : reps) (StreamTypeOf f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @StreamType) = go reps (f rep)
+    go (StarTypeRep rep : reps) fa@(DictFoo crep f) =
+     if
+        | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int),
+          Just Type.HRefl <- Type.eqTypeRep crep (typeRep @Show)
+          -> go reps (f rep)
+        | otherwise -> problem fa $ "type " ++ show rep ++ " not an instance of " ++ show crep
     go (StarTypeRep rep : reps) fa@(OrdEqShow f) =
       if
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
@@ -756,6 +764,7 @@ showR = \case
   SetOf {} -> "<record setter>"
   ModifyOf {} -> "<record modifier>"
   Final {} -> "<final>"
+  DictFoo {} -> "<dict-foo>"
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
 -- embedded in the untyped AST.
@@ -1483,7 +1492,15 @@ supportedLits =
 
 polyLits :: Map String (Forall, [TH.Uniq], IRep TH.Uniq, TH.Type)
 polyLits =
-  Map.fromList
+  Map.fromList $ let ty = $(do ty <- [t|forall a. (Show a) => a -> Text|]
+                               [|ty|])
+                 in
+                   ( ("Show.show", (DictFoo (TypeRep @Show) (\(a :: TypeRep a) ->
+                             Final (Typed (Type.Fun a (TypeRep @Text)) (Lit (Text.pack . show)))),
+                          [0],
+                          IFun (IVar 0) (ICon (SomeTypeRep (typeRep @Text))),
+                          ty)) :) $
+
     $( let -- Derive well-typed primitive forms.
            derivePrims :: Q TH.Exp -> Q TH.Exp
            derivePrims m = do
@@ -1636,220 +1653,221 @@ polyLits =
              [|
                do
                  -- Records
-                 "hell:Hell.ConsR" ConsR :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Record xs -> Record (ConsL k a xs)
-                 "Record.get" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). Tagged t (Record xs) -> a
-                 "Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
-                 "Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
-                 -- Variants
-                 "hell:Hell.LeftV" LeftV :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Variant (ConsL k a xs)
-                 "hell:Hell.RightV" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
-                 "hell:Hell.NilA" NilA :: forall r. Accessor 'NilL r
-                 "hell:Hell.ConsA" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
-                 "hell:Hell.runAccessor" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
-                 -- Tagged
-                 "hell:Hell.Tagged" Tagged :: forall (t :: Symbol) a. SSymbol t -> a -> Tagged t a
-                 -- Functor
-                 "Functor.fmap" fmap :: forall f a b. Functor f => (a -> b) -> f a -> f b
-                 -- Operators
-                 "$" (Function.$) :: forall a b. (a -> b) -> a -> b
-                 "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
+                 -- "hell:Hell.ConsR" ConsR :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Record xs -> Record (ConsL k a xs)
+                 -- "Record.get" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). Tagged t (Record xs) -> a
+                 -- "Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
+                 -- "Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
+                 -- -- Variants
+                 -- "hell:Hell.LeftV" LeftV :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Variant (ConsL k a xs)
+                 -- "hell:Hell.RightV" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
+                 -- "hell:Hell.NilA" NilA :: forall r. Accessor 'NilL r
+                 -- "hell:Hell.ConsA" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
+                 -- "hell:Hell.runAccessor" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
+                 -- -- Tagged
+                 -- "hell:Hell.Tagged" Tagged :: forall (t :: Symbol) a. SSymbol t -> a -> Tagged t a
+                 -- -- Functor
+                 -- "Functor.fmap" fmap :: forall f a b. Functor f => (a -> b) -> f a -> f b
+                 -- -- Operators
+                 -- "$" (Function.$) :: forall a b. (a -> b) -> a -> b
+                 -- "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
                  "<>" (<>) :: forall m. Semigroup m => m -> m -> m
-                 -- Monad
-                 "Monad.bind" (Prelude.>>=) :: forall m a b. (Monad m) => m a -> (a -> m b) -> m b
-                 "Monad.then" (Prelude.>>) :: forall m a b. (Monad m) => m a -> m b -> m b
-                 "Monad.return" return :: forall a m. (Monad m) => a -> m a
-                 -- Applicative operations
-                 "Applicative.pure" pure :: forall f a. Applicative f => a -> f a
-                 "<*>" (<*>) :: forall f a b. Applicative f => f (a -> b) -> f a -> f b
-                 "<$>" (<$>) :: forall f a b. Functor f => (a -> b) -> f a -> f b
-                 "<**>" (Options.<**>) :: forall f a b. Applicative f => f a -> f (a -> b) -> f b
-                 -- Alternative operations
-                 "Alternative.optional" (optional) :: forall f a. Alternative f => f a -> f (Maybe a)
-                 -- Monadic operations
-                 "Monad.mapM_" mapM_ :: forall a m. (Monad m) => (a -> m ()) -> [a] -> m ()
-                 "Monad.forM_" forM_ :: forall a m. (Monad m) => [a] -> (a -> m ()) -> m ()
-                 "Monad.mapM" mapM :: forall a b m. (Monad m) => (a -> m b) -> [a] -> m [b]
-                 "Monad.forM" forM :: forall a b m. (Monad m) => [a] -> (a -> m b) -> m [b]
-                 "Monad.sequence" sequence :: forall a m. (Monad m) => [m a] -> m [a]
-                 "Monad.when" when :: forall m. (Monad m) => Bool -> m () -> m ()
-                 -- IO
-                 "IO.mapM_" mapM_ :: forall a. (a -> IO ()) -> [a] -> IO ()
-                 "IO.forM_" forM_ :: forall a. [a] -> (a -> IO ()) -> IO ()
-                 "IO.pure" pure :: forall a. a -> IO a
-                 "IO.print" (t_putStrLn . Text.pack . Show.show) :: forall a. (Show a) => a -> IO ()
-                 "Timeout.timeout" Timeout.timeout :: forall a. Int -> IO a -> IO (Maybe a)
-                 -- Show
-                 "Show.show" (Text.pack . Show.show) :: forall a. (Show a) => a -> Text
-                 -- Eq/Ord
-                 "Eq.eq" (Eq.==) :: forall a. (Eq a) => a -> a -> Bool
-                 "Ord.lt" (Ord.<) :: forall a. (Ord a) => a -> a -> Bool
-                 "Ord.gt" (Ord.>) :: forall a. (Ord a) => a -> a -> Bool
-                 -- Tuples
-                 "Tuple.(,)" (,) :: forall a b. a -> b -> (a, b)
-                 "Tuple.(,)" (,) :: forall a b. a -> b -> (a, b)
-                 "Tuple.(,,)" (,,) :: forall a b c. a -> b -> c -> (a, b, c)
-                 "Tuple.(,,,)" (,,,) :: forall a b c d. a -> b -> c -> d -> (a, b, c, d)
-                 -- Exit
-                 "Exit.die" (Exit.die . Text.unpack) :: forall a. Text -> IO a
-                 "Exit.exitWith" Exit.exitWith :: forall a. ExitCode -> IO a
-                 "Exit.exitCode" exit_exitCode :: forall a. a -> (Int -> a) -> ExitCode -> a
-                 -- Exceptions
-                 "Error.error" (error . Text.unpack) :: forall a. Text -> a
-                 -- Bool
-                 "Bool.bool" Bool.bool :: forall a. a -> a -> Bool -> a
-                 -- Function
-                 "Function.id" Function.id :: forall a. a -> a
-                 "Function.fix" Function.fix :: forall a. (a -> a) -> a
-                 -- Set
-                 "Set.fromList" Set.fromList :: forall a. (Ord a) => [a] -> Set a
-                 "Set.insert" Set.insert :: forall a. (Ord a) => a -> Set a -> Set a
-                 "Set.member" Set.member :: forall a. (Ord a) => a -> Set a -> Bool
-                 "Set.delete" Set.delete :: forall a. (Ord a) => a -> Set a -> Set a
-                 "Set.union" Set.union :: forall a. (Ord a) => Set a -> Set a -> Set a
-                 "Set.difference" Set.difference :: forall a. (Ord a) => Set a -> Set a -> Set a
-                 "Set.intersection" Set.intersection :: forall a. (Ord a) => Set a -> Set a -> Set a
-                 "Set.toList" Set.toList :: forall a. Set a -> [a]
-                 "Set.size" Set.size :: forall a. Set a -> Int
-                 "Set.singleton" Set.singleton :: forall a. (Ord a) => a -> Set a
-                 -- These
-                 "These.This" These.This :: forall a b. a -> These a b
-                 "These.That" These.That :: forall a b. b -> These a b
-                 "These.These" These.These :: forall a b. a -> b -> These a b
-                 "These.these" These.these :: forall a b c. (a -> c) -> (b -> c) -> (a -> b -> c) -> These a b -> c
-                 -- Trees
-                 "Tree.Node" Tree.Node :: forall a. a -> [Tree a] -> Tree a
-                 "Tree.unfoldTree" Tree.unfoldTree :: forall a b. (b -> (a, [b])) -> b -> Tree a
-                 "Tree.foldTree" Tree.foldTree :: forall a b. (a -> [b] -> b) -> Tree a -> b
-                 "Tree.flatten" Tree.flatten :: forall a. Tree a -> [a]
-                 "Tree.levels" Tree.levels :: forall a. Tree a -> [[a]]
-                 "Tree.map" fmap :: forall a b. (a -> b) -> Tree a -> Tree b
-                 -- Lists
-                 "List.cons" (:) :: forall a. a -> [a] -> [a]
-                 "List.nil" [] :: forall a. [a]
-                 "List.length" List.length :: forall a. [a] -> Int
-                 "List.scanl'" List.scanl' :: forall a b. (b -> a -> b) -> b -> [a] -> [b]
-                 "List.scanr" List.scanr :: forall a b. (a -> b -> b) -> b -> [a] -> [b]
-                 "List.concat" List.concat :: forall a. [[a]] -> [a]
-                 "List.concatMap" List.concatMap :: forall a b. (a -> [b]) -> [a] -> [b]
-                 "List.drop" List.drop :: forall a. Int -> [a] -> [a]
-                 "List.take" List.take :: forall a. Int -> [a] -> [a]
-                 "List.splitAt" List.splitAt :: forall a. Int -> [a] -> ([a], [a])
-                 "List.break" List.break :: forall a. (a -> Bool) -> [a] -> ([a], [a])
-                 "List.span" List.span :: forall a. (a -> Bool) -> [a] -> ([a], [a])
-                 "List.partition" List.partition :: forall a. (a -> Bool) -> [a] -> ([a], [a])
-                 "List.takeWhile" List.takeWhile :: forall a. (a -> Bool) -> [a] -> [a]
-                 "List.dropWhile" List.dropWhile :: forall a. (a -> Bool) -> [a] -> [a]
-                 "List.dropWhileEnd" List.dropWhileEnd :: forall a. (a -> Bool) -> [a] -> [a]
-                 "List.map" List.map :: forall a b. (a -> b) -> [a] -> [b]
-                 "List.any" List.any :: forall a. (a -> Bool) -> [a] -> Bool
-                 "List.all" List.all :: forall a. (a -> Bool) -> [a] -> Bool
-                 "List.iterate'" List.iterate' :: forall a. (a -> a) -> a -> [a]
-                 "List.repeat" List.repeat :: forall a. a -> [a]
-                 "List.cycle" List.cycle :: forall a. [a] -> [a]
-                 "List.filter" List.filter :: forall a. (a -> Bool) -> [a] -> [a]
-                 "List.foldl'" List.foldl' :: forall a b. (b -> a -> b) -> b -> [a] -> b
-                 "List.foldr" List.foldr :: forall a b. (a -> b -> b) -> b -> [a] -> b
-                 "List.unfoldr" List.unfoldr :: forall a b. (b -> Maybe (a, b)) -> b -> [a]
-                 "List.zip" List.zip :: forall a b. [a] -> [b] -> [(a, b)]
-                 "List.mapAccumL" List.mapAccumL :: forall s a b. (s -> a -> (s, b)) -> s -> [a] -> (s, [b])
-                 "List.mapAccumR" List.mapAccumL :: forall s a b. (s -> a -> (s, b)) -> s -> [a] -> (s, [b])
-                 "List.zipWith" List.zipWith :: forall a b c. (a -> b -> c) -> [a] -> [b] -> [c]
-                 "List.lookup" List.lookup :: forall a b. (Eq a) => a -> [(a, b)] -> Maybe b
-                 "List.find" List.find :: forall a. (a -> Bool) -> [a] -> Maybe a
-                 "List.sort" List.sort :: forall a. (Ord a) => [a] -> [a]
-                 "List.group" List.group :: forall a. (Eq a) => [a] -> [[a]]
-                 "List.isPrefixOf" List.isPrefixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
-                 "List.isSuffixOf" List.isSuffixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
-                 "List.isInfixOf" List.isInfixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
-                 "List.isSubsequenceOf" List.isSubsequenceOf :: forall a. (Eq a) => [a] -> [a] -> Bool
-                 "List.groupBy" List.groupBy :: forall a. (a -> a -> Bool) -> [a] -> [[a]]
-                 "List.reverse" List.reverse :: forall a. [a] -> [a]
-                 "List.nubOrd" nubOrd :: forall a. (Ord a) => [a] -> [a]
-                 "List.inits" List.inits :: forall a. [a] -> [[a]]
-                 "List.tails" List.tails :: forall a. [a] -> [[a]]
-                 "List.deleteBy" List.deleteBy :: forall a. (a -> a -> Bool) -> a -> [a] -> [a]
-                 "List.elem" List.elem :: forall a. (Eq a) => a -> [a] -> Bool
-                 "List.notElem" List.notElem :: forall a. (Eq a) => a -> [a] -> Bool
-                 "List.sortOn" List.sortOn :: forall a b. (Ord b) => (a -> b) -> [a] -> [a]
-                 "List.null" List.null :: forall a. [a] -> Bool
-                 "List.elemIndex" List.elemIndex :: forall a. (Eq a) => a -> [a] -> Maybe Int
-                 "List.elemIndices" List.elemIndices :: forall a. (Eq a) => a -> [a] -> [Int]
-                 "List.findIndex" List.findIndex :: forall a. (a -> Bool) -> [a] -> Maybe Int
-                 "List.findIndices" List.findIndices :: forall a. (a -> Bool) -> [a] -> [Int]
-                 "List.uncons" List.uncons :: forall a. [a] -> Maybe (a, [a])
-                 "List.intersperse" List.intersperse :: forall a. a -> [a] -> [a]
-                 "List.intercalate" List.intercalate :: forall a. [a] -> [[a]] -> [a]
-                 "List.transpose" List.transpose :: forall a. [[a]] -> [[a]]
-                 "List.subsequences" List.subsequences :: forall a. [a] -> [[a]]
-                 "List.permutations" List.permutations :: forall a. [a] -> [[a]]
-                 -- Vector
-                 "Vector.fromList" Vector.fromList :: forall a. [a] -> Vector a
-                 "Vector.toList" Vector.toList :: forall a. Vector a -> [a]
-                 -- Map
-                 "Map.fromList" Map.fromList :: forall k a. (Ord k) => [(k, a)] -> Map k a
-                 "Map.lookup" Map.lookup :: forall k a. (Ord k) => k -> Map k a -> Maybe a
-                 "Map.insert" Map.insert :: forall k a. (Ord k) => k -> a -> Map k a -> Map k a
-                 "Map.delete" Map.delete :: forall k a. (Ord k) => k -> Map k a -> Map k a
-                 "Map.singleton" Map.singleton :: forall k a. (Ord k) => k -> a -> Map k a
-                 "Map.size" Map.size :: forall k a. Map k a -> Int
-                 "Map.filter" Map.filter :: forall k a. (a -> Bool) -> Map k a -> Map k a
-                 "Map.filterWithKey" Map.filterWithKey :: forall k a. (k -> a -> Bool) -> Map k a -> Map k a
-                 "Map.any" any :: forall k a. (a -> Bool) -> Map k a -> Bool
-                 "Map.all" all :: forall k a. (a -> Bool) -> Map k a -> Bool
-                 "Map.insertWith" Map.insertWith :: forall k a. (Ord k) => (a -> a -> a) -> k -> a -> Map k a -> Map k a
-                 "Map.adjust" Map.adjust :: forall k a. (Ord k) => (a -> a) -> k -> Map k a -> Map k a
-                 "Map.unionWith" Map.unionWith :: forall k a. (Ord k) => (a -> a -> a) -> Map k a -> Map k a -> Map k a
-                 "Map.map" Map.map :: forall a b k. (a -> b) -> Map k a -> Map k b
-                 "Map.toList" Map.toList :: forall k a. Map k a -> [(k, a)]
-                 "Map.keys" Map.keys :: forall k a. Map k a -> [k]
-                 "Map.elems" Map.elems :: forall k a. Map k a -> [a]
-                 -- Maybe
-                 "Maybe.maybe" Maybe.maybe :: forall a b. b -> (a -> b) -> Maybe a -> b
-                 "Maybe.Nothing" Maybe.Nothing :: forall a. Maybe a
-                 "Maybe.Just" Maybe.Just :: forall a. a -> Maybe a
-                 "Maybe.listToMaybe" Maybe.listToMaybe :: forall a. [a] -> Maybe a
-                 "Maybe.mapMaybe" Maybe.mapMaybe :: forall a b. (a -> Maybe b) -> [a] -> [b]
-                 -- Either
-                 "Either.either" Either.either :: forall a b x. (a -> x) -> (b -> x) -> Either a b -> x
-                 "Either.Left" Either.Left :: forall a b. a -> Either a b
-                 "Either.Right" Either.Right :: forall a b. b -> Either a b
-                 -- Async
-                 "Async.concurrently" Async.concurrently :: forall a b. IO a -> IO b -> IO (a, b)
-                 "Async.race" Async.race :: forall a b. IO a -> IO b -> IO (Either a b)
-                 "Async.pooledMapConcurrently_" Async.pooledMapConcurrently_ :: forall a. (a -> IO ()) -> [a] -> IO ()
-                 "Async.pooledForConcurrently_" Async.pooledForConcurrently_ :: forall a. [a] -> (a -> IO ()) -> IO ()
-                 "Async.pooledMapConcurrently" Async.pooledMapConcurrently :: forall a b. (a -> IO b) -> [a] -> IO [b]
-                 "Async.pooledForConcurrently" Async.pooledForConcurrently :: forall a b. [a] -> (a -> IO b) -> IO [b]
-                 -- JSON
-                 "Json.value" json_value :: forall a. a -> (Bool -> a) -> (Text -> a) -> (Double -> a) -> (Vector Value -> a) -> (Map Text Value -> a) -> Value -> a
-                 -- Temp
-                 "Temp.withSystemTempFile" temp_withSystemTempFile :: forall a. Text -> (Text -> IO.Handle -> IO a) -> IO a
-                 "Temp.withSystemTempDirectory" temp_withSystemTempDirectory :: forall a. Text -> (Text -> IO a) -> IO a
-                 -- Process
-                 "Process.runProcess" runProcess :: forall a b c. ProcessConfig a b c -> IO ExitCode
-                 "Process.runProcess_" runProcess_ :: forall a b c. ProcessConfig a b c -> IO ()
-                 "Process.setStdin" setStdin :: forall stdin stdin' stdout stderr. StreamSpec 'STInput stdin' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin' stdout stderr
-                 "Process.setStdout" setStdout :: forall stdin stdout stdout' stderr. StreamSpec 'STOutput stdout' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout' stderr
-                 "Process.setStderr" setStderr :: forall stdin stdout stderr stderr'. StreamSpec 'STOutput stderr' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout stderr'
-                 "Process.nullStream" Process.nullStream :: forall (a :: StreamType). StreamSpec a ()
-                 "Process.useHandleClose" useHandleClose :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
-                 "Process.useHandleOpen" useHandleOpen :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
-                 "Process.setWorkingDir" process_setWorkingDir :: forall a b c. Text -> ProcessConfig a b c -> ProcessConfig a b c
-                 -- Options
-                 "Options.execParser" Options.execParser :: forall a. Options.ParserInfo a -> IO a
-                 "Options.info" Options.info :: forall a. Options.Parser a -> Options.InfoMod a -> Options.ParserInfo a
-                 "Options.helper" Options.helper :: forall a. Options.Parser (a -> a)
-                 "Options.fullDesc" Options.fullDesc :: forall a. Options.InfoMod a
-                 "Options.flag" Options.flag :: forall a. a -> a -> Options.Mod Options.FlagFields a -> Parser a
-                 "Options.flag'" Options.flag' :: forall a. a -> Options.Mod Options.FlagFields a -> Parser a
-                 "Option.long" option_long :: forall a. Text -> Options.Mod Options.OptionFields a
-                 "Option.help" options_help :: forall a. Text -> Options.Mod Options.OptionFields a
-                 "Flag.help" options_help :: forall a. Text -> Options.Mod Options.FlagFields a
-                 "Flag.long" flag_long :: forall a. Text -> Options.Mod Options.FlagFields a
-                 "Option.value" option_value :: forall a. a -> Options.Mod Options.OptionFields a
-                 "Argument.value" argument_value :: forall a. a -> Options.Mod Options.ArgumentFields a
-                 "Argument.metavar" argument_metavar :: forall a. Text -> Options.Mod Options.ArgumentFields a
-                 "Argument.help" options_help :: forall a. Text -> Options.Mod Options.ArgumentFields a
+                 -- -- Monad
+                 -- "Monad.bind" (Prelude.>>=) :: forall m a b. (Monad m) => m a -> (a -> m b) -> m b
+                 -- "Monad.then" (Prelude.>>) :: forall m a b. (Monad m) => m a -> m b -> m b
+                 -- "Monad.return" return :: forall a m. (Monad m) => a -> m a
+                 -- -- Applicative operations
+                 -- "Applicative.pure" pure :: forall f a. Applicative f => a -> f a
+                 -- "<*>" (<*>) :: forall f a b. Applicative f => f (a -> b) -> f a -> f b
+                 -- "<$>" (<$>) :: forall f a b. Functor f => (a -> b) -> f a -> f b
+                 -- "<**>" (Options.<**>) :: forall f a b. Applicative f => f a -> f (a -> b) -> f b
+                 -- -- Alternative operations
+                 -- "Alternative.optional" (optional) :: forall f a. Alternative f => f a -> f (Maybe a)
+                 -- -- Monadic operations
+                 -- "Monad.mapM_" mapM_ :: forall a m. (Monad m) => (a -> m ()) -> [a] -> m ()
+                 -- "Monad.forM_" forM_ :: forall a m. (Monad m) => [a] -> (a -> m ()) -> m ()
+                 -- "Monad.mapM" mapM :: forall a b m. (Monad m) => (a -> m b) -> [a] -> m [b]
+                 -- "Monad.forM" forM :: forall a b m. (Monad m) => [a] -> (a -> m b) -> m [b]
+                 -- "Monad.sequence" sequence :: forall a m. (Monad m) => [m a] -> m [a]
+                 -- "Monad.when" when :: forall m. (Monad m) => Bool -> m () -> m ()
+                 -- -- IO
+                 -- "IO.mapM_" mapM_ :: forall a. (a -> IO ()) -> [a] -> IO ()
+                 -- "IO.forM_" forM_ :: forall a. [a] -> (a -> IO ()) -> IO ()
+                 -- "IO.pure" pure :: forall a. a -> IO a
+                 -- "IO.print" (t_putStrLn . Text.pack . Show.show) :: forall a. (Show a) => a -> IO ()
+                 -- "Timeout.timeout" Timeout.timeout :: forall a. Int -> IO a -> IO (Maybe a)
+                 -- -- Show
+                 -- "Show.show" (Text.pack . Show.show) :: forall a. (Show a) => a -> Text
+                 -- -- Eq/Ord
+                 -- "Eq.eq" (Eq.==) :: forall a. (Eq a) => a -> a -> Bool
+                 -- "Ord.lt" (Ord.<) :: forall a. (Ord a) => a -> a -> Bool
+                 -- "Ord.gt" (Ord.>) :: forall a. (Ord a) => a -> a -> Bool
+                 -- -- Tuples
+                 -- "Tuple.(,)" (,) :: forall a b. a -> b -> (a, b)
+                 -- "Tuple.(,)" (,) :: forall a b. a -> b -> (a, b)
+                 -- "Tuple.(,,)" (,,) :: forall a b c. a -> b -> c -> (a, b, c)
+                 -- "Tuple.(,,,)" (,,,) :: forall a b c d. a -> b -> c -> d -> (a, b, c, d)
+                 -- -- Exit
+                 -- "Exit.die" (Exit.die . Text.unpack) :: forall a. Text -> IO a
+                 -- "Exit.exitWith" Exit.exitWith :: forall a. ExitCode -> IO a
+                 -- "Exit.exitCode" exit_exitCode :: forall a. a -> (Int -> a) -> ExitCode -> a
+                 -- -- Exceptions
+                 -- "Error.error" (error . Text.unpack) :: forall a. Text -> a
+                 -- -- Bool
+                 -- "Bool.bool" Bool.bool :: forall a. a -> a -> Bool -> a
+                 -- -- Function
+                 -- "Function.id" Function.id :: forall a. a -> a
+                 -- "Function.fix" Function.fix :: forall a. (a -> a) -> a
+                 -- -- Set
+                 -- "Set.fromList" Set.fromList :: forall a. (Ord a) => [a] -> Set a
+                 -- "Set.insert" Set.insert :: forall a. (Ord a) => a -> Set a -> Set a
+                 -- "Set.member" Set.member :: forall a. (Ord a) => a -> Set a -> Bool
+                 -- "Set.delete" Set.delete :: forall a. (Ord a) => a -> Set a -> Set a
+                 -- "Set.union" Set.union :: forall a. (Ord a) => Set a -> Set a -> Set a
+                 -- "Set.difference" Set.difference :: forall a. (Ord a) => Set a -> Set a -> Set a
+                 -- "Set.intersection" Set.intersection :: forall a. (Ord a) => Set a -> Set a -> Set a
+                 -- "Set.toList" Set.toList :: forall a. Set a -> [a]
+                 -- "Set.size" Set.size :: forall a. Set a -> Int
+                 -- "Set.singleton" Set.singleton :: forall a. (Ord a) => a -> Set a
+                 -- -- These
+                 -- "These.This" These.This :: forall a b. a -> These a b
+                 -- "These.That" These.That :: forall a b. b -> These a b
+                 -- "These.These" These.These :: forall a b. a -> b -> These a b
+                 -- "These.these" These.these :: forall a b c. (a -> c) -> (b -> c) -> (a -> b -> c) -> These a b -> c
+                 -- -- Trees
+                 -- "Tree.Node" Tree.Node :: forall a. a -> [Tree a] -> Tree a
+                 -- "Tree.unfoldTree" Tree.unfoldTree :: forall a b. (b -> (a, [b])) -> b -> Tree a
+                 -- "Tree.foldTree" Tree.foldTree :: forall a b. (a -> [b] -> b) -> Tree a -> b
+                 -- "Tree.flatten" Tree.flatten :: forall a. Tree a -> [a]
+                 -- "Tree.levels" Tree.levels :: forall a. Tree a -> [[a]]
+                 -- "Tree.map" fmap :: forall a b. (a -> b) -> Tree a -> Tree b
+                 -- -- Lists
+                 -- "List.cons" (:) :: forall a. a -> [a] -> [a]
+                 -- "List.nil" [] :: forall a. [a]
+                 -- "List.length" List.length :: forall a. [a] -> Int
+                 -- "List.scanl'" List.scanl' :: forall a b. (b -> a -> b) -> b -> [a] -> [b]
+                 -- "List.scanr" List.scanr :: forall a b. (a -> b -> b) -> b -> [a] -> [b]
+                 -- "List.concat" List.concat :: forall a. [[a]] -> [a]
+                 -- "List.concatMap" List.concatMap :: forall a b. (a -> [b]) -> [a] -> [b]
+                 -- "List.drop" List.drop :: forall a. Int -> [a] -> [a]
+                 -- "List.take" List.take :: forall a. Int -> [a] -> [a]
+                 -- "List.splitAt" List.splitAt :: forall a. Int -> [a] -> ([a], [a])
+                 -- "List.break" List.break :: forall a. (a -> Bool) -> [a] -> ([a], [a])
+                 -- "List.span" List.span :: forall a. (a -> Bool) -> [a] -> ([a], [a])
+                 -- "List.partition" List.partition :: forall a. (a -> Bool) -> [a] -> ([a], [a])
+                 -- "List.takeWhile" List.takeWhile :: forall a. (a -> Bool) -> [a] -> [a]
+                 -- "List.dropWhile" List.dropWhile :: forall a. (a -> Bool) -> [a] -> [a]
+                 -- "List.dropWhileEnd" List.dropWhileEnd :: forall a. (a -> Bool) -> [a] -> [a]
+                 -- "List.map" List.map :: forall a b. (a -> b) -> [a] -> [b]
+                 -- "List.any" List.any :: forall a. (a -> Bool) -> [a] -> Bool
+                 -- "List.all" List.all :: forall a. (a -> Bool) -> [a] -> Bool
+                 -- "List.iterate'" List.iterate' :: forall a. (a -> a) -> a -> [a]
+                 -- "List.repeat" List.repeat :: forall a. a -> [a]
+                 -- "List.cycle" List.cycle :: forall a. [a] -> [a]
+                 -- "List.filter" List.filter :: forall a. (a -> Bool) -> [a] -> [a]
+                 -- "List.foldl'" List.foldl' :: forall a b. (b -> a -> b) -> b -> [a] -> b
+                 -- "List.foldr" List.foldr :: forall a b. (a -> b -> b) -> b -> [a] -> b
+                 -- "List.unfoldr" List.unfoldr :: forall a b. (b -> Maybe (a, b)) -> b -> [a]
+                 -- "List.zip" List.zip :: forall a b. [a] -> [b] -> [(a, b)]
+                 -- "List.mapAccumL" List.mapAccumL :: forall s a b. (s -> a -> (s, b)) -> s -> [a] -> (s, [b])
+                 -- "List.mapAccumR" List.mapAccumL :: forall s a b. (s -> a -> (s, b)) -> s -> [a] -> (s, [b])
+                 -- "List.zipWith" List.zipWith :: forall a b c. (a -> b -> c) -> [a] -> [b] -> [c]
+                 -- "List.lookup" List.lookup :: forall a b. (Eq a) => a -> [(a, b)] -> Maybe b
+                 -- "List.find" List.find :: forall a. (a -> Bool) -> [a] -> Maybe a
+                 -- "List.sort" List.sort :: forall a. (Ord a) => [a] -> [a]
+                 -- "List.group" List.group :: forall a. (Eq a) => [a] -> [[a]]
+                 -- "List.isPrefixOf" List.isPrefixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
+                 -- "List.isSuffixOf" List.isSuffixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
+                 -- "List.isInfixOf" List.isInfixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
+                 -- "List.isSubsequenceOf" List.isSubsequenceOf :: forall a. (Eq a) => [a] -> [a] -> Bool
+                 -- "List.groupBy" List.groupBy :: forall a. (a -> a -> Bool) -> [a] -> [[a]]
+                 -- "List.reverse" List.reverse :: forall a. [a] -> [a]
+                 -- "List.nubOrd" nubOrd :: forall a. (Ord a) => [a] -> [a]
+                 -- "List.inits" List.inits :: forall a. [a] -> [[a]]
+                 -- "List.tails" List.tails :: forall a. [a] -> [[a]]
+                 -- "List.deleteBy" List.deleteBy :: forall a. (a -> a -> Bool) -> a -> [a] -> [a]
+                 -- "List.elem" List.elem :: forall a. (Eq a) => a -> [a] -> Bool
+                 -- "List.notElem" List.notElem :: forall a. (Eq a) => a -> [a] -> Bool
+                 -- "List.sortOn" List.sortOn :: forall a b. (Ord b) => (a -> b) -> [a] -> [a]
+                 -- "List.null" List.null :: forall a. [a] -> Bool
+                 -- "List.elemIndex" List.elemIndex :: forall a. (Eq a) => a -> [a] -> Maybe Int
+                 -- "List.elemIndices" List.elemIndices :: forall a. (Eq a) => a -> [a] -> [Int]
+                 -- "List.findIndex" List.findIndex :: forall a. (a -> Bool) -> [a] -> Maybe Int
+                 -- "List.findIndices" List.findIndices :: forall a. (a -> Bool) -> [a] -> [Int]
+                 -- "List.uncons" List.uncons :: forall a. [a] -> Maybe (a, [a])
+                 -- "List.intersperse" List.intersperse :: forall a. a -> [a] -> [a]
+                 -- "List.intercalate" List.intercalate :: forall a. [a] -> [[a]] -> [a]
+                 -- "List.transpose" List.transpose :: forall a. [[a]] -> [[a]]
+                 -- "List.subsequences" List.subsequences :: forall a. [a] -> [[a]]
+                 -- "List.permutations" List.permutations :: forall a. [a] -> [[a]]
+                 -- -- Vector
+                 -- "Vector.fromList" Vector.fromList :: forall a. [a] -> Vector a
+                 -- "Vector.toList" Vector.toList :: forall a. Vector a -> [a]
+                 -- -- Map
+                 -- "Map.fromList" Map.fromList :: forall k a. (Ord k) => [(k, a)] -> Map k a
+                 -- "Map.lookup" Map.lookup :: forall k a. (Ord k) => k -> Map k a -> Maybe a
+                 -- "Map.insert" Map.insert :: forall k a. (Ord k) => k -> a -> Map k a -> Map k a
+                 -- "Map.delete" Map.delete :: forall k a. (Ord k) => k -> Map k a -> Map k a
+                 -- "Map.singleton" Map.singleton :: forall k a. (Ord k) => k -> a -> Map k a
+                 -- "Map.size" Map.size :: forall k a. Map k a -> Int
+                 -- "Map.filter" Map.filter :: forall k a. (a -> Bool) -> Map k a -> Map k a
+                 -- "Map.filterWithKey" Map.filterWithKey :: forall k a. (k -> a -> Bool) -> Map k a -> Map k a
+                 -- "Map.any" any :: forall k a. (a -> Bool) -> Map k a -> Bool
+                 -- "Map.all" all :: forall k a. (a -> Bool) -> Map k a -> Bool
+                 -- "Map.insertWith" Map.insertWith :: forall k a. (Ord k) => (a -> a -> a) -> k -> a -> Map k a -> Map k a
+                 -- "Map.adjust" Map.adjust :: forall k a. (Ord k) => (a -> a) -> k -> Map k a -> Map k a
+                 -- "Map.unionWith" Map.unionWith :: forall k a. (Ord k) => (a -> a -> a) -> Map k a -> Map k a -> Map k a
+                 -- "Map.map" Map.map :: forall a b k. (a -> b) -> Map k a -> Map k b
+                 -- "Map.toList" Map.toList :: forall k a. Map k a -> [(k, a)]
+                 -- "Map.keys" Map.keys :: forall k a. Map k a -> [k]
+                 -- "Map.elems" Map.elems :: forall k a. Map k a -> [a]
+                 -- -- Maybe
+                 -- "Maybe.maybe" Maybe.maybe :: forall a b. b -> (a -> b) -> Maybe a -> b
+                 -- "Maybe.Nothing" Maybe.Nothing :: forall a. Maybe a
+                 -- "Maybe.Just" Maybe.Just :: forall a. a -> Maybe a
+                 -- "Maybe.listToMaybe" Maybe.listToMaybe :: forall a. [a] -> Maybe a
+                 -- "Maybe.mapMaybe" Maybe.mapMaybe :: forall a b. (a -> Maybe b) -> [a] -> [b]
+                 -- -- Either
+                 -- "Either.either" Either.either :: forall a b x. (a -> x) -> (b -> x) -> Either a b -> x
+                 -- "Either.Left" Either.Left :: forall a b. a -> Either a b
+                 -- "Either.Right" Either.Right :: forall a b. b -> Either a b
+                 -- -- Async
+                 -- "Async.concurrently" Async.concurrently :: forall a b. IO a -> IO b -> IO (a, b)
+                 -- "Async.race" Async.race :: forall a b. IO a -> IO b -> IO (Either a b)
+                 -- "Async.pooledMapConcurrently_" Async.pooledMapConcurrently_ :: forall a. (a -> IO ()) -> [a] -> IO ()
+                 -- "Async.pooledForConcurrently_" Async.pooledForConcurrently_ :: forall a. [a] -> (a -> IO ()) -> IO ()
+                 -- "Async.pooledMapConcurrently" Async.pooledMapConcurrently :: forall a b. (a -> IO b) -> [a] -> IO [b]
+                 -- "Async.pooledForConcurrently" Async.pooledForConcurrently :: forall a b. [a] -> (a -> IO b) -> IO [b]
+                 -- -- JSON
+                 -- "Json.value" json_value :: forall a. a -> (Bool -> a) -> (Text -> a) -> (Double -> a) -> (Vector Value -> a) -> (Map Text Value -> a) -> Value -> a
+                 -- -- Temp
+                 -- "Temp.withSystemTempFile" temp_withSystemTempFile :: forall a. Text -> (Text -> IO.Handle -> IO a) -> IO a
+                 -- "Temp.withSystemTempDirectory" temp_withSystemTempDirectory :: forall a. Text -> (Text -> IO a) -> IO a
+                 -- -- Process
+                 -- "Process.runProcess" runProcess :: forall a b c. ProcessConfig a b c -> IO ExitCode
+                 -- "Process.runProcess_" runProcess_ :: forall a b c. ProcessConfig a b c -> IO ()
+                 -- "Process.setStdin" setStdin :: forall stdin stdin' stdout stderr. StreamSpec 'STInput stdin' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin' stdout stderr
+                 -- "Process.setStdout" setStdout :: forall stdin stdout stdout' stderr. StreamSpec 'STOutput stdout' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout' stderr
+                 -- "Process.setStderr" setStderr :: forall stdin stdout stderr stderr'. StreamSpec 'STOutput stderr' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout stderr'
+                 -- "Process.nullStream" Process.nullStream :: forall (a :: StreamType). StreamSpec a ()
+                 -- "Process.useHandleClose" useHandleClose :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
+                 -- "Process.useHandleOpen" useHandleOpen :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
+                 -- "Process.setWorkingDir" process_setWorkingDir :: forall a b c. Text -> ProcessConfig a b c -> ProcessConfig a b c
+                 -- -- Options
+                 -- "Options.execParser" Options.execParser :: forall a. Options.ParserInfo a -> IO a
+                 -- "Options.info" Options.info :: forall a. Options.Parser a -> Options.InfoMod a -> Options.ParserInfo a
+                 -- "Options.helper" Options.helper :: forall a. Options.Parser (a -> a)
+                 -- "Options.fullDesc" Options.fullDesc :: forall a. Options.InfoMod a
+                 -- "Options.flag" Options.flag :: forall a. a -> a -> Options.Mod Options.FlagFields a -> Parser a
+                 -- "Options.flag'" Options.flag' :: forall a. a -> Options.Mod Options.FlagFields a -> Parser a
+                 -- "Option.long" option_long :: forall a. Text -> Options.Mod Options.OptionFields a
+                 -- "Option.help" options_help :: forall a. Text -> Options.Mod Options.OptionFields a
+                 -- "Flag.help" options_help :: forall a. Text -> Options.Mod Options.FlagFields a
+                 -- "Flag.long" flag_long :: forall a. Text -> Options.Mod Options.FlagFields a
+                 -- "Option.value" option_value :: forall a. a -> Options.Mod Options.OptionFields a
+                 -- "Argument.value" argument_value :: forall a. a -> Options.Mod Options.ArgumentFields a
+                 -- "Argument.metavar" argument_metavar :: forall a. Text -> Options.Mod Options.ArgumentFields a
+                 -- "Argument.help" options_help :: forall a. Text -> Options.Mod Options.ArgumentFields a
+
                |]
      )
 
