@@ -46,6 +46,8 @@ module Main (main) where
 -- guest language as such.
 
 #if __GLASGOW_HASKELL__ >= 906
+import Data.Dynamic
+import Data.Constraint
 import Control.Monad
 #endif
 import qualified Data.Time.Format.ISO8601 as Time
@@ -511,7 +513,7 @@ data Forall where
   ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
 
   -- How to generalize the classes?
-  DictFoo :: forall c. TypeRep c -> (forall a. c a => TypeRep a -> Forall) -> Forall
+  DictFoo :: forall (c :: Type -> Constraint). TypeRep c -> (forall a. c a => TypeRep a -> Forall) -> Forall
 
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
   Monoidal :: (forall m. (Monoid m) => TypeRep m -> Forall) -> Forall
@@ -673,15 +675,11 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
     go (SomeTypeRep rep : reps) (StreamTypeOf f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @StreamType) = go reps (f rep)
     go (StarTypeRep rep : reps) fa@(DictFoo crep f) =
-      if | Just Type.HRefl <- Type.eqTypeRep crep (typeRep @Show) ->
-           if | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) ->
-                go reps (f rep)
-              | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Double) ->
-                go reps (f rep)
-              | otherwise ->
-                problem fa $ "type " ++ show rep ++ " not an instance of " ++ show crep
-         | otherwise ->
-           problem fa $ "no such class " ++ show crep
+      case resolve crep rep instances of
+        Just dict ->
+          withDict dict (go reps (f rep))
+        Nothing ->
+          problem fa $ "type " ++ show rep ++ " not an instance of " ++ show crep
     go (StarTypeRep rep : reps) fa@(OrdEqShow f) =
       if
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
@@ -752,6 +750,29 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
 
     problem :: Forall -> String -> Either TypeCheckError a
     problem fa = Left . ConstraintResolutionProblem forallLoc fa
+
+--------------------------------------------------------------------------------
+-- Instances
+
+newtype Instances = Instances (Map (SomeTypeRep, SomeTypeRep) Dynamic)
+
+instances :: Instances
+instances = Instances $ Map.fromList [
+   instance' @Show @Int,
+   instance' @Show @Text
+  ]
+  where instance' :: forall cls a. (cls a, Typeable cls, Typeable a) =>
+         ((SomeTypeRep, SomeTypeRep), Dynamic)
+        instance' = ((SomeTypeRep $ typeRep @cls, SomeTypeRep $ typeRep @a),
+                     toDyn $ Dict @(cls a))
+
+resolve :: TypeRep c -> TypeRep a -> Instances -> Maybe (Dict (c a))
+resolve cls a (Instances instances) = do
+  Dynamic rep dict <- Map.lookup (SomeTypeRep cls, SomeTypeRep a) instances
+  Type.HRefl <- Type.eqTypeRep rep (Type.App (TypeRep @Dict) (Type.App cls a))
+  pure dict
+
+--------------------------------------------------------------------------------
 
 showR :: Forall -> String
 showR = \case
