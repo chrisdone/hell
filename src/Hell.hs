@@ -514,7 +514,7 @@ data Forall where
   ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
 
   -- All can be generalized via the same mechanism
-  DictFoo :: forall (c :: Type -> Constraint). TypeRep c -> (forall a. c a => TypeRep a -> Forall) -> Forall
+  DictFoo :: forall k (c :: k -> Constraint). TypeRep c -> (forall (a :: k). c a => TypeRep a -> Forall) -> Forall
 
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
   Monoidal :: (forall m. (Monoid m) => TypeRep m -> Forall) -> Forall
@@ -675,12 +675,17 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) sym = go reps (f rep)
     go (SomeTypeRep rep : reps) (StreamTypeOf f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @StreamType) = go reps (f rep)
-    go (StarTypeRep rep : reps) fa@(DictFoo crep f) =
-      case resolve crep rep instances of
-        Just Dict ->
-          go reps (f rep)
-        Nothing ->
-          problem fa $ "type " ++ show rep ++ " not an instance of " ++ show crep
+    go (SomeTypeRep rep : reps) fa@(DictFoo crep f) =
+      case typeRepKind crep of
+       Type.Fun x y |
+         Just Type.HRefl <- Type.eqTypeRep x (typeRepKind rep),
+         Just Type.HRefl <- Type.eqTypeRep y (TypeRep @Constraint) ->
+          case resolve crep rep instances of
+            Just Dict ->
+              go reps (f rep)
+            Nothing ->
+              problem fa $ "type " ++ show rep ++ " not an instance of " ++ show crep
+       _ -> problem fa $ "malformed constraint: " ++ show crep
     go (StarTypeRep rep : reps) fa@(OrdEqShow f) =
       if
           | Just Type.HRefl <- Type.eqTypeRep rep (typeRep @Int) -> go reps (f rep)
@@ -760,7 +765,9 @@ newtype Instances = Instances (Map (SomeTypeRep, SomeTypeRep) Dynamic)
 instances :: Instances
 instances = Instances $ Map.fromList [
    instance' @Show @Int,
-   instance' @Show @Text
+   instance' @Show @Double,
+   instance' @Show @Text,
+   instance' @Monad @IO
   ]
 
 instance' :: forall cls a. (cls a, Typeable cls, Typeable a) =>
@@ -768,7 +775,7 @@ instance' :: forall cls a. (cls a, Typeable cls, Typeable a) =>
 instance' = ((SomeTypeRep $ typeRep @cls, SomeTypeRep $ typeRep @a),
              toDyn $ Dict @(cls a))
 
-resolve :: TypeRep c -> TypeRep a -> Instances -> Maybe (Dict (c a))
+resolve :: TypeRep c -> TypeRep (a :: k) -> Instances -> Maybe (Dict (c a))
 resolve c a (Instances m) = do
   Dynamic rep dict <- Map.lookup (SomeTypeRep c, SomeTypeRep a) m
   Type.HRefl <- Type.eqTypeRep rep (Type.App (TypeRep @Dict) (Type.App c a))
@@ -1519,7 +1526,15 @@ supportedLits =
 
 polyLits :: Map String (Forall, [TH.Uniq], IRep TH.Uniq, TH.Type)
 polyLits =
-  Map.fromList $ let ty = $(do ty0 <- [t|forall a. (Show a) => a -> Text|]
+  Map.fromList $ let ty = $(do ty0 <- [t|forall m. (Monad m) => m ()|]
+                               [|ty0|])
+                 in
+                   ( ("Monad.pass", (DictFoo (TypeRep @Monad) (\(m :: TypeRep m) ->
+                             Final (Typed (Type.App m (TypeRep @())) (Lit (return ())))),
+                          [0],
+                          IApp (IVar 0) (ICon (SomeTypeRep (typeRep @()))),
+                          ty)) :) $
+                 let ty = $(do ty0 <- [t|forall a. (Show a) => a -> Text|]
                                [|ty0|])
                  in
                    ( ("Show.show", (DictFoo (TypeRep @Show) (\(a :: TypeRep a) ->
@@ -1723,7 +1738,7 @@ polyLits =
                  "IO.print" (t_putStrLn . Text.pack . Show.show) :: forall a. (Show a) => a -> IO ()
                  "Timeout.timeout" Timeout.timeout :: forall a. Int -> IO a -> IO (Maybe a)
                  -- Show
-                 "Show.show" (Text.pack . Show.show) :: forall a. (Show a) => a -> Text
+                 -- "Show.show" (Text.pack . Show.show) :: forall a. (Show a) => a -> Text
                  -- Eq/Ord
                  "Eq.eq" (Eq.==) :: forall a. (Eq a) => a -> a -> Bool
                  "Ord.lt" (Ord.<) :: forall a. (Ord a) => a -> a -> Bool
