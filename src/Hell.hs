@@ -676,8 +676,8 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @StreamType) = go reps (f rep)
     go (StarTypeRep rep : reps) fa@(DictFoo crep f) =
       case resolve crep rep instances of
-        Just dict ->
-          withDict dict (go reps (f rep))
+        Just Dict ->
+          go reps (f rep)
         Nothing ->
           problem fa $ "type " ++ show rep ++ " not an instance of " ++ show crep
     go (StarTypeRep rep : reps) fa@(OrdEqShow f) =
