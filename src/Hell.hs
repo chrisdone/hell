@@ -507,12 +507,13 @@ data Binding = Singleton String | Tuple [String]
 
 data Forall where
   -- All can be generalized via the same mechanism
-  NoClass :: (forall (a :: Type). TypeRep a -> Forall) -> Forall
   OfKind :: TypeRep (s :: Type) -> (forall (a :: s). TypeRep a -> Forall) -> Forall
+
+  NoClass :: (forall (a :: Type). TypeRep a -> Forall) -> Forall
   StreamTypeOf :: (forall (a :: StreamType). TypeRep a -> Forall) -> Forall
   ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
 
-  -- How to generalize the classes?
+  -- All can be generalized via the same mechanism
   DictFoo :: forall (c :: Type -> Constraint). TypeRep c -> (forall a. c a => TypeRep a -> Forall) -> Forall
 
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
