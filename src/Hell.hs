@@ -761,10 +761,11 @@ instances = Instances $ Map.fromList [
    instance' @Show @Int,
    instance' @Show @Text
   ]
-  where instance' :: forall cls a. (cls a, Typeable cls, Typeable a) =>
-         ((SomeTypeRep, SomeTypeRep), Dynamic)
-        instance' = ((SomeTypeRep $ typeRep @cls, SomeTypeRep $ typeRep @a),
-                     toDyn $ Dict @(cls a))
+
+instance' :: forall cls a. (cls a, Typeable cls, Typeable a) =>
+ ((SomeTypeRep, SomeTypeRep), Dynamic)
+instance' = ((SomeTypeRep $ typeRep @cls, SomeTypeRep $ typeRep @a),
+             toDyn $ Dict @(cls a))
 
 resolve :: TypeRep c -> TypeRep a -> Instances -> Maybe (Dict (c a))
 resolve cls a (Instances instances) = do
