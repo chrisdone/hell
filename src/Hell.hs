@@ -514,7 +514,8 @@ data Forall where
   ListOf :: (forall (a :: List). TypeRep a -> Forall) -> Forall
 
   -- All can be generalized via the same mechanism
-  DictFoo :: forall k (c :: k -> Constraint). TypeRep c -> (forall (a :: k). c a => TypeRep a -> Forall) -> Forall
+  DictFoo :: forall k (c :: k -> Constraint) (a :: k).
+    TypeRep a -> TypeRep c -> (c a => Forall) -> Forall
 
   OrdEqShow :: (forall (a :: Type). (Ord a, Eq a, Show a) => TypeRep a -> Forall) -> Forall
   Monoidal :: (forall m. (Monoid m) => TypeRep m -> Forall) -> Forall
@@ -675,14 +676,14 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) sym = go reps (f rep)
     go (SomeTypeRep rep : reps) (StreamTypeOf f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) (typeRep @StreamType) = go reps (f rep)
-    go (SomeTypeRep rep : reps) fa@(DictFoo crep f) =
+    go (reps) fa@(DictFoo rep crep f) =
       case typeRepKind crep of
        Type.Fun x y |
          Just Type.HRefl <- Type.eqTypeRep x (typeRepKind rep),
          Just Type.HRefl <- Type.eqTypeRep y (TypeRep @Constraint) ->
           case resolve crep rep instances of
-            Just Dict ->
-              go reps (f rep)
+            Just dict ->
+              go reps (withDict dict (f))
             Nothing ->
               problem fa $ "type " ++ show rep ++ " not an instance of " ++ show crep
        _ -> problem fa $ "malformed constraint: " ++ show crep
@@ -798,7 +799,7 @@ showR = \case
   SetOf {} -> "<record setter>"
   ModifyOf {} -> "<record modifier>"
   Final {} -> "<final>"
-  DictFoo c _ -> "forall a. (" <> prettyString c <> " a)"
+  DictFoo t c _ -> prettyString c <> " " <> prettyString t
 
 -- Make a well-typed literal - e.g. @lit Text.length@ - which can be
 -- embedded in the untyped AST.
@@ -1529,7 +1530,9 @@ polyLits =
   Map.fromList $ let ty = $(do ty0 <- [t|forall m. (Monad m) => m ()|]
                                [|ty0|])
                  in
-                   ( ("Monad.pass", (DictFoo (TypeRep @Monad) (\(m :: TypeRep m) ->
+                   ( ("Monad.pass",
+                              (OfKind (TypeRep @(Type -> Type)) \(m :: TypeRep m) ->
+                              DictFoo m (TypeRep @Monad) (
                              Final (Typed (Type.App m (TypeRep @())) (Lit (return ())))),
                           [0],
                           IApp (IVar 0) (ICon (SomeTypeRep (typeRep @()))),
@@ -1537,7 +1540,9 @@ polyLits =
                  let ty = $(do ty0 <- [t|forall a. (Show a) => a -> Text|]
                                [|ty0|])
                  in
-                   ( ("Show.show", (DictFoo (TypeRep @Show) (\(a :: TypeRep a) ->
+                   ( ("Show.show", (
+                             OfKind (TypeRep @(Type)) \(a :: TypeRep a) ->
+                             DictFoo a (TypeRep @Show) (
                              Final (Typed (Type.Fun a (TypeRep @Text)) (Lit (Text.pack . show)))),
                           [0],
                           IFun (IVar 0) (ICon (SomeTypeRep (typeRep @Text))),
