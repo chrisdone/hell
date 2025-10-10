@@ -1,7 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE QuantifiedConstraints #-}
-{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFoldable #-}
@@ -20,6 +18,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -49,28 +48,24 @@ module Main (main) where
 #if __GLASGOW_HASKELL__ >= 906
 import Control.Monad
 #endif
-import Data.Dynamic
-import Data.Constraint
-import qualified Data.Time.Format.ISO8601 as Time
-import qualified Data.Time as Time
-import Data.Time (Day, UTCTime, TimeOfDay)
-import Numeric
-import Control.Exception (evaluate)
+import Control.Applicative (Alternative (..), optional)
 import qualified Control.Concurrent as Concurrent
+import Control.Exception (evaluate)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Aeson (Value)
 import qualified Data.Aeson as Json
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Bifunctor
-import Control.Applicative (Alternative (..), optional)
 import qualified Data.Bool as Bool
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as ByteString
-import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Builder as ByteString hiding (writeFile)
+import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
+import Data.Constraint
 import Data.Containers.ListUtils
+import Data.Dynamic
 import qualified Data.Either as Either
 import qualified Data.Eq as Eq
 import Data.Foldable
@@ -86,13 +81,16 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Data.Tree (Tree)
-import Data.These (These)
-import qualified Data.These as These
-import qualified Data.Tree as Tree
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
+import Data.These (These)
+import qualified Data.These as These
+import Data.Time (Day, TimeOfDay, UTCTime)
+import qualified Data.Time as Time
+import qualified Data.Time.Format.ISO8601 as Time
 import Data.Traversable
+import Data.Tree (Tree)
+import qualified Data.Tree as Tree
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Data.Void
@@ -104,8 +102,9 @@ import qualified Language.Haskell.TH as TH
 import Language.Haskell.TH.Instances ()
 import qualified Language.Haskell.TH.Syntax as TH
 import Lucid hiding (Term, for_, term)
-import qualified Options.Applicative as Options
+import Numeric
 import Options.Applicative (Parser)
+import qualified Options.Applicative as Options
 import qualified System.Directory as Dir
 import System.Environment
 import qualified System.Exit as Exit
@@ -178,7 +177,7 @@ compileFile filePath = do
   result <- parseFile filePath
   case result of
     Left e -> error $ e
-    Right File{terms,types}
+    Right File {terms, types}
       | anyCycles terms -> error "Cyclic bindings are not supported!"
       | anyCycles types -> error "Cyclic types are not supported!"
       | otherwise ->
@@ -212,25 +211,37 @@ parseModule (HSE.Module _ Nothing [] [] decls) = do
       types = concatMap snd termsAndTypes
   let names = map fst terms
       tyNames = map fst types
-  if Set.size (Set.fromList names) == length names &&
-     Set.size (Set.fromList tyNames) == length tyNames
-    then pure File{terms,types}
+  if Set.size (Set.fromList names) == length names
+    && Set.size (Set.fromList tyNames) == length tyNames
+    then pure File {terms, types}
     else fail "Duplicate names!"
   where
     parseDecl (HSE.PatBind _ (HSE.PVar _ (HSE.Ident _ string)) (HSE.UnGuardedRhs _ exp') Nothing) =
       pure ([(string, exp')], types)
-        where types = []
-    parseDecl (HSE.PatBind _ (HSE.PatTypeSig l (HSE.PVar _ (HSE.Ident _ string))
-                                               typ)
-                             (HSE.UnGuardedRhs _ exp') Nothing) =
-      pure ([(string, HSE.ExpTypeSig l exp' typ)], types)
-        where types = []
+      where
+        types = []
+    parseDecl
+      ( HSE.PatBind
+          _
+          ( HSE.PatTypeSig
+              l
+              (HSE.PVar _ (HSE.Ident _ string))
+              typ
+            )
+          (HSE.UnGuardedRhs _ exp')
+          Nothing
+        ) =
+        pure ([(string, HSE.ExpTypeSig l exp' typ)], types)
+        where
+          types = []
     parseDecl (HSE.DataDecl _ HSE.DataType {} Nothing (HSE.DHead _ name) [qualConDecl] []) =
-      do (termName,termExpr,typeName,typ) <- parseDataDecl name qualConDecl
-         pure ([(termName,termExpr)], [(typeName,typ)])
+      do
+        (termName, termExpr, typeName, typ) <- parseDataDecl name qualConDecl
+        pure ([(termName, termExpr)], [(typeName, typ)])
     parseDecl (HSE.DataDecl _ HSE.DataType {} Nothing (HSE.DHead _ name) qualConDecls []) =
-      do (terms, tyname, typ) <- parseSumDecl name qualConDecls
-         pure (terms, [(tyname,typ)])
+      do
+        (terms, tyname, typ) <- parseSumDecl name qualConDecls
+        pure (terms, [(tyname, typ)])
     parseDecl d = fail $ "Can't parse that! " ++ show d
 parseModule _ = fail "Module headers aren't supported."
 
@@ -243,10 +254,17 @@ parseModule _ = fail "Module headers aren't supported."
 --   hell:Hell.Tagged @"Main.Value"
 --     @(Variant (ConsL "Number" Int (ConsL "Text" Text NilL)))
 --     (Variant.right (Variant.left @"Text" x))
-parseSumDecl :: (l ~ HSE.SrcSpanInfo) => HSE.Name l -> [HSE.QualConDecl l] -> HSE.ParseResult ([(String, HSE.Exp HSE.SrcSpanInfo)],
-          -- ^^^^^ constructor and term
-             String, HSE.Type HSE.SrcSpanInfo)
-          -- ^^^^^ type name and type
+parseSumDecl ::
+  (l ~ HSE.SrcSpanInfo) =>
+  HSE.Name l ->
+  [HSE.QualConDecl l] ->
+  -- | ^^^^ type name and type
+  HSE.ParseResult
+    ( [(String, HSE.Exp HSE.SrcSpanInfo)],
+      -- \^^^^^ constructor and term
+      String,
+      HSE.Type HSE.SrcSpanInfo
+    )
 parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
   conDecls <- fmap Map.fromList $ traverse parseConDecl conDecls0
   let variantType = desugarVariantType $ Map.toList conDecls
@@ -275,20 +293,21 @@ parseSumDecl (HSE.Ident _ tyname) conDecls0 = do
     appTagged ty =
       HSE.App l $
         HSE.App
-          l (
-             HSE.App
-               l
-               ( HSE.App
-                   l
-                   (hellTaggedCon l)
-                   (HSE.TypeApp l (tySym qualifiedName))
-               )
-               (HSE.TypeApp l ty)
+          l
+          ( HSE.App
+              l
+              ( HSE.App
+                  l
+                  (hellTaggedCon l)
+                  (HSE.TypeApp l (tySym qualifiedName))
+              )
+              (HSE.TypeApp l ty)
           )
-          (HSE.App
-             l
+          ( HSE.App
+              l
               (hellSSymbolCon l)
-              (HSE.TypeApp l (tySym qualifiedName)))
+              (HSE.TypeApp l (tySym qualifiedName))
+          )
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
 parseSumDecl _ _ =
   fail "Sum type declaration not in supported format."
@@ -312,16 +331,18 @@ desugarVariantCon nullary cons thisCon = rights $ left
             (HSE.Var l (HSE.UnQual l (HSE.Ident l "x")))
       where
         left0 =
-          HSE.App l
+          HSE.App
+            l
             ( HSE.App
                 l
                 (HSE.Var l (hellQName l "LeftV"))
                 (HSE.TypeApp l (tySym thisCon))
             )
-            (HSE.App
-             l
-              (hellSSymbolCon l)
-              (HSE.TypeApp l (tySym thisCon)))
+            ( HSE.App
+                l
+                (hellSSymbolCon l)
+                (HSE.TypeApp l (tySym thisCon))
+            )
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
     l = HSE.noSrcSpan
 
@@ -341,19 +362,24 @@ parseConDecl :: (MonadFail f) => HSE.QualConDecl l -> f (String, HSE.Type l)
 parseConDecl (HSE.QualConDecl _ Nothing Nothing (HSE.ConDecl _ (HSE.Ident _ consName) [slot])) =
   pure (consName, slot)
 parseConDecl (HSE.QualConDecl l Nothing Nothing (HSE.ConDecl _ (HSE.Ident _ consName) [])) =
-  pure ( consName, hellTyCon l "Nullary")
+  pure (consName, hellTyCon l "Nullary")
 parseConDecl _ = fail "Unsupported constructor declaration format."
 
-parseDataDecl :: (l ~ HSE.SrcSpanInfo) =>
-   HSE.Name l ->
-   HSE.QualConDecl l ->
-   HSE.ParseResult (String,    HSE.Exp HSE.SrcSpanInfo,
-   --               ^^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^
-   -- Term constructor name... and its expr.
+parseDataDecl ::
+  (l ~ HSE.SrcSpanInfo) =>
+  HSE.Name l ->
+  HSE.QualConDecl l ->
+  HSE.ParseResult
+    ( String,
+      HSE.Exp HSE.SrcSpanInfo,
+      --               ^^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^
+      -- Term constructor name... and its expr.
 
-                    String, HSE.Type HSE.SrcSpanInfo)
-   --               ^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^
-   --          Type name... type content.
+      String,
+      HSE.Type HSE.SrcSpanInfo
+    )
+--               ^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^
+--          Type name... type content.
 parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDecl _ (HSE.Ident _ consName) fields)) = do
   -- Note: the fields are sorted by name.
   fields' <- fmap (List.sortBy (Ord.comparing fst) . concat) $ traverse getField fields
@@ -363,7 +389,7 @@ parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDe
   -- turn it off.
   when (List.nub names /= names) $
     fail "Field names cannot be repeated."
-  let ( consExpr , typ ) = makeConstructor tyname fields'
+  let (consExpr, typ) = makeConstructor tyname fields'
   pure (consName, consExpr, tyname, typ)
   where
     getField (HSE.FieldDecl _ names typ) = do
@@ -374,7 +400,9 @@ parseDataDecl (HSE.Ident _ tyname) (HSE.QualConDecl _ Nothing Nothing (HSE.RecDe
 parseDataDecl _ _ =
   fail "Record declaration not in supported format."
 
-makeConstructor :: String -> [(String, HSE.Type HSE.SrcSpanInfo)] ->
+makeConstructor ::
+  String ->
+  [(String, HSE.Type HSE.SrcSpanInfo)] ->
   (HSE.Exp HSE.SrcSpanInfo, HSE.Type HSE.SrcSpanInfo)
 makeConstructor name fields = (appTagged recordType, taggedRecordType)
   where
@@ -385,20 +413,22 @@ makeConstructor name fields = (appTagged recordType, taggedRecordType)
       HSE.TyApp l (HSE.TyApp l (hellTaggedTyCon l) (tySym qualifiedName)) recordType
     qualifiedName = "Main." ++ name
     appTagged ty =
-      HSE.App l (
-        HSE.App
-          l
-          ( HSE.App
-              l
-              (hellTaggedCon l)
-              (HSE.TypeApp l (tySym qualifiedName))
-          )
-          (HSE.TypeApp l ty)
+      HSE.App
+        l
+        ( HSE.App
+            l
+            ( HSE.App
+                l
+                (hellTaggedCon l)
+                (HSE.TypeApp l (tySym qualifiedName))
+            )
+            (HSE.TypeApp l ty)
         )
-         (HSE.App
-             l
-              (hellSSymbolCon l)
-              (HSE.TypeApp l (tySym qualifiedName)))
+        ( HSE.App
+            l
+            (hellSSymbolCon l)
+            (HSE.TypeApp l (tySym qualifiedName))
+        )
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
     l = HSE.noSrcSpan
 
@@ -415,10 +445,11 @@ makeConstructRecord qname fields =
                     ( HSE.App
                         l
                         (HSE.Var l (hellQName l "ConsR"))
-                        (HSE.App
-                          l
-                           (hellSSymbolCon l)
-                           (HSE.TypeApp l (tySym name)))
+                        ( HSE.App
+                            l
+                            (hellSSymbolCon l)
+                            (HSE.TypeApp l (tySym name))
+                        )
                     )
                     expr
                 )
@@ -507,17 +538,17 @@ typeOf = \case
 data Binding = Singleton String | Tuple [String]
 
 data Forall where
-
   -- The final term, not polymorphic anymore.
   Term :: (forall g. Typed (Term g)) -> Forall
-
   -- forall a. ...
   Forall :: TypeRep (s :: Type) -> (forall (a :: s). TypeRep a -> Forall) -> Forall
-
   -- Cls a => ...
-  ClassConstraint :: forall k (c :: k -> Constraint) (a :: k).
-    TypeRep a -> TypeRep c -> (c a => Forall) -> Forall
-
+  ClassConstraint ::
+    forall k (c :: k -> Constraint) (a :: k).
+    TypeRep a ->
+    TypeRep c ->
+    ((c a) => Forall) ->
+    Forall
   -- Special operators with magic type-system rules:
   GetOf ::
     TypeRep (k :: Symbol) ->
@@ -541,10 +572,10 @@ data Forall where
     (((a -> a) -> Tagged t (Record r) -> Tagged t (Record r)) -> Forall) ->
     Forall
 
-lit :: Type.Typeable a => Prim -> a -> UTerm ()
+lit :: (Type.Typeable a) => Prim -> a -> UTerm ()
 lit name = litWithSpan name HSE.noSrcSpan
 
-litWithSpan :: Type.Typeable a => Prim -> HSE.SrcSpanInfo -> a -> UTerm ()
+litWithSpan :: (Type.Typeable a) => Prim -> HSE.SrcSpanInfo -> a -> UTerm ()
 litWithSpan name srcSpanInfo l =
   litWithSpanBare name srcSpanInfo (Type.typeOf l) l
 
@@ -560,9 +591,11 @@ litWithSpanBare name srcSpanInfo typeRep' l =
     (fromSomeType (SomeTypeRep typeRep'))
     []
 
-data Prim =
- LitP (HSE.Literal HSE.SrcSpanInfo) | NameP String | UnitP
- | SSymbolP String
+data Prim
+  = LitP (HSE.Literal HSE.SrcSpanInfo)
+  | NameP String
+  | UnitP
+  | SSymbolP String
 
 data SomeStarType = forall (a :: Type). SomeStarType (TypeRep a)
 
@@ -621,9 +654,9 @@ tc (USig _l _ e (SomeStarType someStarType)) env = do
     Left err -> Left err
     Right typed'@(Typed ty _)
       | Just {} <- Type.eqTypeRep ty someStarType ->
-        pure typed'
+          pure typed'
       | otherwise ->
-        Left TypeCheckMismatch
+          Left TypeCheckMismatch
 tc (UVar _ _ v) env = do
   Typed ty v' <- lookupVar v env
   pure $ Typed ty (Var v')
@@ -650,7 +683,6 @@ tc (UApp _ _ e1 e2) env =
         Right (Typed arg_ty e2') ->
           case Type.eqTypeRep arg_ty bndr_ty of
             Nothing ->
-              -- error $ "Type error: " ++ show arg_ty ++ " vs " ++ show bndr_ty
               Left TypeCheckMismatch
             Just (Type.HRefl) ->
               let kind = typeRepKind body_ty
@@ -666,52 +698,8 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
     go (SomeTypeRep rep : reps) (Forall sym f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) sym = go reps (f rep)
     -- Cases that look like: Monad (Either (a :: Type) :: Type -> Type)
-    go reps fa@(ClassConstraint rep crep f)
-      | Type.Fun x y <- typeRepKind crep,
-         -- Check the Klass (F2 a) construction
-         Just Type.HRefl <- Type.eqTypeRep y (TypeRep @Constraint),
-         Just Type.HRefl <- Type.eqTypeRep x (TypeRep @(Type -> Type)),
-         Just Type.HRefl <- Type.eqTypeRep x (typeRepKind rep),
-         -- Check the F2 part
-         Type.App t _ <- rep,
-         Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type))
-         =
-         case resolve1 (Type.App crep rep) crep t instances of
-            Just dict ->
-              go reps (withDict dict f)
-            Nothing ->
-              problem fa $ "type " ++ show rep ++
-              " not an instance of .. " ++ show crep
-    -- Cases that look like: Semigroup (Mod (f :: * -> *) (a :: *))
-    -- Note: the kinds are limited to this type.
-    go reps fa@(ClassConstraint rep crep f)
-      | Type.Fun x y <- typeRepKind crep,
-         -- Check the Klass (F2 a b) construction
-         Just Type.HRefl <- Type.eqTypeRep y (TypeRep @Constraint),
-         Just Type.HRefl <- Type.eqTypeRep x (TypeRep @Type),
-         Just Type.HRefl <- Type.eqTypeRep x (typeRepKind rep),
-         -- -- Check the F2 part
-         Type.App (Type.App t _a) _b <- rep,
-         Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @((Type -> Type) -> Type -> Type))
-         =
-         case resolve2 (Type.App crep rep) crep t instances of
-            Just dict ->
-              go reps (withDict dict f)
-            Nothing ->
-              problem fa $ "type " ++ show rep ++
-              " not an instance of? " ++ show crep
-    -- Simple cases: Eq a
-    go reps fa@(ClassConstraint rep crep f) =
-      case typeRepKind crep of
-       Type.Fun x y |
-         Just Type.HRefl <- Type.eqTypeRep x (typeRepKind rep),
-         Just Type.HRefl <- Type.eqTypeRep y (TypeRep @Constraint) ->
-          case resolve crep rep instances of
-            Just dict ->
-              go reps (withDict dict f)
-            Nothing ->
-              problem fa $ "type " ++ show rep ++ " not an instance of ! " ++ show crep
-       _ -> problem fa $ "malformed constraint: " ++ show crep
+    go reps (ClassConstraint rep crep f) =
+      withClassConstraint forallLoc reps rep crep f go
     go reps fa@(GetOf k0 a0 t0 r0 f) =
       case makeAccessor k0 r0 a0 t0 of
         Just accessor -> go reps (f accessor)
@@ -730,103 +718,150 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
     problem fa = Left . ConstraintResolutionProblem forallLoc fa
 
 --------------------------------------------------------------------------------
+-- Type class resolution at the call site
+
+-- Declaration of instances (instance0, instance1, etc.) is kind-polymorphic,
+-- and resolve, resolve1, etc. are kind-polymorphic. But this function IS NOT.
+-- At some point you have to decide on the kinds of things. This
+-- function handles a few common cases for instance head types:
+--
+-- Int :: Type                             (common case)
+-- Either :: Type -> Type -> Type          (rare case)
+-- Mod :: (Type -> Type) -> Type -> Type   (only one example as of writing this comment)
+withClassConstraint ::
+  forall g k (c :: k -> Constraint) (a :: k).
+  HSE.SrcSpanInfo ->
+  [SomeTypeRep] ->
+  TypeRep a ->
+  TypeRep c ->
+  ((c a) => Forall) ->
+  ([SomeTypeRep] -> Forall -> Either TypeCheckError (Typed (Term g))) ->
+  Either TypeCheckError (Typed (Term g))
+withClassConstraint forallLoc reps rep crep f go =
+  if
+      -- Cases that look like: Monad (Either (e :: *) (a :: *))
+      -- Note: the kinds are limited to this exact specification in the signature above.
+      | Type.App t _ <- rep,
+        Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)),
+        Just dict <- resolve1 (Type.App crep rep) crep t instances ->
+        go reps (withDict dict f)
+      -- Cases that look like: Semigroup (Mod (f :: * -> *) (a :: *))
+      -- Note: the kinds are limited to this exact specification in the signature above.
+      | Type.App (Type.App t _a) _b <- rep,
+        Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @((Type -> Type) -> Type -> Type)),
+        Just dict <- resolve2 (Type.App crep rep) crep t instances ->
+        go reps (withDict dict f)
+      -- Simple cases: Eq (a :: k)
+      | Just dict <- resolve crep rep instances ->
+        go reps (withDict dict f)
+      | otherwise ->
+          problem $ "type " ++ show rep ++
+          " doesn't appear to be an instance of " ++ show crep
+  where
+    problem :: forall x. String -> Either TypeCheckError x
+    problem = Left . ConstraintResolutionProblem forallLoc (ClassConstraint rep crep f)
+
+--------------------------------------------------------------------------------
 -- Instances
 
 newtype D1 c t = D1 (forall e. Dict (c (t e)))
+
 newtype D2 c t = D2 (forall f a. Dict (c (t f a)))
 
 newtype Instances = Instances (Map (SomeTypeRep, SomeTypeRep) Dynamic)
 
 instances :: Instances
-instances = Instances $ Map.fromList [
-  instance0 @Show @Int,
-  instance0 @Show @Integer,
-  instance0 @Show @Day,
-  instance0 @Show @UTCTime,
-  instance0 @Show @TimeOfDay,
-  instance0 @Show @Double,
-  instance0 @Show @Bool,
-  instance0 @Show @Char,
-  instance0 @Show @Text,
-  instance0 @Show @ByteString,
-  instance0 @Show @ExitCode,
-
-  instance0 @Eq @Int,
-  instance0 @Eq @Integer,
-  instance0 @Eq @Day,
-  instance0 @Eq @UTCTime,
-  instance0 @Eq @TimeOfDay,
-  instance0 @Eq @Double,
-  instance0 @Eq @Bool,
-  instance0 @Eq @Char,
-  instance0 @Eq @Text,
-  instance0 @Eq @ByteString,
-  instance0 @Eq @ExitCode,
-
-  instance0 @Ord @Int,
-  instance0 @Ord @Integer,
-  instance0 @Ord @Day,
-  instance0 @Ord @UTCTime,
-  instance0 @Ord @TimeOfDay,
-  instance0 @Ord @Double,
-  instance0 @Ord @Bool,
-  instance0 @Ord @Char,
-  instance0 @Ord @Text,
-  instance0 @Ord @ByteString,
-  instance0 @Ord @ExitCode,
-
-  instance0 @Monad @IO,
-  instance0 @Monad @Maybe,
-  instance0 @Monad @[],
-  instance0 @Monad @Tree,
-  instance1 @Monad @Either,
-
-  instance0 @Functor @IO,
-  instance0 @Functor @Maybe,
-  instance0 @Functor @[],
-  instance0 @Functor @Tree,
-  instance0 @Functor @Options.Parser,
-  instance1 @Functor @Either,
-
-  instance0 @Applicative @IO,
-  instance0 @Applicative @Maybe,
-  instance0 @Applicative @[],
-  instance0 @Applicative @Tree,
-  instance0 @Applicative @Options.Parser,
-  instance1 @Applicative @Either,
-
-  instance0 @Alternative @Options.Parser,
-  instance0 @Alternative @Maybe,
-
-  instance0 @Monoid @Text,
-  instance1 @Monoid @Vector,
-  instance2 @Monoid @Options.Mod,
-  instance1 @Monoid @[],
-
-  instance2 @Semigroup @Options.Mod
-  ]
+instances =
+  Instances $
+    Map.fromList
+      [ instance0 @Show @Int,
+        instance0 @Show @Integer,
+        instance0 @Show @Day,
+        instance0 @Show @UTCTime,
+        instance0 @Show @TimeOfDay,
+        instance0 @Show @Double,
+        instance0 @Show @Bool,
+        instance0 @Show @Char,
+        instance0 @Show @Text,
+        instance0 @Show @ByteString,
+        instance0 @Show @ExitCode,
+        instance0 @Eq @Int,
+        instance0 @Eq @Integer,
+        instance0 @Eq @Day,
+        instance0 @Eq @UTCTime,
+        instance0 @Eq @TimeOfDay,
+        instance0 @Eq @Double,
+        instance0 @Eq @Bool,
+        instance0 @Eq @Char,
+        instance0 @Eq @Text,
+        instance0 @Eq @ByteString,
+        instance0 @Eq @ExitCode,
+        instance0 @Ord @Int,
+        instance0 @Ord @Integer,
+        instance0 @Ord @Day,
+        instance0 @Ord @UTCTime,
+        instance0 @Ord @TimeOfDay,
+        instance0 @Ord @Double,
+        instance0 @Ord @Bool,
+        instance0 @Ord @Char,
+        instance0 @Ord @Text,
+        instance0 @Ord @ByteString,
+        instance0 @Ord @ExitCode,
+        instance0 @Monad @IO,
+        instance0 @Monad @Maybe,
+        instance0 @Monad @[],
+        instance0 @Monad @Tree,
+        instance1 @Monad @Either,
+        instance0 @Functor @IO,
+        instance0 @Functor @Maybe,
+        instance0 @Functor @[],
+        instance0 @Functor @Tree,
+        instance0 @Functor @Options.Parser,
+        instance1 @Functor @Either,
+        instance0 @Applicative @IO,
+        instance0 @Applicative @Maybe,
+        instance0 @Applicative @[],
+        instance0 @Applicative @Tree,
+        instance0 @Applicative @Options.Parser,
+        instance1 @Applicative @Either,
+        instance0 @Alternative @Options.Parser,
+        instance0 @Alternative @Maybe,
+        instance0 @Monoid @Text,
+        instance1 @Monoid @Vector,
+        instance2 @Monoid @Options.Mod,
+        instance1 @Monoid @[],
+        instance2 @Semigroup @Options.Mod
+      ]
 
 --------------------------------------------------------------------------------
 -- Instance declarations
 
-instance0 :: forall cls a. (cls a, Typeable cls, Typeable a) =>
- ((SomeTypeRep, SomeTypeRep), Dynamic)
-instance0 = ((SomeTypeRep $ typeRep @cls, SomeTypeRep $ typeRep @a),
-             toDyn $ Dict @(cls a))
+instance0 ::
+  forall cls a.
+  (cls a, Typeable cls, Typeable a) =>
+  ((SomeTypeRep, SomeTypeRep), Dynamic)
+instance0 =
+  ( (SomeTypeRep $ typeRep @cls, SomeTypeRep $ typeRep @a),
+    toDyn $ Dict @(cls a)
+  )
 
 instance1 ::
   forall {k0} {k1} (c :: k1 -> Constraint) (t :: k0 -> k1).
   ((forall a. c (t a)), Typeable c, Typeable t, Typeable k0, Typeable k1) =>
- ((SomeTypeRep, SomeTypeRep), Dynamic)
-instance1 = ((SomeTypeRep $ typeRep @c, SomeTypeRep $ typeRep @t),
-             toDyn $ D1 @c @t Dict)
+  ((SomeTypeRep, SomeTypeRep), Dynamic)
+instance1 =
+  ( (SomeTypeRep $ typeRep @c, SomeTypeRep $ typeRep @t),
+    toDyn $ D1 @c @t Dict
+  )
 
 instance2 ::
   forall {k0} {k1} {k2} (c :: k2 -> Constraint) (t :: k0 -> k1 -> k2).
   ((forall a b. c (t a b)), Typeable c, Typeable t, Typeable k0, Typeable k1, Typeable k2) =>
- ((SomeTypeRep, SomeTypeRep), Dynamic)
-instance2 = ((SomeTypeRep $ typeRep @c, SomeTypeRep $ typeRep @t),
-             toDyn $ D2 @c @t Dict)
+  ((SomeTypeRep, SomeTypeRep), Dynamic)
+instance2 =
+  ( (SomeTypeRep $ typeRep @c, SomeTypeRep $ typeRep @t),
+    toDyn $ D2 @c @t Dict
+  )
 
 --------------------------------------------------------------------------------
 -- Instance resolution
@@ -839,7 +874,8 @@ resolve c a (Instances m) = do
   pure dict
 
 -- Resolve an instance of the form: Monad (Either e)
-resolve1 :: forall {k0} {k1} (t :: k0 -> k1) (c :: k1 -> Constraint) (a :: k0).
+resolve1 ::
+  forall {k0} {k1} (t :: k0 -> k1) (c :: k1 -> Constraint) (a :: k0).
   (Typeable k0, Typeable k1) =>
   TypeRep (c (t a)) ->
   TypeRep c ->
@@ -853,7 +889,8 @@ resolve1 _ c t (Instances m) = do
   pure d
 
 -- Resolve an instance of the form: Monoid (Mod f a)
-resolve2 :: forall {k0} {k1} {k2} (t :: k0 -> k1 -> k2) (c :: k2 -> Constraint) (a :: k0) (b :: k1).
+resolve2 ::
+  forall {k0} {k1} {k2} (t :: k0 -> k1 -> k2) (c :: k2 -> Constraint) (a :: k0) (b :: k1).
   (Typeable k0, Typeable k1, Typeable k2) =>
   TypeRep (c (t a b)) ->
   TypeRep c ->
@@ -976,13 +1013,13 @@ desugarExp userDefinedTypeAliases globals = go mempty
       HSE.App l ssymbol typeapp
         | void ssymbol == hellSSymbolCon (),
           HSE.TypeApp _ (HSE.TyPromoted _ (HSE.PromotedString _ string _)) <- typeapp ->
-        withSomeSSymbol string \(sym@(SSymbol :: SSymbol s)) ->
-          pure $
-            litWithSpanBare
-              (SSymbolP string)
-              l
-              (typeRep @(SSymbol s))
-              sym
+            withSomeSSymbol string \(sym@(SSymbol :: SSymbol s)) ->
+              pure $
+                litWithSpanBare
+                  (SSymbolP string)
+                  l
+                  (typeRep @(SSymbol s))
+                  sym
       app@HSE.App {} | Just (qname, tys) <- nestedTyApps app -> do
         reps <- traverse (desugarSomeType userDefinedTypeAliases) tys
         desugarQName scope globals qname reps
@@ -1052,7 +1089,7 @@ desugarCase l scrutinee xs = do
     run =
       ( HSE.Var
           l
-          ( hellQName l "runAccessor")
+          (hellQName l "runAccessor")
       )
     desugarAlt
       ( HSE.Alt
@@ -1074,7 +1111,7 @@ desugarCase l scrutinee xs = do
                   l'
                   ( HSE.Var
                       l'
-                      ( hellQName l' "ConsA")
+                      (hellQName l' "ConsA")
                   )
                   (HSE.TypeApp l' (tySym name))
               )
@@ -1100,7 +1137,7 @@ desugarCase l scrutinee xs = do
                   l'
                   ( HSE.Var
                       l'
-                      ( hellQName l' "ConsA")
+                      (hellQName l' "ConsA")
                   )
                   (HSE.TypeApp l' (tySym name))
               )
@@ -1172,7 +1209,8 @@ desugarStarType userDefinedTypeAliases t = do
 
 desugarSomeType ::
   Map String SomeTypeRep ->
-  HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
+  HSE.Type HSE.SrcSpanInfo ->
+  Either DesugarError SomeTypeRep
 desugarSomeType userDefinedTypeAliases = go
   where
     go :: HSE.Type HSE.SrcSpanInfo -> Either DesugarError SomeTypeRep
@@ -1252,19 +1290,27 @@ desugarTypeSpec = do
 
 desugarAll ::
   [(String, HSE.Type HSE.SrcSpanInfo)] ->
-  [(String, HSE.Exp HSE.SrcSpanInfo)]
-   -> Either DesugarError [(String, UTerm ())]
+  [(String, HSE.Exp HSE.SrcSpanInfo)] ->
+  Either DesugarError [(String, UTerm ())]
 desugarAll types0 terms0 = do
-  types <- flip execStateT Map.empty $
-    traverse goType $ Graph.flattenSCCs $ stronglyConnected $ types0
-  terms <- flip evalStateT Map.empty $
-    traverse (goTerm types) $ Graph.flattenSCCs $ stronglyConnected $ terms0
+  types <-
+    flip execStateT Map.empty $
+      traverse goType $
+        Graph.flattenSCCs $
+          stronglyConnected $
+            types0
+  terms <-
+    flip evalStateT Map.empty $
+      traverse (goTerm types) $
+        Graph.flattenSCCs $
+          stronglyConnected $
+            terms0
   pure terms
   where
     goTerm ::
-      Map String SomeTypeRep
-      -> (String, HSE.Exp HSE.SrcSpanInfo)
-      -> StateT (Map String (UTerm ())) (Either DesugarError) (String, UTerm ())
+      Map String SomeTypeRep ->
+      (String, HSE.Exp HSE.SrcSpanInfo) ->
+      StateT (Map String (UTerm ())) (Either DesugarError) (String, UTerm ())
     goTerm userDefinedTypeAliases (name, expr) = do
       globals <- get
       uterm <- lift $ desugarExp userDefinedTypeAliases globals expr
@@ -1272,8 +1318,8 @@ desugarAll types0 terms0 = do
       pure (name, uterm)
 
     goType ::
-      (String, HSE.Type HSE.SrcSpanInfo)
-      -> StateT (Map String SomeTypeRep) (Either DesugarError) ()
+      (String, HSE.Type HSE.SrcSpanInfo) ->
+      StateT (Map String SomeTypeRep) (Either DesugarError) ()
     goType (name, typ) = do
       types <- get
       SomeStarType someTypeRep <- lift $ desugarStarType types typ
@@ -1316,7 +1362,7 @@ zonkToStarType subs irep = do
 --------------------------------------------------------------------------------
 -- Occurs check
 
-anyCycles :: SYB.Data a => [(String, a)] -> Bool
+anyCycles :: (SYB.Data a) => [(String, a)] -> Bool
 anyCycles =
   any isCycle
     . stronglyConnected
@@ -1325,7 +1371,7 @@ anyCycles =
       Graph.CyclicSCC {} -> True
       _ -> False
 
-stronglyConnected :: SYB.Data a => [(String, a)] -> [Graph.SCC (String, a)]
+stronglyConnected :: (SYB.Data a) => [(String, a)] -> [Graph.SCC (String, a)]
 stronglyConnected =
   Graph.stronglyConnComp
     . map \thing@(name, e) -> (thing, name, freeVariables e)
@@ -1346,7 +1392,7 @@ anyCyclesSpec = do
 --------------------------------------------------------------------------------
 -- Get free variables of an HSE expression
 
-freeVariables :: SYB.Data a => a -> [String]
+freeVariables :: (SYB.Data a) => a -> [String]
 freeVariables =
   Maybe.mapMaybe unpack
     . SYB.listify (const True :: HSE.QName HSE.SrcSpanInfo -> Bool)
@@ -1369,8 +1415,7 @@ freeVariablesSpec = do
 supportedTypeConstructors :: Map String SomeTypeRep
 supportedTypeConstructors =
   Map.fromList
-    [
-      -- Standard Haskell types
+    [ -- Standard Haskell types
       ("Bool", SomeTypeRep $ typeRep @Bool),
       ("Int", SomeTypeRep $ typeRep @Int),
       ("Integer", SomeTypeRep $ typeRep @Integer),
@@ -1393,7 +1438,6 @@ supportedTypeConstructors =
       ("Day", SomeTypeRep $ typeRep @Day),
       ("UTCTime", SomeTypeRep $ typeRep @UTCTime),
       ("TimeOfDay", SomeTypeRep $ typeRep @TimeOfDay),
-
       -- Internal, hidden types
       ("hell:Hell.NilL", SomeTypeRep $ typeRep @('NilL)),
       ("hell:Hell.ConsL", SomeTypeRep $ typeRep @('ConsL)),
@@ -1425,14 +1469,12 @@ supportedLits =
       lit' "Text.readProcessStdout_" t_readProcessStdout_,
       lit' "Text.getContents" (fmap Text.decodeUtf8 ByteString.getContents),
       lit' "Text.setStdin" t_setStdin,
-
       -- Dates
       lit' "Day.fromGregorianValid" Time.fromGregorianValid,
       lit' "Day.addDays" Time.addDays,
       lit' "Day.diffDays" Time.diffDays,
       lit' "Day.iso8601Show" (Text.pack . Time.iso8601Show :: Day -> Text),
       lit' "Day.iso8601ParseM" (Time.iso8601ParseM . Text.unpack :: Text -> Maybe Day),
-
       -- UTCTime
       --
       -- We're going to skip NominalDiffTime, DiffTime, etc. and thus
@@ -1447,7 +1489,6 @@ supportedLits =
       lit' "UTCTime.getCurrentTime" Time.getCurrentTime,
       lit' "UTCTime.iso8601Show" (Text.pack . Time.iso8601Show :: UTCTime -> Text),
       lit' "UTCTime.iso8601ParseM" (Time.iso8601ParseM . Text.unpack :: Text -> Maybe UTCTime),
-
       -- TimeOfDay
       lit' "TimeOfDay.timeToTimeOfDay" (Time.timeToTimeOfDay . realToFrac :: Double -> TimeOfDay),
       lit' "TimeOfDay.todHour" Time.todHour,
@@ -1455,10 +1496,10 @@ supportedLits =
       lit' "TimeOfDay.todSec" (realToFrac . Time.todSec :: TimeOfDay -> Double),
       lit' "TimeOfDay.midnight" Time.midnight,
       lit' "TimeOfDay.midday" Time.midday,
-      lit' "TimeOfDay.makeTimeOfDayValid"
+      lit'
+        "TimeOfDay.makeTimeOfDayValid"
         \h m (s :: Double) -> Time.makeTimeOfDayValid h m (realToFrac s),
       lit' "TimeOfDay.timeOfDayToTime" (realToFrac . Time.timeOfDayToTime :: TimeOfDay -> Double),
-
       -- Text operations
       lit' "Text.decodeUtf8" Text.decodeUtf8,
       lit' "Text.encodeUtf8" Text.encodeUtf8,
@@ -1591,10 +1632,11 @@ supportedLits =
     ]
   where
     lit' :: forall a. (Type.Typeable a) => String -> a -> (String, (UTerm (), SomeTypeRep))
-    lit' str x = ( str, (lit (NameP str) x, SomeTypeRep $ Type.typeOf x) )
+    lit' str x = (str, (lit (NameP str) x, SomeTypeRep $ Type.typeOf x))
 
-    showsHelper :: (Maybe Int -> Double -> (String -> String))
-                -> (Maybe Int -> Double -> (Text -> Text))
+    showsHelper ::
+      (Maybe Int -> Double -> (String -> String)) ->
+      (Maybe Int -> Double -> (Text -> Text))
     showsHelper f = \mi a ->
       \text -> Text.pack $ (f mi a) (Text.unpack text)
 
@@ -1608,419 +1650,425 @@ supportedLits =
 -- lets me put all the related components for TH generation inside
 -- here and stay readable.
 polyLits :: Map String (Forall, [TH.Uniq], IRep TH.Uniq, TH.Type)
-polyLits = $(let {
+polyLits =
+  $( let -- Top-level expression generated by this TH declaration.
+         toplevel :: Q TH.Exp
+         toplevel = do
+           let generated = do
+                 prims <- primsParsed
+                 TH.listE $
+                   flip
+                     map
+                     prims
+                     \(name, expr, typeForDocs, tyVarBndrs, ctx, qualifiedType) ->
+                       let constraints = toList $ Set.fromList $ map getConstraint ctx
+                           forall' =
+                             foldr
+                               stepBinder
+                               (foldr stepConstraint (term name expr qualifiedType tyVarBndrs) constraints)
+                               tyVarBndrs
+                           uniques =
+                             TH.listE $
+                               map
+                                 (TH.litE . TH.integerL . nameUnique . fst . tyVarBndrNameKind)
+                                 tyVarBndrs
+                           irep = typeToIRep qualifiedType
+                        in [|((name, ($forall', $uniques, $irep, typeForDocs)))|]
+           [|Map.fromList $generated|]
 
--- Top-level expression generated by this TH declaration.
-toplevel :: Q TH.Exp;
-toplevel = do {
-  let {
-    generated = do
-      prims <- primsParsed
-      TH.listE $
-        flip map prims
-           \(name, expr, typeForDocs, tyVarBndrs, ctx, qualifiedType) ->
-          let constraints = toList $ Set.fromList $ map getConstraint ctx
-              forall' =
-                foldr stepBinder
-                  (foldr stepConstraint (term name expr qualifiedType tyVarBndrs) constraints)
-                  tyVarBndrs
-              uniques =
-                TH.listE $
-                  map (TH.litE . TH.integerL . nameUnique . fst . tyVarBndrNameKind)
-                      tyVarBndrs
-              irep = typeToIRep qualifiedType
-          in [| ((name, ($forall', $uniques, $irep, typeForDocs))) |]
-    };
-  [| Map.fromList $generated |]
- };
+         -- By default, the term is whatever is in the expression. For record
+         -- accessors (get/set/modify), I magically generate one at
+         -- compile-time on-demand.
+         term :: String -> TH.Exp -> TH.Type -> [TH.TyVarBndr TH.Specificity] -> Q TH.Exp
+         term op _ qualifiedType tyVarBndrs
+           | Just cons <- List.lookup op recordOperators =
+               let vars =
+                     [ TH.varT (normalizeName name)
+                       | v <- tyVarBndrs,
+                         let (name, _k) = tyVarBndrNameKind v
+                     ]
+                in [|
+                     $cons
+                       (TypeRep @($(vars !! 0)))
+                       (TypeRep @($(vars !! 1)))
+                       (TypeRep @($(vars !! 2)))
+                       (TypeRep @($(vars !! 3)))
+                       \f ->
+                         Term $ typed (f :: $((pure $ normalizeType qualifiedType)))
+                     |]
+         term _ expr qualifiedType _ =
+           [|Term $ typed $(TH.sigE (pure expr) (pure $ normalizeType qualifiedType))|]
 
--- By default, the term is whatever is in the expression. For record
--- accessors (get/set/modify), I magically generate one at
--- compile-time on-demand.
-term :: String -> TH.Exp -> TH.Type -> [TH.TyVarBndr TH.Specificity] -> Q TH.Exp;
-term op _ qualifiedType tyVarBndrs
-  | Just cons <- List.lookup op recordOperators =
-  let vars = [ TH.varT (normalizeName name)
-             | v <- tyVarBndrs, let (name, _k) = tyVarBndrNameKind v ] in
-  [| $cons (TypeRep @($(vars !! 0)))
-           (TypeRep @($(vars !! 1)))
-           (TypeRep @($(vars !! 2)))
-           (TypeRep @($(vars !! 3))) \f ->
-     Term $ typed (f :: $((pure $ normalizeType qualifiedType))) |];
-term _ expr qualifiedType _ =
-  [| Term $ typed $(TH.sigE (pure expr) (pure $ normalizeType qualifiedType)) |];
+         -- \| Magic record operators.
+         recordOperators :: [(String, Q TH.Exp)]
+         recordOperators =
+           [ ("Record.get", [|GetOf|]),
+             ("Record.set", [|SetOf|]),
+             ("Record.modify", [|ModifyOf|])
+           ]
 
--- | Magic record operators.
-recordOperators :: [(String, Q TH.Exp)];
-recordOperators =
-  [("Record.get", [|GetOf|]),
-   ("Record.set", [|SetOf|]),
-   ("Record.modify", [|ModifyOf|])];
+         -- Single step in the class decorating (Klass a => ..) right-fold.
+         stepConstraint :: (TH.Name, TH.Name) -> Q TH.Exp -> Q TH.Exp
+         stepConstraint (className, tyVarName0) expr =
+           [|
+             ClassConstraint
+               $nameE
+               $typeRepE
+               $expr
+             |]
+           where
+             name = normalizeName tyVarName0
+             nameE = TH.varE name
+             typeRepE = [|(TypeRep @($(TH.conT className)))|]
 
--- Single step in the class decorating (Klass a => ..) right-fold.
-stepConstraint :: (TH.Name, TH.Name) -> Q TH.Exp -> Q TH.Exp;
-stepConstraint (className, tyVarName0) expr =
-  [| ClassConstraint
-        $nameE
-        $typeRepE
-        $expr
-  |]
-  where {
-    name = normalizeName tyVarName0;
-    nameE = TH.varE name;
-    typeRepE = [| (TypeRep @($(TH.conT className))) |]
-   };
+         -- Single step in the variable-binding (forall x. ..) right-fold.
+         stepBinder :: TH.TyVarBndr TH.Specificity -> Q TH.Exp -> Q TH.Exp
+         stepBinder tyVarBndr expr =
+           [|
+             Forall $typeRepE \($nameP :: TypeRep $nameT) ->
+               case $nameE of
+                 TypeRep -> $expr
+             |]
+           where
+             (name0, kind) = tyVarBndrNameKind tyVarBndr
+             name = normalizeName name0
+             nameE = TH.varE name
+             nameP = TH.varP name
+             nameT = TH.varT name
+             typeRepE = [|TypeRep @($(pure kind))|]
 
--- Single step in the variable-binding (forall x. ..) right-fold.
-stepBinder :: TH.TyVarBndr TH.Specificity -> Q TH.Exp -> Q TH.Exp;
-stepBinder tyVarBndr expr =
-  [| Forall $typeRepE \($nameP :: TypeRep $nameT) ->
-       case $nameE of
-         TypeRep -> $expr
-  |]
-  where {
-    (name0, kind) = tyVarBndrNameKind tyVarBndr;
-    name = normalizeName name0;
-    nameE = TH.varE name;
-    nameP = TH.varP name;
-    nameT = TH.varT name;
-    typeRepE = [| TypeRep @($(pure kind)) |]
-   };
+         normalizeType :: TH.Type -> TH.Type
+         normalizeType = SYB.everywhere $ SYB.mkT \case
+           TH.VarT n -> TH.VarT $ normalizeName n
+           t -> t
 
-normalizeType :: TH.Type -> TH.Type;
-normalizeType = SYB.everywhere $ SYB.mkT \case {
-  TH.VarT n -> TH.VarT $ normalizeName n;
-  t -> t
-  };
+         normalizeName :: TH.Name -> TH.Name
+         normalizeName name = TH.mkName $ 'n' : (show $ nameUnique name)
 
-normalizeName :: TH.Name -> TH.Name;
-normalizeName name = TH.mkName $ 'n' : (show $ nameUnique name);
+         -- Parse the prims out of primsExpr.
+         primsParsed :: Q [(String, TH.Exp, TH.Type, [TH.TyVarBndr TH.Specificity], TH.Cxt, TH.Type)]
+         primsParsed = do
+           expr <- primsExpr
+           let binds = expBinds expr
+            in pure $ map parsePrim binds
 
--- Parse the prims out of primsExpr.
-primsParsed :: Q [(String, TH.Exp, TH.Type, [TH.TyVarBndr TH.Specificity], TH.Cxt, TH.Type)];
-primsParsed = do {
-  expr <- primsExpr;
-  let binds = expBinds expr;
-  in pure $ map parsePrim binds;
- };
+         -- Convert a TH type to our internal IRep type.
+         typeToIRep :: TH.Type -> Q TH.Exp
+         typeToIRep =
+           ( \case
+               TH.AppT (TH.AppT TH.ArrowT f) x -> [|IFun $(typeToIRep f) $(typeToIRep x)|]
+               TH.AppT f x -> [|IApp $(typeToIRep f) $(typeToIRep x)|]
+               TH.ConT name ->
+                 [|ICon (SomeTypeRep $(TH.appTypeE (TH.varE 'typeRep) (TH.conT name)))|]
+               TH.VarT a -> [|IVar $(TH.litE $ TH.IntegerL $ nameUnique a)|]
+               TH.ListT -> [|ICon (SomeTypeRep (typeRep @[]))|]
+               TH.TupleT 2 -> [|ICon (SomeTypeRep (typeRep @(,)))|]
+               TH.TupleT 3 -> [|ICon (SomeTypeRep (typeRep @(,,)))|]
+               TH.TupleT 4 -> [|ICon (SomeTypeRep (typeRep @(,,,)))|]
+               TH.TupleT 0 -> [|ICon (SomeTypeRep (typeRep @()))|]
+               ty0@TH.PromotedT {} ->
+                 [|ICon (SomeTypeRep $(TH.appTypeE (TH.varE 'typeRep) (pure ty0)))|]
+               t -> error $ "Unexpected type shape: " ++ show t
+           )
 
--- Convert a TH type to our internal IRep type.
-typeToIRep :: TH.Type -> Q TH.Exp;
-typeToIRep = (\case
-  TH.AppT (TH.AppT TH.ArrowT f) x -> [|IFun $(typeToIRep f) $(typeToIRep x)|]
-  TH.AppT f x -> [|IApp $(typeToIRep f) $(typeToIRep x)|]
-  TH.ConT name ->
-    [|ICon (SomeTypeRep $(TH.appTypeE (TH.varE 'typeRep) (TH.conT name)))|]
-  TH.VarT a -> [|IVar $(TH.litE $ TH.IntegerL $ nameUnique a)|]
-  TH.ListT -> [|ICon (SomeTypeRep (typeRep @[]))|]
-  TH.TupleT 2 -> [|ICon (SomeTypeRep (typeRep @(,)))|]
-  TH.TupleT 3 -> [|ICon (SomeTypeRep (typeRep @(,,)))|]
-  TH.TupleT 4 -> [|ICon (SomeTypeRep (typeRep @(,,,)))|]
-  TH.TupleT 0 -> [|ICon (SomeTypeRep (typeRep @()))|]
-  ty0@TH.PromotedT {} ->
-    [|ICon (SomeTypeRep $(TH.appTypeE (TH.varE 'typeRep) (pure ty0)))|]
-  t -> error $ "Unexpected type shape: " ++ show t
- );
+         -- Get the unique integer for a name; hard errors if not available.
+         nameUnique :: TH.Name -> Integer
+         nameUnique (TH.Name _ (TH.NameU i)) = i
+         nameUnique name = error $ "Bad TH problem in nameUnique: " ++ show name
 
--- Get the unique integer for a name; hard errors if not available.
-nameUnique :: TH.Name -> Integer;
-nameUnique (TH.Name _ (TH.NameU i)) = i;
-nameUnique name = error $ "Bad TH problem in nameUnique: " ++ show name;
+         -- Get statements from the do-notation; hard errors otherwise.
+         expBinds :: TH.Exp -> [TH.Stmt]
+         expBinds (TH.DoE Nothing binds) = binds
+         expBinds e = error $ "Expected plain do-notation, but got: " ++ show e
 
--- Get statements from the do-notation; hard errors otherwise.
-expBinds :: TH.Exp -> [TH.Stmt];
-expBinds (TH.DoE Nothing binds) = binds;
-expBinds e = error $ "Expected plain do-notation, but got: " ++ show e;
+         -- Get a very simple, unary constraint: Klass tyvar
+         getConstraint :: TH.Type -> (TH.Name, TH.Name)
+         getConstraint (TH.AppT (TH.ConT cls') (TH.VarT v)) = (cls', v)
+         getConstraint cons = error $ "Unsupported class constraint shape: " ++ show cons
 
--- Get a very simple, unary constraint: Klass tyvar
-getConstraint :: TH.Type -> (TH.Name, TH.Name);
-getConstraint (TH.AppT (TH.ConT cls') (TH.VarT v)) = (cls', v);
-getConstraint cons = error $ "Unsupported class constraint shape: " ++ show cons;
+         -- \| Parse out a primitive's name, expression and type.
+         --
+         -- Example:
+         --
+         --   "Function.id" Function.id :: forall a. a -> a
+         parsePrim ::
+           TH.Stmt ->
+           (String, TH.Exp, TH.Type, [TH.TyVarBndr TH.Specificity], TH.Cxt, TH.Type)
+         parsePrim
+           ( TH.NoBindS
+               ( TH.SigE
+                   (TH.AppE (TH.LitE (TH.StringL string)) expr0)
+                   thtype@(TH.ForallT vars constraints typ)
+                 )
+             ) =
+             (string, expr0, thtype, vars, constraints, typ)
+         parsePrim e =
+           error $
+             "Should be of the form \"Some.name\" The.name :: T\ngot: "
+               ++ show e
 
--- | Parse out a primitive's name, expression and type.
---
--- Example:
---
---   "Function.id" Function.id :: forall a. a -> a
---
-parsePrim :: TH.Stmt
-  -> (String, TH.Exp, TH.Type, [TH.TyVarBndr TH.Specificity], TH.Cxt, TH.Type);
-parsePrim
-  ( TH.NoBindS
-     ( TH.SigE
-         (TH.AppE (TH.LitE (TH.StringL string)) expr0)
-         thtype@(TH.ForallT vars constraints typ)
-       )
-   ) =
-   (string, expr0, thtype, vars, constraints, typ);
-parsePrim e =
-  error $
-    "Should be of the form \"Some.name\" The.name :: T\ngot: " ++
-    show e;
+         -- Get the name of the type variable, must be specified, not
+         -- inferred. Kind assumed to be * unless specified.
+         tyVarBndrNameKind :: TH.TyVarBndr TH.Specificity -> (TH.Name, TH.Kind)
+         tyVarBndrNameKind = \case
+           (TH.PlainTV v TH.SpecifiedSpec) -> (v, TH.StarT)
+           (TH.KindedTV v TH.SpecifiedSpec k) -> (v, k)
+           _ -> error "The type variable specificity should not be inferred."
 
--- Get the name of the type variable, must be specified, not
--- inferred. Kind assumed to be * unless specified.
-tyVarBndrNameKind :: TH.TyVarBndr TH.Specificity -> (TH.Name, TH.Kind);
-tyVarBndrNameKind = \case {
-  (TH.PlainTV v TH.SpecifiedSpec) -> (v, TH.StarT);
-  (TH.KindedTV v TH.SpecifiedSpec k) -> (v, k);
-  _ -> error "The type variable specificity should not be inferred."
- };
+         -- Where all primitives are defined. Consists of the name, expression
+         -- and type. Unless stated otherwise, all type variables are assumed
+         -- to be of kind Type.
+         primsExpr :: Q TH.Exp
+         primsExpr =
+           [|
+             do
+               -- Records
+               "hell:Hell.ConsR" ConsR :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Record xs -> Record (ConsL k a xs)
+               "Record.get" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). Tagged t (Record xs) -> a
+               "Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
+               "Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
 
--- Where all primitives are defined. Consists of the name, expression
--- and type. Unless stated otherwise, all type variables are assumed
--- to be of kind Type.
-primsExpr :: Q TH.Exp;
-primsExpr = [| do
+               -- Variants
+               "hell:Hell.LeftV" LeftV :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Variant (ConsL k a xs)
+               "hell:Hell.RightV" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
+               "hell:Hell.NilA" NilA :: forall r. Accessor 'NilL r
+               "hell:Hell.ConsA" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
+               "hell:Hell.runAccessor" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
 
--- Records
-"hell:Hell.ConsR" ConsR :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Record xs -> Record (ConsL k a xs)
-"Record.get" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). Tagged t (Record xs) -> a
-"Record.set" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). a -> Tagged t (Record xs) -> Tagged t (Record xs)
-"Record.modify" _ :: forall (k :: Symbol) a (t :: Symbol) (xs :: List). (a -> a) -> Tagged t (Record xs) -> Tagged t (Record xs)
+               -- Tagged
+               "hell:Hell.Tagged" Tagged :: forall (t :: Symbol) a. SSymbol t -> a -> Tagged t a
 
--- Variants
-"hell:Hell.LeftV" LeftV :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Variant (ConsL k a xs)
-"hell:Hell.RightV" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
-"hell:Hell.NilA" NilA :: forall r. Accessor 'NilL r
-"hell:Hell.ConsA" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
-"hell:Hell.runAccessor" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
+               -- Functor
+               "Functor.fmap" fmap :: forall (f :: Type -> Type) a b. (Functor f) => (a -> b) -> f a -> f b
 
--- Tagged
-"hell:Hell.Tagged" Tagged :: forall (t :: Symbol) a. SSymbol t -> a -> Tagged t a
+               -- Operators
+               "$" (Function.$) :: forall a b. (a -> b) -> a -> b
+               "." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
+               "<>" (<>) :: forall m. (Semigroup m) => m -> m -> m
 
--- Functor
-"Functor.fmap" fmap :: forall (f :: Type -> Type) a b. Functor f => (a -> b) -> f a -> f b
+               -- Monad
+               "Monad.bind" (Prelude.>>=) :: forall (m :: Type -> Type) a b. (Monad m) => m a -> (a -> m b) -> m b
+               "Monad.then" (Prelude.>>) :: forall (m :: Type -> Type) a b. (Monad m) => m a -> m b -> m b
+               "Monad.return" return :: forall a (m :: Type -> Type). (Monad m) => a -> m a
 
--- Operators
-"$" (Function.$) :: forall a b. (a -> b) -> a -> b
-"." (Function..) :: forall a b c. (b -> c) -> (a -> b) -> a -> c
-"<>" (<>) :: forall m. Semigroup m => m -> m -> m
+               -- Applicative operations
+               "Applicative.pure" pure :: forall (f :: Type -> Type) a. (Applicative f) => a -> f a
+               "<*>" (<*>) :: forall (f :: Type -> Type) a b. (Applicative f) => f (a -> b) -> f a -> f b
+               "<$>" (<$>) :: forall (f :: Type -> Type) a b. (Functor f) => (a -> b) -> f a -> f b
+               "<**>" (Options.<**>) :: forall (f :: Type -> Type) a b. (Applicative f) => f a -> f (a -> b) -> f b
 
--- Monad
-"Monad.bind" (Prelude.>>=) :: forall (m :: Type -> Type) a b. (Monad m) => m a -> (a -> m b) -> m b
-"Monad.then" (Prelude.>>) :: forall (m :: Type -> Type) a b. (Monad m) => m a -> m b -> m b
-"Monad.return" return :: forall a (m :: Type -> Type). (Monad m) => a -> m a
+               -- Alternative operations
+               "Alternative.optional" (optional) :: forall (f :: Type -> Type) a. (Alternative f) => f a -> f (Maybe a)
 
--- Applicative operations
-"Applicative.pure" pure :: forall (f :: Type -> Type) a. Applicative f => a -> f a
-"<*>" (<*>) :: forall (f :: Type -> Type) a b. Applicative f => f (a -> b) -> f a -> f b
-"<$>" (<$>) :: forall (f :: Type -> Type) a b. Functor f => (a -> b) -> f a -> f b
-"<**>" (Options.<**>) :: forall (f :: Type -> Type) a b. Applicative f => f a -> f (a -> b) -> f b
+               -- Monadic operations
+               "Monad.mapM_" mapM_ :: forall a (m :: Type -> Type). (Monad m) => (a -> m ()) -> [a] -> m ()
+               "Monad.forM_" forM_ :: forall a (m :: Type -> Type). (Monad m) => [a] -> (a -> m ()) -> m ()
+               "Monad.mapM" mapM :: forall a b (m :: Type -> Type). (Monad m) => (a -> m b) -> [a] -> m [b]
+               "Monad.forM" forM :: forall a b (m :: Type -> Type). (Monad m) => [a] -> (a -> m b) -> m [b]
+               "Monad.sequence" sequence :: forall a (m :: Type -> Type). (Monad m) => [m a] -> m [a]
+               "Monad.when" when :: forall (m :: Type -> Type). (Monad m) => Bool -> m () -> m ()
 
--- Alternative operations
-"Alternative.optional" (optional) :: forall (f :: Type -> Type) a. Alternative f => f a -> f (Maybe a)
+               -- IO
+               "IO.mapM_" mapM_ :: forall a. (a -> IO ()) -> [a] -> IO ()
+               "IO.forM_" forM_ :: forall a. [a] -> (a -> IO ()) -> IO ()
+               "IO.pure" pure :: forall a. a -> IO a
+               "IO.print" (t_putStrLn . Text.pack . Show.show) :: forall a. (Show a) => a -> IO ()
+               "Timeout.timeout" Timeout.timeout :: forall a. Int -> IO a -> IO (Maybe a)
 
--- Monadic operations
-"Monad.mapM_" mapM_ :: forall a (m :: Type -> Type). (Monad m) => (a -> m ()) -> [a] -> m ()
-"Monad.forM_" forM_ :: forall a (m :: Type -> Type). (Monad m) => [a] -> (a -> m ()) -> m ()
-"Monad.mapM" mapM :: forall a b (m :: Type -> Type). (Monad m) => (a -> m b) -> [a] -> m [b]
-"Monad.forM" forM :: forall a b (m :: Type -> Type). (Monad m) => [a] -> (a -> m b) -> m [b]
-"Monad.sequence" sequence :: forall a (m :: Type -> Type). (Monad m) => [m a] -> m [a]
-"Monad.when" when :: forall (m :: Type -> Type). (Monad m) => Bool -> m () -> m ()
+               -- Show
+               "Show.show" (Text.pack . Show.show) :: forall a. (Show a) => a -> Text
 
--- IO
-"IO.mapM_" mapM_ :: forall a. (a -> IO ()) -> [a] -> IO ()
-"IO.forM_" forM_ :: forall a. [a] -> (a -> IO ()) -> IO ()
-"IO.pure" pure :: forall a. a -> IO a
-"IO.print" (t_putStrLn . Text.pack . Show.show) :: forall a. (Show a) => a -> IO ()
-"Timeout.timeout" Timeout.timeout :: forall a. Int -> IO a -> IO (Maybe a)
+               -- Eq/Ord
+               "Eq.eq" (Eq.==) :: forall a. (Eq a) => a -> a -> Bool
+               "Ord.lt" (Ord.<) :: forall a. (Ord a) => a -> a -> Bool
+               "Ord.gt" (Ord.>) :: forall a. (Ord a) => a -> a -> Bool
 
--- Show
-"Show.show" (Text.pack . Show.show) :: forall a. (Show a) => a -> Text
+               -- Tuples
+               "Tuple.(,)" (,) :: forall a b. a -> b -> (a, b)
+               "Tuple.(,)" (,) :: forall a b. a -> b -> (a, b)
+               "Tuple.(,,)" (,,) :: forall a b c. a -> b -> c -> (a, b, c)
+               "Tuple.(,,,)" (,,,) :: forall a b c d. a -> b -> c -> d -> (a, b, c, d)
 
--- Eq/Ord
-"Eq.eq" (Eq.==) :: forall a. (Eq a) => a -> a -> Bool
-"Ord.lt" (Ord.<) :: forall a. (Ord a) => a -> a -> Bool
-"Ord.gt" (Ord.>) :: forall a. (Ord a) => a -> a -> Bool
+               -- Exit
+               "Exit.die" (Exit.die . Text.unpack) :: forall a. Text -> IO a
+               "Exit.exitWith" Exit.exitWith :: forall a. ExitCode -> IO a
+               "Exit.exitCode" exit_exitCode :: forall a. a -> (Int -> a) -> ExitCode -> a
 
--- Tuples
-"Tuple.(,)" (,) :: forall a b. a -> b -> (a, b)
-"Tuple.(,)" (,) :: forall a b. a -> b -> (a, b)
-"Tuple.(,,)" (,,) :: forall a b c. a -> b -> c -> (a, b, c)
-"Tuple.(,,,)" (,,,) :: forall a b c d. a -> b -> c -> d -> (a, b, c, d)
+               -- Exceptions
+               "Error.error" (error . Text.unpack) :: forall a. Text -> a
 
--- Exit
-"Exit.die" (Exit.die . Text.unpack) :: forall a. Text -> IO a
-"Exit.exitWith" Exit.exitWith :: forall a. ExitCode -> IO a
-"Exit.exitCode" exit_exitCode :: forall a. a -> (Int -> a) -> ExitCode -> a
+               -- Bool
+               "Bool.bool" Bool.bool :: forall a. a -> a -> Bool -> a
 
--- Exceptions
-"Error.error" (error . Text.unpack) :: forall a. Text -> a
+               -- Function
+               "Function.id" Function.id :: forall a. a -> a
+               "Function.fix" Function.fix :: forall a. (a -> a) -> a
 
--- Bool
-"Bool.bool" Bool.bool :: forall a. a -> a -> Bool -> a
+               -- Set
+               "Set.fromList" Set.fromList :: forall a. (Ord a) => [a] -> Set a
+               "Set.insert" Set.insert :: forall a. (Ord a) => a -> Set a -> Set a
+               "Set.member" Set.member :: forall a. (Ord a) => a -> Set a -> Bool
+               "Set.delete" Set.delete :: forall a. (Ord a) => a -> Set a -> Set a
+               "Set.union" Set.union :: forall a. (Ord a) => Set a -> Set a -> Set a
+               "Set.difference" Set.difference :: forall a. (Ord a) => Set a -> Set a -> Set a
+               "Set.intersection" Set.intersection :: forall a. (Ord a) => Set a -> Set a -> Set a
+               "Set.toList" Set.toList :: forall a. Set a -> [a]
+               "Set.size" Set.size :: forall a. Set a -> Int
+               "Set.singleton" Set.singleton :: forall a. (Ord a) => a -> Set a
 
--- Function
-"Function.id" Function.id :: forall a. a -> a
-"Function.fix" Function.fix :: forall a. (a -> a) -> a
+               -- These
+               "These.This" These.This :: forall a b. a -> These a b
+               "These.That" These.That :: forall a b. b -> These a b
+               "These.These" These.These :: forall a b. a -> b -> These a b
+               "These.these" These.these :: forall a b c. (a -> c) -> (b -> c) -> (a -> b -> c) -> These a b -> c
 
--- Set
-"Set.fromList" Set.fromList :: forall a. (Ord a) => [a] -> Set a
-"Set.insert" Set.insert :: forall a. (Ord a) => a -> Set a -> Set a
-"Set.member" Set.member :: forall a. (Ord a) => a -> Set a -> Bool
-"Set.delete" Set.delete :: forall a. (Ord a) => a -> Set a -> Set a
-"Set.union" Set.union :: forall a. (Ord a) => Set a -> Set a -> Set a
-"Set.difference" Set.difference :: forall a. (Ord a) => Set a -> Set a -> Set a
-"Set.intersection" Set.intersection :: forall a. (Ord a) => Set a -> Set a -> Set a
-"Set.toList" Set.toList :: forall a. Set a -> [a]
-"Set.size" Set.size :: forall a. Set a -> Int
-"Set.singleton" Set.singleton :: forall a. (Ord a) => a -> Set a
+               -- Trees
+               "Tree.Node" Tree.Node :: forall a. a -> [Tree a] -> Tree a
+               "Tree.unfoldTree" Tree.unfoldTree :: forall a b. (b -> (a, [b])) -> b -> Tree a
+               "Tree.foldTree" Tree.foldTree :: forall a b. (a -> [b] -> b) -> Tree a -> b
+               "Tree.flatten" Tree.flatten :: forall a. Tree a -> [a]
+               "Tree.levels" Tree.levels :: forall a. Tree a -> [[a]]
+               "Tree.map" fmap :: forall a b. (a -> b) -> Tree a -> Tree b
 
--- These
-"These.This" These.This :: forall a b. a -> These a b
-"These.That" These.That :: forall a b. b -> These a b
-"These.These" These.These :: forall a b. a -> b -> These a b
-"These.these" These.these :: forall a b c. (a -> c) -> (b -> c) -> (a -> b -> c) -> These a b -> c
+               -- Lists
+               "List.cons" (:) :: forall a. a -> [a] -> [a]
+               "List.nil" [] :: forall a. [a]
+               "List.length" List.length :: forall a. [a] -> Int
+               "List.scanl'" List.scanl' :: forall a b. (b -> a -> b) -> b -> [a] -> [b]
+               "List.scanr" List.scanr :: forall a b. (a -> b -> b) -> b -> [a] -> [b]
+               "List.concat" List.concat :: forall a. [[a]] -> [a]
+               "List.concatMap" List.concatMap :: forall a b. (a -> [b]) -> [a] -> [b]
+               "List.drop" List.drop :: forall a. Int -> [a] -> [a]
+               "List.take" List.take :: forall a. Int -> [a] -> [a]
+               "List.splitAt" List.splitAt :: forall a. Int -> [a] -> ([a], [a])
+               "List.break" List.break :: forall a. (a -> Bool) -> [a] -> ([a], [a])
+               "List.span" List.span :: forall a. (a -> Bool) -> [a] -> ([a], [a])
+               "List.partition" List.partition :: forall a. (a -> Bool) -> [a] -> ([a], [a])
+               "List.takeWhile" List.takeWhile :: forall a. (a -> Bool) -> [a] -> [a]
+               "List.dropWhile" List.dropWhile :: forall a. (a -> Bool) -> [a] -> [a]
+               "List.dropWhileEnd" List.dropWhileEnd :: forall a. (a -> Bool) -> [a] -> [a]
+               "List.map" List.map :: forall a b. (a -> b) -> [a] -> [b]
+               "List.any" List.any :: forall a. (a -> Bool) -> [a] -> Bool
+               "List.all" List.all :: forall a. (a -> Bool) -> [a] -> Bool
+               "List.iterate'" List.iterate' :: forall a. (a -> a) -> a -> [a]
+               "List.repeat" List.repeat :: forall a. a -> [a]
+               "List.cycle" List.cycle :: forall a. [a] -> [a]
+               "List.filter" List.filter :: forall a. (a -> Bool) -> [a] -> [a]
+               "List.foldl'" List.foldl' :: forall a b. (b -> a -> b) -> b -> [a] -> b
+               "List.foldr" List.foldr :: forall a b. (a -> b -> b) -> b -> [a] -> b
+               "List.unfoldr" List.unfoldr :: forall a b. (b -> Maybe (a, b)) -> b -> [a]
+               "List.zip" List.zip :: forall a b. [a] -> [b] -> [(a, b)]
+               "List.mapAccumL" List.mapAccumL :: forall s a b. (s -> a -> (s, b)) -> s -> [a] -> (s, [b])
+               "List.mapAccumR" List.mapAccumL :: forall s a b. (s -> a -> (s, b)) -> s -> [a] -> (s, [b])
+               "List.zipWith" List.zipWith :: forall a b c. (a -> b -> c) -> [a] -> [b] -> [c]
+               "List.lookup" List.lookup :: forall a b. (Eq a) => a -> [(a, b)] -> Maybe b
+               "List.find" List.find :: forall a. (a -> Bool) -> [a] -> Maybe a
+               "List.sort" List.sort :: forall a. (Ord a) => [a] -> [a]
+               "List.group" List.group :: forall a. (Eq a) => [a] -> [[a]]
+               "List.isPrefixOf" List.isPrefixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
+               "List.isSuffixOf" List.isSuffixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
+               "List.isInfixOf" List.isInfixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
+               "List.isSubsequenceOf" List.isSubsequenceOf :: forall a. (Eq a) => [a] -> [a] -> Bool
+               "List.groupBy" List.groupBy :: forall a. (a -> a -> Bool) -> [a] -> [[a]]
+               "List.reverse" List.reverse :: forall a. [a] -> [a]
+               "List.nubOrd" nubOrd :: forall a. (Ord a) => [a] -> [a]
+               "List.inits" List.inits :: forall a. [a] -> [[a]]
+               "List.tails" List.tails :: forall a. [a] -> [[a]]
+               "List.deleteBy" List.deleteBy :: forall a. (a -> a -> Bool) -> a -> [a] -> [a]
+               "List.elem" List.elem :: forall a. (Eq a) => a -> [a] -> Bool
+               "List.notElem" List.notElem :: forall a. (Eq a) => a -> [a] -> Bool
+               "List.sortOn" List.sortOn :: forall a b. (Ord b) => (a -> b) -> [a] -> [a]
+               "List.null" List.null :: forall a. [a] -> Bool
+               "List.elemIndex" List.elemIndex :: forall a. (Eq a) => a -> [a] -> Maybe Int
+               "List.elemIndices" List.elemIndices :: forall a. (Eq a) => a -> [a] -> [Int]
+               "List.findIndex" List.findIndex :: forall a. (a -> Bool) -> [a] -> Maybe Int
+               "List.findIndices" List.findIndices :: forall a. (a -> Bool) -> [a] -> [Int]
+               "List.uncons" List.uncons :: forall a. [a] -> Maybe (a, [a])
+               "List.intersperse" List.intersperse :: forall a. a -> [a] -> [a]
+               "List.intercalate" List.intercalate :: forall a. [a] -> [[a]] -> [a]
+               "List.transpose" List.transpose :: forall a. [[a]] -> [[a]]
+               "List.subsequences" List.subsequences :: forall a. [a] -> [[a]]
+               "List.permutations" List.permutations :: forall a. [a] -> [[a]]
 
--- Trees
-"Tree.Node" Tree.Node :: forall a. a -> [Tree a] -> Tree a
-"Tree.unfoldTree" Tree.unfoldTree :: forall a b. (b -> (a, [b])) -> b -> Tree a
-"Tree.foldTree" Tree.foldTree :: forall a b. (a -> [b] -> b) -> Tree a -> b
-"Tree.flatten" Tree.flatten :: forall a. Tree a -> [a]
-"Tree.levels" Tree.levels :: forall a. Tree a -> [[a]]
-"Tree.map" fmap :: forall a b. (a -> b) -> Tree a -> Tree b
+               -- Vector
+               "Vector.fromList" Vector.fromList :: forall a. [a] -> Vector a
+               "Vector.toList" Vector.toList :: forall a. Vector a -> [a]
 
--- Lists
-"List.cons" (:) :: forall a. a -> [a] -> [a]
-"List.nil" [] :: forall a. [a]
-"List.length" List.length :: forall a. [a] -> Int
-"List.scanl'" List.scanl' :: forall a b. (b -> a -> b) -> b -> [a] -> [b]
-"List.scanr" List.scanr :: forall a b. (a -> b -> b) -> b -> [a] -> [b]
-"List.concat" List.concat :: forall a. [[a]] -> [a]
-"List.concatMap" List.concatMap :: forall a b. (a -> [b]) -> [a] -> [b]
-"List.drop" List.drop :: forall a. Int -> [a] -> [a]
-"List.take" List.take :: forall a. Int -> [a] -> [a]
-"List.splitAt" List.splitAt :: forall a. Int -> [a] -> ([a], [a])
-"List.break" List.break :: forall a. (a -> Bool) -> [a] -> ([a], [a])
-"List.span" List.span :: forall a. (a -> Bool) -> [a] -> ([a], [a])
-"List.partition" List.partition :: forall a. (a -> Bool) -> [a] -> ([a], [a])
-"List.takeWhile" List.takeWhile :: forall a. (a -> Bool) -> [a] -> [a]
-"List.dropWhile" List.dropWhile :: forall a. (a -> Bool) -> [a] -> [a]
-"List.dropWhileEnd" List.dropWhileEnd :: forall a. (a -> Bool) -> [a] -> [a]
-"List.map" List.map :: forall a b. (a -> b) -> [a] -> [b]
-"List.any" List.any :: forall a. (a -> Bool) -> [a] -> Bool
-"List.all" List.all :: forall a. (a -> Bool) -> [a] -> Bool
-"List.iterate'" List.iterate' :: forall a. (a -> a) -> a -> [a]
-"List.repeat" List.repeat :: forall a. a -> [a]
-"List.cycle" List.cycle :: forall a. [a] -> [a]
-"List.filter" List.filter :: forall a. (a -> Bool) -> [a] -> [a]
-"List.foldl'" List.foldl' :: forall a b. (b -> a -> b) -> b -> [a] -> b
-"List.foldr" List.foldr :: forall a b. (a -> b -> b) -> b -> [a] -> b
-"List.unfoldr" List.unfoldr :: forall a b. (b -> Maybe (a, b)) -> b -> [a]
-"List.zip" List.zip :: forall a b. [a] -> [b] -> [(a, b)]
-"List.mapAccumL" List.mapAccumL :: forall s a b. (s -> a -> (s, b)) -> s -> [a] -> (s, [b])
-"List.mapAccumR" List.mapAccumL :: forall s a b. (s -> a -> (s, b)) -> s -> [a] -> (s, [b])
-"List.zipWith" List.zipWith :: forall a b c. (a -> b -> c) -> [a] -> [b] -> [c]
-"List.lookup" List.lookup :: forall a b. (Eq a) => a -> [(a, b)] -> Maybe b
-"List.find" List.find :: forall a. (a -> Bool) -> [a] -> Maybe a
-"List.sort" List.sort :: forall a. (Ord a) => [a] -> [a]
-"List.group" List.group :: forall a. (Eq a) => [a] -> [[a]]
-"List.isPrefixOf" List.isPrefixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
-"List.isSuffixOf" List.isSuffixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
-"List.isInfixOf" List.isInfixOf :: forall a. (Eq a) => [a] -> [a] -> Bool
-"List.isSubsequenceOf" List.isSubsequenceOf :: forall a. (Eq a) => [a] -> [a] -> Bool
-"List.groupBy" List.groupBy :: forall a. (a -> a -> Bool) -> [a] -> [[a]]
-"List.reverse" List.reverse :: forall a. [a] -> [a]
-"List.nubOrd" nubOrd :: forall a. (Ord a) => [a] -> [a]
-"List.inits" List.inits :: forall a. [a] -> [[a]]
-"List.tails" List.tails :: forall a. [a] -> [[a]]
-"List.deleteBy" List.deleteBy :: forall a. (a -> a -> Bool) -> a -> [a] -> [a]
-"List.elem" List.elem :: forall a. (Eq a) => a -> [a] -> Bool
-"List.notElem" List.notElem :: forall a. (Eq a) => a -> [a] -> Bool
-"List.sortOn" List.sortOn :: forall a b. (Ord b) => (a -> b) -> [a] -> [a]
-"List.null" List.null :: forall a. [a] -> Bool
-"List.elemIndex" List.elemIndex :: forall a. (Eq a) => a -> [a] -> Maybe Int
-"List.elemIndices" List.elemIndices :: forall a. (Eq a) => a -> [a] -> [Int]
-"List.findIndex" List.findIndex :: forall a. (a -> Bool) -> [a] -> Maybe Int
-"List.findIndices" List.findIndices :: forall a. (a -> Bool) -> [a] -> [Int]
-"List.uncons" List.uncons :: forall a. [a] -> Maybe (a, [a])
-"List.intersperse" List.intersperse :: forall a. a -> [a] -> [a]
-"List.intercalate" List.intercalate :: forall a. [a] -> [[a]] -> [a]
-"List.transpose" List.transpose :: forall a. [[a]] -> [[a]]
-"List.subsequences" List.subsequences :: forall a. [a] -> [[a]]
-"List.permutations" List.permutations :: forall a. [a] -> [[a]]
+               -- Map
+               "Map.fromList" Map.fromList :: forall k a. (Ord k) => [(k, a)] -> Map k a
+               "Map.lookup" Map.lookup :: forall k a. (Ord k) => k -> Map k a -> Maybe a
+               "Map.insert" Map.insert :: forall k a. (Ord k) => k -> a -> Map k a -> Map k a
+               "Map.delete" Map.delete :: forall k a. (Ord k) => k -> Map k a -> Map k a
+               "Map.singleton" Map.singleton :: forall k a. (Ord k) => k -> a -> Map k a
+               "Map.size" Map.size :: forall k a. Map k a -> Int
+               "Map.filter" Map.filter :: forall k a. (a -> Bool) -> Map k a -> Map k a
+               "Map.filterWithKey" Map.filterWithKey :: forall k a. (k -> a -> Bool) -> Map k a -> Map k a
+               "Map.any" any :: forall k a. (a -> Bool) -> Map k a -> Bool
+               "Map.all" all :: forall k a. (a -> Bool) -> Map k a -> Bool
+               "Map.insertWith" Map.insertWith :: forall k a. (Ord k) => (a -> a -> a) -> k -> a -> Map k a -> Map k a
+               "Map.adjust" Map.adjust :: forall k a. (Ord k) => (a -> a) -> k -> Map k a -> Map k a
+               "Map.unionWith" Map.unionWith :: forall k a. (Ord k) => (a -> a -> a) -> Map k a -> Map k a -> Map k a
+               "Map.map" Map.map :: forall a b k. (a -> b) -> Map k a -> Map k b
+               "Map.toList" Map.toList :: forall k a. Map k a -> [(k, a)]
+               "Map.keys" Map.keys :: forall k a. Map k a -> [k]
+               "Map.elems" Map.elems :: forall k a. Map k a -> [a]
 
--- Vector
-"Vector.fromList" Vector.fromList :: forall a. [a] -> Vector a
-"Vector.toList" Vector.toList :: forall a. Vector a -> [a]
+               -- Maybe
+               "Maybe.maybe" Maybe.maybe :: forall a b. b -> (a -> b) -> Maybe a -> b
+               "Maybe.Nothing" Maybe.Nothing :: forall a. Maybe a
+               "Maybe.Just" Maybe.Just :: forall a. a -> Maybe a
+               "Maybe.listToMaybe" Maybe.listToMaybe :: forall a. [a] -> Maybe a
+               "Maybe.mapMaybe" Maybe.mapMaybe :: forall a b. (a -> Maybe b) -> [a] -> [b]
 
--- Map
-"Map.fromList" Map.fromList :: forall k a. (Ord k) => [(k, a)] -> Map k a
-"Map.lookup" Map.lookup :: forall k a. (Ord k) => k -> Map k a -> Maybe a
-"Map.insert" Map.insert :: forall k a. (Ord k) => k -> a -> Map k a -> Map k a
-"Map.delete" Map.delete :: forall k a. (Ord k) => k -> Map k a -> Map k a
-"Map.singleton" Map.singleton :: forall k a. (Ord k) => k -> a -> Map k a
-"Map.size" Map.size :: forall k a. Map k a -> Int
-"Map.filter" Map.filter :: forall k a. (a -> Bool) -> Map k a -> Map k a
-"Map.filterWithKey" Map.filterWithKey :: forall k a. (k -> a -> Bool) -> Map k a -> Map k a
-"Map.any" any :: forall k a. (a -> Bool) -> Map k a -> Bool
-"Map.all" all :: forall k a. (a -> Bool) -> Map k a -> Bool
-"Map.insertWith" Map.insertWith :: forall k a. (Ord k) => (a -> a -> a) -> k -> a -> Map k a -> Map k a
-"Map.adjust" Map.adjust :: forall k a. (Ord k) => (a -> a) -> k -> Map k a -> Map k a
-"Map.unionWith" Map.unionWith :: forall k a. (Ord k) => (a -> a -> a) -> Map k a -> Map k a -> Map k a
-"Map.map" Map.map :: forall a b k. (a -> b) -> Map k a -> Map k b
-"Map.toList" Map.toList :: forall k a. Map k a -> [(k, a)]
-"Map.keys" Map.keys :: forall k a. Map k a -> [k]
-"Map.elems" Map.elems :: forall k a. Map k a -> [a]
+               -- Either
+               "Either.either" Either.either :: forall a b x. (a -> x) -> (b -> x) -> Either a b -> x
+               "Either.Left" Either.Left :: forall a b. a -> Either a b
+               "Either.Right" Either.Right :: forall a b. b -> Either a b
 
--- Maybe
-"Maybe.maybe" Maybe.maybe :: forall a b. b -> (a -> b) -> Maybe a -> b
-"Maybe.Nothing" Maybe.Nothing :: forall a. Maybe a
-"Maybe.Just" Maybe.Just :: forall a. a -> Maybe a
-"Maybe.listToMaybe" Maybe.listToMaybe :: forall a. [a] -> Maybe a
-"Maybe.mapMaybe" Maybe.mapMaybe :: forall a b. (a -> Maybe b) -> [a] -> [b]
+               -- Async
+               "Async.concurrently" Async.concurrently :: forall a b. IO a -> IO b -> IO (a, b)
+               "Async.race" Async.race :: forall a b. IO a -> IO b -> IO (Either a b)
+               "Async.pooledMapConcurrently_" Async.pooledMapConcurrently_ :: forall a. (a -> IO ()) -> [a] -> IO ()
+               "Async.pooledForConcurrently_" Async.pooledForConcurrently_ :: forall a. [a] -> (a -> IO ()) -> IO ()
+               "Async.pooledMapConcurrently" Async.pooledMapConcurrently :: forall a b. (a -> IO b) -> [a] -> IO [b]
+               "Async.pooledForConcurrently" Async.pooledForConcurrently :: forall a b. [a] -> (a -> IO b) -> IO [b]
 
--- Either
-"Either.either" Either.either :: forall a b x. (a -> x) -> (b -> x) -> Either a b -> x
-"Either.Left" Either.Left :: forall a b. a -> Either a b
-"Either.Right" Either.Right :: forall a b. b -> Either a b
+               -- JSON
+               "Json.value" json_value :: forall a. a -> (Bool -> a) -> (Text -> a) -> (Double -> a) -> (Vector Value -> a) -> (Map Text Value -> a) -> Value -> a
 
--- Async
-"Async.concurrently" Async.concurrently :: forall a b. IO a -> IO b -> IO (a, b)
-"Async.race" Async.race :: forall a b. IO a -> IO b -> IO (Either a b)
-"Async.pooledMapConcurrently_" Async.pooledMapConcurrently_ :: forall a. (a -> IO ()) -> [a] -> IO ()
-"Async.pooledForConcurrently_" Async.pooledForConcurrently_ :: forall a. [a] -> (a -> IO ()) -> IO ()
-"Async.pooledMapConcurrently" Async.pooledMapConcurrently :: forall a b. (a -> IO b) -> [a] -> IO [b]
-"Async.pooledForConcurrently" Async.pooledForConcurrently :: forall a b. [a] -> (a -> IO b) -> IO [b]
+               -- Temp
+               "Temp.withSystemTempFile" temp_withSystemTempFile :: forall a. Text -> (Text -> IO.Handle -> IO a) -> IO a
+               "Temp.withSystemTempDirectory" temp_withSystemTempDirectory :: forall a. Text -> (Text -> IO a) -> IO a
 
--- JSON
-"Json.value" json_value :: forall a. a -> (Bool -> a) -> (Text -> a) -> (Double -> a) -> (Vector Value -> a) -> (Map Text Value -> a) -> Value -> a
+               -- Process
+               "Process.runProcess" runProcess :: forall a b c. ProcessConfig a b c -> IO ExitCode
+               "Process.runProcess_" runProcess_ :: forall a b c. ProcessConfig a b c -> IO ()
+               "Process.setStdin" setStdin :: forall stdin stdin' stdout stderr. StreamSpec 'STInput stdin' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin' stdout stderr
+               "Process.setStdout" setStdout :: forall stdin stdout stdout' stderr. StreamSpec 'STOutput stdout' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout' stderr
+               "Process.setStderr" setStderr :: forall stdin stdout stderr stderr'. StreamSpec 'STOutput stderr' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout stderr'
+               "Process.nullStream" Process.nullStream :: forall (a :: StreamType). StreamSpec a ()
+               "Process.useHandleClose" useHandleClose :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
+               "Process.useHandleOpen" useHandleOpen :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
+               "Process.setWorkingDir" process_setWorkingDir :: forall a b c. Text -> ProcessConfig a b c -> ProcessConfig a b c
 
--- Temp
-"Temp.withSystemTempFile" temp_withSystemTempFile :: forall a. Text -> (Text -> IO.Handle -> IO a) -> IO a
-"Temp.withSystemTempDirectory" temp_withSystemTempDirectory :: forall a. Text -> (Text -> IO a) -> IO a
-
--- Process
-"Process.runProcess" runProcess :: forall a b c. ProcessConfig a b c -> IO ExitCode
-"Process.runProcess_" runProcess_ :: forall a b c. ProcessConfig a b c -> IO ()
-"Process.setStdin" setStdin :: forall stdin stdin' stdout stderr. StreamSpec 'STInput stdin' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin' stdout stderr
-"Process.setStdout" setStdout :: forall stdin stdout stdout' stderr. StreamSpec 'STOutput stdout' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout' stderr
-"Process.setStderr" setStderr :: forall stdin stdout stderr stderr'. StreamSpec 'STOutput stderr' -> ProcessConfig stdin stdout stderr -> ProcessConfig stdin stdout stderr'
-"Process.nullStream" Process.nullStream :: forall (a :: StreamType). StreamSpec a ()
-"Process.useHandleClose" useHandleClose :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
-"Process.useHandleOpen" useHandleOpen :: forall (a :: StreamType). IO.Handle -> StreamSpec a ()
-"Process.setWorkingDir" process_setWorkingDir :: forall a b c. Text -> ProcessConfig a b c -> ProcessConfig a b c
-
--- Options
-"Options.execParser" Options.execParser :: forall a. Options.ParserInfo a -> IO a
-"Options.info" Options.info :: forall a. Options.Parser a -> Options.InfoMod a -> Options.ParserInfo a
-"Options.helper" Options.helper :: forall a. Options.Parser (a -> a)
-"Options.fullDesc" Options.fullDesc :: forall a. Options.InfoMod a
-"Options.flag" Options.flag :: forall a. a -> a -> Options.Mod Options.FlagFields a -> Parser a
-"Options.flag'" Options.flag' :: forall a. a -> Options.Mod Options.FlagFields a -> Parser a
-"Option.long" option_long :: forall a. Text -> Options.Mod Options.OptionFields a
-"Option.help" options_help :: forall a. Text -> Options.Mod Options.OptionFields a
-"Flag.help" options_help :: forall a. Text -> Options.Mod Options.FlagFields a
-"Flag.long" flag_long :: forall a. Text -> Options.Mod Options.FlagFields a
-"Option.value" option_value :: forall a. a -> Options.Mod Options.OptionFields a
-"Argument.value" argument_value :: forall a. a -> Options.Mod Options.ArgumentFields a
-"Argument.metavar" argument_metavar :: forall a. Text -> Options.Mod Options.ArgumentFields a
-"Argument.help" options_help :: forall a. Text -> Options.Mod Options.ArgumentFields a
-
-|];
-
-} in toplevel)
+               -- Options
+               "Options.execParser" Options.execParser :: forall a. Options.ParserInfo a -> IO a
+               "Options.info" Options.info :: forall a. Options.Parser a -> Options.InfoMod a -> Options.ParserInfo a
+               "Options.helper" Options.helper :: forall a. Options.Parser (a -> a)
+               "Options.fullDesc" Options.fullDesc :: forall a. Options.InfoMod a
+               "Options.flag" Options.flag :: forall a. a -> a -> Options.Mod Options.FlagFields a -> Parser a
+               "Options.flag'" Options.flag' :: forall a. a -> Options.Mod Options.FlagFields a -> Parser a
+               "Option.long" option_long :: forall a. Text -> Options.Mod Options.OptionFields a
+               "Option.help" options_help :: forall a. Text -> Options.Mod Options.OptionFields a
+               "Flag.help" options_help :: forall a. Text -> Options.Mod Options.FlagFields a
+               "Flag.long" flag_long :: forall a. Text -> Options.Mod Options.FlagFields a
+               "Option.value" option_value :: forall a. a -> Options.Mod Options.OptionFields a
+               "Argument.value" argument_value :: forall a. a -> Options.Mod Options.ArgumentFields a
+               "Argument.metavar" argument_metavar :: forall a. Text -> Options.Mod Options.ArgumentFields a
+               "Argument.help" options_help :: forall a. Text -> Options.Mod Options.ArgumentFields a
+             |]
+      in toplevel
+   )
 
 --------------------------------------------------------------------------------
 -- Internal-use only, used by the desugarer
@@ -2444,9 +2492,9 @@ zonk = \case
 --------------------------------------------------------------------------------
 -- Parse with #!/shebangs
 
-data File = File {
-  terms :: [(String, HSE.Exp HSE.SrcSpanInfo)],
-  types :: [(String, HSE.Type HSE.SrcSpanInfo)]
+data File = File
+  { terms :: [(String, HSE.Exp HSE.SrcSpanInfo)],
+    types :: [(String, HSE.Type HSE.SrcSpanInfo)]
   }
 
 -- Parse a file into a list of decls, but strip shebangs.
