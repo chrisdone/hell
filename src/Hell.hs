@@ -748,9 +748,10 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
 -- At some point you have to decide on the kinds of things. This
 -- function handles a few common cases for instance head types:
 --
--- Int :: Type                             (common case)
--- Either :: Type -> Type -> Type          (rare case)
--- Mod :: (Type -> Type) -> Type -> Type   (only one example as of writing this comment)
+-- Int    :: Type                           (common case)
+-- []     :: Type -> Type                   (less common case)
+-- Either :: Type -> Type -> Type           (rare case)
+-- Mod    :: (Type -> Type) -> Type -> Type (only one example as of writing this comment)
 withClassConstraint ::
   forall g k (c :: k -> Constraint) (a :: k).
   HSE.SrcSpanInfo ->
@@ -762,6 +763,12 @@ withClassConstraint ::
   Either TypeCheckError (Typed (Term g))
 withClassConstraint forallLoc reps rep crep f go =
   if
+      -- Cases that look like: Semigroup (Vector (e :: *))
+      -- Note: the kinds are limited to this exact specification in the signature above.
+      | Type.App t _ <- rep,
+        Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type)),
+        Just dict <- resolve1 (Type.App crep rep) crep t instances ->
+        go reps (withDict dict f)
       -- Cases that look like: Monad (Either (e :: *) (a :: *))
       -- Note: the kinds are limited to this exact specification in the signature above.
       | Type.App t _ <- rep,
@@ -855,7 +862,8 @@ instances =
         instance1 @Monoid @[],
         instance2 @Semigroup @Options.Mod,
         instance0 @Semigroup @Text,
-        instance1 @Semigroup @Vector
+        instance1 @Semigroup @Vector,
+        instance1 @Semigroup @[]
       ]
 
 --------------------------------------------------------------------------------
