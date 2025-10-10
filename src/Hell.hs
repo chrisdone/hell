@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE CPP #-}
@@ -41,13 +42,15 @@
 
 module Main (main) where
 
+#if __GLASGOW_HASKELL__ >= 906
+import Control.Monad
+#endif
+
 -- All modules tend to be imported qualified by their last component,
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
-#if __GLASGOW_HASKELL__ >= 906
-import Control.Monad
-#endif
+import Criterion.Measurement
 import Control.Applicative (Alternative (..), optional)
 import qualified Control.Concurrent as Concurrent
 import Control.Exception (evaluate)
@@ -125,12 +128,15 @@ import qualified UnliftIO.Async as Async
 -- | Commands available.
 data Command
   = Run FilePath
-  | Check FilePath
+  | Check FilePath StatsEnabled
   | Version
+
+data StatsEnabled = NoStats | PrintStats
 
 -- | Main entry point.
 main :: IO ()
 main = do
+  initializeTime
   args <- getArgs
   case args of
     (x : ys)
@@ -150,7 +156,8 @@ commandParser :: Options.Parser Command
 commandParser =
   Options.asum
     [ Run <$> Options.strArgument (Options.metavar "FILE" <> Options.help "Run the given .hell file"),
-      Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file"),
+      Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file") <*>
+         Options.flag NoStats PrintStats (Options.long "compiler-stats" <> Options.internal),
       Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version")
     ]
 
@@ -162,37 +169,48 @@ hellVersion = "2025-06-09"
 dispatch :: Command -> IO ()
 dispatch Version = Text.putStrLn hellVersion
 dispatch (Run filePath) = do
-  action <- compileFile filePath
+  action <- compileFile NoStats filePath
   eval () action
-dispatch (Check filePath) = do
-  compileFile filePath >>= void . evaluate
+dispatch (Check filePath stats) = do
+  compileFile stats filePath >>= void . evaluate
 
 --------------------------------------------------------------------------------
 -- Compiler
 
 -- | Parses the file with HSE, desugars it, infers it, checks it,
 -- returns it. Or throws an error.
-compileFile :: FilePath -> IO (Term () (IO ()))
-compileFile filePath = do
-  result <- parseFile filePath
+compileFile :: StatsEnabled -> FilePath -> IO (Term () (IO ()))
+compileFile stats filePath = do
+  t0 <- getTime
+  !result <- parseFile filePath
+  t1 <- getTime
+  emitStat stats "parse" (t1-t0)
   case result of
     Left e -> error $ e
     Right File {terms, types}
       | anyCycles terms -> error "Cyclic bindings are not supported!"
       | anyCycles types -> error "Cyclic types are not supported!"
-      | otherwise ->
+      | otherwise -> do
+          t2 <- getTime
+          emitStat stats "cycle_detect" (t2-t1)
           case desugarAll types terms of
             Left err -> error $ prettyString err
-            Right dterms ->
+            Right !dterms -> do
+              t3 <- getTime
+              emitStat stats "desugar" (t3-t2)
               case lookup "main" dterms of
                 Nothing -> error "No main declaration!"
                 Just main' ->
                   case inferExp mempty main' of
                     Left err -> error $ prettyString err
-                    Right uterm ->
+                    Right uterm -> do
+                      t4 <- getTime
+                      emitStat stats "infer" (t4-t3)
                       case check uterm Nil of
                         Left err -> error $ prettyString err
-                        Right (Typed t ex) ->
+                        Right (Typed t ex) -> do
+                          t5 <- getTime
+                          emitStat stats "check" (t5-t4)
                           case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
                             Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
                             Just Type.HRefl ->
@@ -200,6 +218,11 @@ compileFile filePath = do
                                 Just Type.HRefl ->
                                   pure ex
                                 Nothing -> error $ "Type isn't IO (), but: " ++ show t
+
+emitStat :: StatsEnabled -> Text -> Double -> IO ()
+emitStat NoStats _ _ = pure ()
+emitStat PrintStats label s =
+  t_putStrLn $ "stat: " <> label <> " = " <> Text.pack (secs s)
 
 --------------------------------------------------------------------------------
 -- Get declarations from the module

@@ -12,6 +12,7 @@ dependencies:
 - text
 - bytestring
 - async
+- criterion-measurement
 - mtl
 - directory
 - syb

@@ -26,6 +26,7 @@ executable hell
     , bytestring
     , constraints
     , containers
+    , criterion-measurement
     , directory
     , ghc-prim
     , haskell-src-exts
