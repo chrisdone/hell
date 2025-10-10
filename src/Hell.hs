@@ -720,6 +720,14 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
 --------------------------------------------------------------------------------
 -- Type class resolution at the call site
 
+-- Declaration of instances (instance0, instance1, etc.) is kind-polymorphic,
+-- and resolve, resolve1, etc. are kind-polymorphic. But this function IS NOT.
+-- At some point you have to decide on the kinds of things. This
+-- function handles a few common cases for instance head types:
+--
+-- Int :: *                    (common case)
+-- Either :: * -> * -> *       (rare case)
+-- Mod :: (* -> *) -> * -> *   (only one example as of writing this comment)
 withClassConstraint ::
   forall g k (c :: k -> Constraint) (a :: k).
   HSE.SrcSpanInfo ->
