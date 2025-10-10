@@ -666,52 +666,8 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
     go (SomeTypeRep rep : reps) (Forall sym f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) sym = go reps (f rep)
     -- Cases that look like: Monad (Either (a :: Type) :: Type -> Type)
-    go reps fa@(ClassConstraint rep crep f)
-      | Type.Fun x y <- typeRepKind crep,
-         -- Check the Klass (F2 a) construction
-         Just Type.HRefl <- Type.eqTypeRep y (TypeRep @Constraint),
-         Just Type.HRefl <- Type.eqTypeRep x (TypeRep @(Type -> Type)),
-         Just Type.HRefl <- Type.eqTypeRep x (typeRepKind rep),
-         -- Check the F2 part
-         Type.App t _ <- rep,
-         Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type))
-         =
-         case resolve1 (Type.App crep rep) crep t instances of
-            Just dict ->
-              go reps (withDict dict f)
-            Nothing ->
-              problem fa $ "type " ++ show rep ++
-              " not an instance of .. " ++ show crep
-    -- Cases that look like: Semigroup (Mod (f :: * -> *) (a :: *))
-    -- Note: the kinds are limited to this type.
-    go reps fa@(ClassConstraint rep crep f)
-      | Type.Fun x y <- typeRepKind crep,
-         -- Check the Klass (F2 a b) construction
-         Just Type.HRefl <- Type.eqTypeRep y (TypeRep @Constraint),
-         Just Type.HRefl <- Type.eqTypeRep x (TypeRep @Type),
-         Just Type.HRefl <- Type.eqTypeRep x (typeRepKind rep),
-         -- -- Check the F2 part
-         Type.App (Type.App t _a) _b <- rep,
-         Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @((Type -> Type) -> Type -> Type))
-         =
-         case resolve2 (Type.App crep rep) crep t instances of
-            Just dict ->
-              go reps (withDict dict f)
-            Nothing ->
-              problem fa $ "type " ++ show rep ++
-              " not an instance of? " ++ show crep
-    -- Simple cases: Eq a
-    go reps fa@(ClassConstraint rep crep f) =
-      case typeRepKind crep of
-       Type.Fun x y |
-         Just Type.HRefl <- Type.eqTypeRep x (typeRepKind rep),
-         Just Type.HRefl <- Type.eqTypeRep y (TypeRep @Constraint) ->
-          case resolve crep rep instances of
-            Just dict ->
-              go reps (withDict dict f)
-            Nothing ->
-              problem fa $ "type " ++ show rep ++ " not an instance of ! " ++ show crep
-       _ -> problem fa $ "malformed constraint: " ++ show crep
+    go reps (ClassConstraint rep crep f) =
+      withClassConstraint reps rep crep f go
     go reps fa@(GetOf k0 a0 t0 r0 f) =
       case makeAccessor k0 r0 a0 t0 of
         Just accessor -> go reps (f accessor)
@@ -728,6 +684,67 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
 
     problem :: Forall -> String -> Either TypeCheckError a
     problem fa = Left . ConstraintResolutionProblem forallLoc fa
+
+--------------------------------------------------------------------------------
+-- Type class resolution at the call site
+
+withClassConstraint ::
+  forall g k (c :: k -> Constraint) (a :: k).
+  [SomeTypeRep] ->
+  TypeRep a ->
+  TypeRep c ->
+  (c a => Forall) ->
+  ([SomeTypeRep] -> Forall -> Either TypeCheckError (Typed (Term g))) ->
+  Either TypeCheckError (Typed (Term g))
+withClassConstraint reps rep crep f go =
+ if
+  | Type.Fun x y <- typeRepKind crep,
+    -- Check the Klass (F2 a) construction
+    Just Type.HRefl <- Type.eqTypeRep y (TypeRep @Constraint),
+    Just Type.HRefl <- Type.eqTypeRep x (TypeRep @(Type -> Type)),
+    Just Type.HRefl <- Type.eqTypeRep x (typeRepKind rep),
+    -- Check the F2 part
+    Type.App t _ <- rep,
+    Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type))
+    ->
+    case resolve1 (Type.App crep rep) crep t instances of
+       Just dict ->
+         go reps (withDict dict f)
+       Nothing ->
+         problem  $ "type " ++ show rep ++
+         " not an instance of " ++ show crep
+   -- Cases that look like: Semigroup (Mod (f :: * -> *) (a :: *))
+    -- Note: the kinds are limited to this type.
+   | Type.Fun x y <- typeRepKind crep,
+     -- Check the Klass (F2 a b) construction
+     Just Type.HRefl <- Type.eqTypeRep y (TypeRep @Constraint),
+     Just Type.HRefl <- Type.eqTypeRep x (TypeRep @Type),
+     Just Type.HRefl <- Type.eqTypeRep x (typeRepKind rep),
+     -- -- Check the F2 part
+     Type.App (Type.App t _a) _b <- rep,
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @((Type -> Type) -> Type -> Type))
+       ->
+       case resolve2 (Type.App crep rep) crep t instances of
+          Just dict ->
+            go reps (withDict dict f)
+          Nothing ->
+            problem $ "type " ++ show rep ++
+            " not an instance of " ++ show crep
+     -- Simple cases: Eq a
+  | Type.Fun x y <- typeRepKind crep,
+    Just Type.HRefl <- Type.eqTypeRep x (typeRepKind rep),
+    Just Type.HRefl <- Type.eqTypeRep y (TypeRep @Constraint) ->
+      case resolve crep rep instances of
+        Just dict ->
+          go reps (withDict dict f)
+        Nothing ->
+          problem $ "type " ++ show rep ++ " not an instance of " ++ show crep
+   | otherwise ->
+     problem $ "malformed or unsupported constraint shape: " ++ show crep
+ where
+   problem :: forall x. String -> Either TypeCheckError x
+   problem = Left . ConstraintResolutionProblem forallLoc (ClassConstraint rep crep f)
+   forallLoc = undefined
 
 --------------------------------------------------------------------------------
 -- Instances
