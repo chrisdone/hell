@@ -853,7 +853,9 @@ instances =
         instance1 @Monoid @Vector,
         instance2 @Monoid @Options.Mod,
         instance1 @Monoid @[],
-        instance2 @Semigroup @Options.Mod
+        instance2 @Semigroup @Options.Mod,
+        instance0 @Semigroup @Text,
+        instance1 @Semigroup @Vector
       ]
 
 --------------------------------------------------------------------------------
