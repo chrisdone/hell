@@ -725,9 +725,9 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
 -- At some point you have to decide on the kinds of things. This
 -- function handles a few common cases for instance head types:
 --
--- Int :: *                    (common case)
--- Either :: * -> * -> *       (rare case)
--- Mod :: (* -> *) -> * -> *   (only one example as of writing this comment)
+-- Int :: Type                             (common case)
+-- Either :: Type -> Type -> Type          (rare case)
+-- Mod :: (Type -> Type) -> Type -> Type   (only one example as of writing this comment)
 withClassConstraint ::
   forall g k (c :: k -> Constraint) (a :: k).
   HSE.SrcSpanInfo ->
