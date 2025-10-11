@@ -131,7 +131,7 @@ data Command
   | Check FilePath StatsEnabled
   | Version
 
-data StatsEnabled = NoStats | PrintStats
+data StatsEnabled = NoStats | PrintStats Int
 
 -- | Main entry point.
 main :: IO ()
@@ -157,7 +157,7 @@ commandParser =
   Options.asum
     [ Run <$> Options.strArgument (Options.metavar "FILE" <> Options.help "Run the given .hell file"),
       Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file") <*>
-         Options.flag NoStats PrintStats (Options.long "compiler-stats" <> Options.internal),
+         Options.flag NoStats (PrintStats 0) (Options.long "compiler-stats" <> Options.internal),
       Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version")
     ]
 
@@ -200,8 +200,9 @@ compileFile stats filePath = do
               emitStat stats "desugar" (t3-t2)
               case lookup "main" dterms of
                 Nothing -> error "No main declaration!"
-                Just main' ->
-                  case inferExp mempty main' of
+                Just main' -> do
+                  inferred <- inferExp (nestStat stats) mempty main'
+                  case inferred of
                     Left err -> error $ prettyString err
                     Right uterm -> do
                       t4 <- getTime
@@ -221,8 +222,12 @@ compileFile stats filePath = do
 
 emitStat :: StatsEnabled -> Text -> Double -> IO ()
 emitStat NoStats _ _ = pure ()
-emitStat PrintStats label s =
-  t_putStrLn $ "stat: " <> label <> " = " <> Text.pack (secs s)
+emitStat (PrintStats n0) label s =
+  t_putStrLn $ Text.replicate (n0*2) " " <> "stat: " <> label <> " = " <> Text.pack (secs s)
+
+nestStat :: StatsEnabled -> StatsEnabled
+nestStat NoStats = NoStats
+nestStat (PrintStats n) = PrintStats (n+1)
 
 --------------------------------------------------------------------------------
 -- Get declarations from the module
@@ -1372,19 +1377,28 @@ data InferError
 -- all eliminated. By the type system, the output contains only
 -- determinate types.
 inferExp ::
+  StatsEnabled ->
   Map String (UTerm SomeTypeRep) ->
   UTerm () ->
-  Either InferError (UTerm SomeTypeRep)
-inferExp _ uterm =
+  IO (Either InferError (UTerm SomeTypeRep))
+inferExp stats _ uterm = do
+  t0 <- getTime
   case elaborate uterm of
-    Left elabError -> Left $ ElabError elabError
-    Right (iterm, equalities) ->
+    Left elabError -> pure $ Left $ ElabError elabError
+    Right (iterm, equalities) -> do
+      t1 <- getTime
+      emitStat stats "elaborate" (t1-t0)
       case unify equalities of
-        Left unifyError -> Left $ UnifyError unifyError
-        Right subs ->
+        Left unifyError -> pure $ Left $ UnifyError unifyError
+        Right subs -> do
+          t2 <- getTime
+          emitStat stats "unify" (t2-t1)
           case traverse (zonkToStarType subs) iterm of
-            Left zonkError -> Left $ ZonkError $ zonkError
-            Right sterm -> pure sterm
+            Left zonkError -> pure $ Left $ ZonkError $ zonkError
+            Right !sterm -> do
+              t3 <- getTime
+              emitStat stats "zonk" (t3-t2)
+              pure $ Right sterm
 
 -- | Zonk a type and then convert it to a type: t :: *
 zonkToStarType :: Map IMetaVar (IRep IMetaVar) -> IRep IMetaVar -> Either ZonkError SomeTypeRep
