@@ -182,7 +182,7 @@ dispatch (Check filePath stats) = do
 compileFile :: StatsEnabled -> FilePath -> IO (Term () (IO ()))
 compileFile stats filePath = do
   t0 <- getTime
-  !result <- parseFile filePath
+  !result <- parseFile (nestStat stats) filePath
   t1 <- getTime
   emitStat stats "parse" (t1-t0)
   case result of
@@ -2545,12 +2545,24 @@ data File = File
   }
 
 -- Parse a file into a list of decls, but strip shebangs.
-parseFile :: String -> IO (Either String File)
-parseFile filePath = do
+parseFile :: StatsEnabled -> String -> IO (Either String File)
+parseFile stats filePath = do
+  t0 <- getTime
   string <- ByteString.readFile filePath
-  pure $ case HSE.parseModuleWithMode HSE.defaultParseMode {HSE.parseFilename = filePath, HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.DataKinds, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications, HSE.EnableExtension HSE.NamedFieldPuns]} (Text.unpack (dropShebang (Text.decodeUtf8 string))) >>= parseModule of
-    HSE.ParseFailed l e -> Left $ "Parse error: " <> HSE.prettyPrint l <> ": " <> e
-    HSE.ParseOk file -> Right file
+  t1 <- getTime
+  emitStat stats "read_file" (t1-t0)
+  case HSE.parseModuleWithMode HSE.defaultParseMode {HSE.parseFilename = filePath, HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.DataKinds, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications, HSE.EnableExtension HSE.NamedFieldPuns]} (Text.unpack (dropShebang (Text.decodeUtf8 string))) of
+    HSE.ParseFailed l e -> pure $ Left $ "Parse error: " <> HSE.prettyPrint l <> ": " <> e
+    HSE.ParseOk !file -> do
+      t2 <- getTime
+      emitStat stats "parse_module_with_mode" (t2-t1)
+      case parseModule file of
+        HSE.ParseFailed l e ->
+          pure $ Left $ "Parse error: " <> HSE.prettyPrint l <> ": " <> e
+        HSE.ParseOk !file' -> do
+          t3 <- getTime
+          emitStat stats "resolve_module" (t3-t2)
+          pure $ Right file'
 
 -- This should be quite efficient because it's essentially a pointer
 -- increase. It leaves the \n so that line numbers are intact.
