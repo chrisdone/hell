@@ -2526,7 +2526,19 @@ parseFile stats filePath = do
 parseText :: StatsEnabled -> FilePath -> Text -> IO (Either String File)
 parseText stats filePath text = do
   t1 <- getTime
-  case HSE.parseModuleWithMode HSE.defaultParseMode {HSE.parseFilename = filePath, HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.DataKinds, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications, HSE.EnableExtension HSE.NamedFieldPuns]} (Text.unpack (dropShebang text)) of
+  case HSE.parseModuleWithMode
+    HSE.defaultParseMode
+      { HSE.parseFilename = filePath,
+        HSE.extensions =
+          HSE.extensions HSE.defaultParseMode
+            ++ [ HSE.EnableExtension HSE.PatternSignatures,
+                 HSE.EnableExtension HSE.DataKinds,
+                 HSE.EnableExtension HSE.BlockArguments,
+                 HSE.EnableExtension HSE.TypeApplications,
+                 HSE.EnableExtension HSE.NamedFieldPuns
+               ]
+      }
+    (Text.unpack (dropShebang text)) of
     HSE.ParseFailed l e -> pure $ Left $ "Parse error: " <> HSE.prettyPrint l <> ": " <> e
     HSE.ParseOk !file -> do
       t2 <- getTime
@@ -2907,9 +2919,35 @@ specMain = hspec spec
 
 spec :: Spec
 spec = do
+  parseSpec
   freeVariablesSpec
   anyCyclesSpec
   desugarTypeSpec
+
+parseSpec :: Spec
+parseSpec = do
+  describe "parse" do
+    it "dropShebang" do
+      r <- parseText NoStats "x.hell" "#!/bin/env hell\nx = z X {a,b}"
+      shouldSatisfy r Either.isRight
+    it "empty file parses" do
+      r <- parseText NoStats "x.hell" ""
+      shouldSatisfy r Either.isRight
+    it "PatternSignatures" do
+      r <- parseText NoStats "x.hell" "x = \\(z :: Int) -> z"
+      shouldSatisfy r Either.isRight
+    it "TypeApplications" do
+      r <- parseText NoStats "x.hell" "x = z @T"
+      shouldSatisfy r Either.isRight
+    it "DataKinds" do
+      r <- parseText NoStats "x.hell" "x = z @\"foo\""
+      shouldSatisfy r Either.isRight
+    it "BlockArguments" do
+      r <- parseText NoStats "x.hell" "x = z do y"
+      shouldSatisfy r Either.isRight
+    it "NamedFieldPuns" do
+      r <- parseText NoStats "x.hell" "x = z X {a,b}"
+      shouldSatisfy r Either.isRight
 
 anyCyclesSpec :: Spec
 anyCyclesSpec = do
