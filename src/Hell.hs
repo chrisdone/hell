@@ -40,7 +40,7 @@
 -- made some of this more ergonomic.
 {-# OPTIONS_GHC -Wno-unused-foralls #-}
 
-module Main (main) where
+module Main (main, specMain) where
 
 #if __GLASGOW_HASKELL__ >= 906
 import Control.Monad
@@ -1310,19 +1310,6 @@ applyTypes (SomeTypeRep f) (SomeTypeRep x) =
             _ -> Nothing
     _ -> Nothing
 
-desugarTypeSpec :: Spec
-desugarTypeSpec = do
-  it "desugarType" $ do
-    shouldBe (try "Bool") (Right (SomeStarType $ typeRep @Bool))
-    shouldBe (try "Int") (Right (SomeStarType $ typeRep @Int))
-    shouldBe (try "Bool -> Int") (Right (SomeStarType $ typeRep @(Bool -> Int)))
-    shouldBe (try "()") (Right (SomeStarType $ typeRep @()))
-    shouldBe (try "[Int]") (Right (SomeStarType $ typeRep @[Int]))
-  where
-    try e = case fmap (desugarStarType mempty) $ HSE.parseType e of
-      HSE.ParseOk r -> r
-      _ -> error "Parse failed."
-
 --------------------------------------------------------------------------------
 -- Desugar all bindings
 
@@ -1423,19 +1410,6 @@ stronglyConnected =
   Graph.stronglyConnComp
     . map \thing@(name, e) -> (thing, name, freeVariables e)
 
-anyCyclesSpec :: Spec
-anyCyclesSpec = do
-  it "anyCycles" do
-    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.bar * Z.y")]) True
-    shouldBe (try [("foo", "\\z -> Main.bar * Z.y"), ("bar", "\\z -> Main.foo * Z.y")]) True
-    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.mu * Z.y")]) False
-    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.foo * Z.y")]) False
-  where
-    try named =
-      case traverse (\(n, e) -> (n,) <$> HSE.parseExp e) named of
-        HSE.ParseOk decls -> anyCycles decls
-        _ -> error "Parse failed."
-
 --------------------------------------------------------------------------------
 -- Get free variables of an HSE expression
 
@@ -1447,14 +1421,6 @@ freeVariables =
     unpack = \case
       HSE.Qual _ (HSE.ModuleName _ "Main") (HSE.Ident _ name) -> pure name
       _ -> Nothing
-
-freeVariablesSpec :: Spec
-freeVariablesSpec = do
-  it "freeVariables" $ shouldBe (try "\\z -> Main.x * Z.y / Main.P") ["x", "P"]
-  where
-    try e = case fmap freeVariables $ HSE.parseExp e of
-      HSE.ParseOk names -> names
-      _ -> error "Parse failed."
 
 --------------------------------------------------------------------------------
 -- Supported type constructors
@@ -2572,15 +2538,6 @@ dropShebang t = Maybe.fromMaybe t do
   pure $ Text.dropWhile (/= '\n') rest
 
 --------------------------------------------------------------------------------
--- Spec
-
-_spec :: Spec
-_spec = do
-  freeVariablesSpec
-  anyCyclesSpec
-  desugarTypeSpec
-
---------------------------------------------------------------------------------
 -- Records
 
 data Tagged (s :: Symbol) a = Tagged (SSymbol s) a
@@ -2932,3 +2889,49 @@ cleanUpTHType = SYB.everywhere unqualify
         Nothing -> a
         Just Type.HRefl ->
           TH.mkName $ TH.nameBase a
+
+--------------------------------------------------------------------------------
+-- Test suite
+
+specMain :: IO ()
+specMain = hspec spec
+
+spec :: Spec
+spec = do
+  freeVariablesSpec
+  anyCyclesSpec
+  desugarTypeSpec
+
+anyCyclesSpec :: Spec
+anyCyclesSpec = do
+  it "anyCycles" do
+    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.bar * Z.y")]) True
+    shouldBe (try [("foo", "\\z -> Main.bar * Z.y"), ("bar", "\\z -> Main.foo * Z.y")]) True
+    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.mu * Z.y")]) False
+    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.foo * Z.y")]) False
+  where
+    try named =
+      case traverse (\(n, e) -> (n,) <$> HSE.parseExp e) named of
+        HSE.ParseOk decls -> anyCycles decls
+        _ -> error "Parse failed."
+
+freeVariablesSpec :: Spec
+freeVariablesSpec = do
+  it "freeVariables" $ shouldBe (try "\\z -> Main.x * Z.y / Main.P") ["x", "P"]
+  where
+    try e = case fmap freeVariables $ HSE.parseExp e of
+      HSE.ParseOk names -> names
+      _ -> error "Parse failed."
+
+desugarTypeSpec :: Spec
+desugarTypeSpec = do
+  it "desugarType" $ do
+    shouldBe (try "Bool") (Right (SomeStarType $ typeRep @Bool))
+    shouldBe (try "Int") (Right (SomeStarType $ typeRep @Int))
+    shouldBe (try "Bool -> Int") (Right (SomeStarType $ typeRep @(Bool -> Int)))
+    shouldBe (try "()") (Right (SomeStarType $ typeRep @()))
+    shouldBe (try "[Int]") (Right (SomeStarType $ typeRep @[Int]))
+  where
+    try e = case fmap (desugarStarType mempty) $ HSE.parseType e of
+      HSE.ParseOk r -> r
+      _ -> error "Parse failed."
