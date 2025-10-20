@@ -13,6 +13,7 @@ dependencies:
 - bytestring
 - async
 - criterion-measurement
+- criterion
 - mtl
 - directory
 - syb
@@ -41,5 +42,14 @@ executables:
   hell:
     main: src/Hell.hs
     ghc-options:
+      - -threaded
+      - -rtsopts
+
+tests:
+  hell-test:
+    main: src/Hell.hs
+    ghc-options:
+      - -main-is
+      - Main.specMain
       - -threaded
       - -rtsopts

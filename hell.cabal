@@ -26,6 +26,43 @@ executable hell
     , bytestring
     , constraints
     , containers
+    , criterion
+    , criterion-measurement
+    , directory
+    , ghc-prim
+    , haskell-src-exts
+    , hspec
+    , lucid2
+    , mtl
+    , optparse-applicative
+    , syb
+    , template-haskell
+    , temporary
+    , text
+    , th-lift
+    , th-orphans
+    , these
+    , time
+    , typed-process
+    , unliftio
+    , vector
+  default-language: Haskell2010
+
+test-suite hell-test
+  type: exitcode-stdio-1.0
+  main-is: src/Hell.hs
+  other-modules:
+      Paths_hell
+  ghc-options: -Wall -Wno-missing-pattern-synonym-signatures -O2 -main-is Main.specMain -threaded -rtsopts
+  build-depends:
+      QuickCheck
+    , aeson
+    , async
+    , base
+    , bytestring
+    , constraints
+    , containers
+    , criterion
     , criterion-measurement
     , directory
     , ghc-prim

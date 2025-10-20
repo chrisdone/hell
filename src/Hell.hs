@@ -1,5 +1,5 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
@@ -40,7 +40,7 @@
 -- made some of this more ergonomic.
 {-# OPTIONS_GHC -Wno-unused-foralls #-}
 
-module Main (main) where
+module Main (main, specMain) where
 
 #if __GLASGOW_HASKELL__ >= 906
 import Control.Monad
@@ -50,12 +50,12 @@ import Control.Monad
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
-import Criterion.Measurement
 import Control.Applicative (Alternative (..), optional)
 import qualified Control.Concurrent as Concurrent
 import Control.Exception (evaluate)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Criterion.Measurement
 import Data.Aeson (Value)
 import qualified Data.Aeson as Json
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -156,8 +156,9 @@ commandParser :: Options.Parser Command
 commandParser =
   Options.asum
     [ Run <$> Options.strArgument (Options.metavar "FILE" <> Options.help "Run the given .hell file"),
-      Check <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file") <*>
-         Options.flag NoStats (PrintStats 0) (Options.long "compiler-stats" <> Options.internal),
+      Check
+        <$> Options.strOption (Options.long "check" <> Options.metavar "FILE" <> Options.help "Typecheck the given .hell file")
+        <*> Options.flag NoStats (PrintStats 0) (Options.long "compiler-stats" <> Options.internal),
       Version <$ Options.flag () () (Options.long "version" <> Options.help "Print the version")
     ]
 
@@ -184,7 +185,7 @@ compileFile stats filePath = do
   t0 <- getTime
   !result <- parseFile (nestStat stats) filePath
   t1 <- getTime
-  emitStat stats "parse" (t1-t0)
+  emitStat stats "parse" (t1 - t0)
   case result of
     Left e -> error $ e
     Right File {terms, types}
@@ -192,26 +193,26 @@ compileFile stats filePath = do
       | anyCycles types -> error "Cyclic types are not supported!"
       | otherwise -> do
           t2 <- getTime
-          emitStat stats "cycle_detect" (t2-t1)
+          emitStat stats "cycle_detect" (t2 - t1)
           case desugarAll types terms of
             Left err -> error $ prettyString err
             Right !dterms -> do
               t3 <- getTime
-              emitStat stats "desugar" (t3-t2)
+              emitStat stats "desugar" (t3 - t2)
               case lookup "main" dterms of
                 Nothing -> error "No main declaration!"
                 Just main' -> do
-                  inferred <- inferExp (nestStat stats) mempty main'
+                  inferred <- inferExp (nestStat stats) main'
                   case inferred of
                     Left err -> error $ prettyString err
                     Right uterm -> do
                       t4 <- getTime
-                      emitStat stats "infer" (t4-t3)
+                      emitStat stats "infer" (t4 - t3)
                       case check uterm Nil of
                         Left err -> error $ prettyString err
                         Right (Typed t ex) -> do
                           t5 <- getTime
-                          emitStat stats "check" (t5-t4)
+                          emitStat stats "check" (t5 - t4)
                           case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
                             Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
                             Just Type.HRefl ->
@@ -223,11 +224,11 @@ compileFile stats filePath = do
 emitStat :: StatsEnabled -> Text -> Double -> IO ()
 emitStat NoStats _ _ = pure ()
 emitStat (PrintStats n0) label s =
-  t_putStrLn $ Text.replicate (n0*2) " " <> "stat: " <> label <> " = " <> Text.pack (secs s)
+  t_putStrLn $ Text.replicate (n0 * 2) " " <> "stat: " <> label <> " = " <> Text.pack (secs s)
 
 nestStat :: StatsEnabled -> StatsEnabled
 nestStat NoStats = NoStats
-nestStat (PrintStats n) = PrintStats (n+1)
+nestStat (PrintStats n) = PrintStats (n + 1)
 
 --------------------------------------------------------------------------------
 -- Get declarations from the module
@@ -773,25 +774,28 @@ withClassConstraint forallLoc reps rep crep f go =
       | Type.App t _ <- rep,
         Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type)),
         Just dict <- resolve1 (Type.App crep rep) crep t instances ->
-        go reps (withDict dict f)
+          go reps (withDict dict f)
       -- Cases that look like: Monad (Either (e :: *) (a :: *))
       -- Note: the kinds are limited to this exact specification in the signature above.
       | Type.App t _ <- rep,
         Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)),
         Just dict <- resolve1 (Type.App crep rep) crep t instances ->
-        go reps (withDict dict f)
+          go reps (withDict dict f)
       -- Cases that look like: Semigroup (Mod (f :: * -> *) (a :: *))
       -- Note: the kinds are limited to this exact specification in the signature above.
       | Type.App (Type.App t _a) _b <- rep,
         Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @((Type -> Type) -> Type -> Type)),
         Just dict <- resolve2 (Type.App crep rep) crep t instances ->
-        go reps (withDict dict f)
+          go reps (withDict dict f)
       -- Simple cases: Eq (a :: k)
       | Just dict <- resolve crep rep instances ->
-        go reps (withDict dict f)
+          go reps (withDict dict f)
       | otherwise ->
-          problem $ "type " ++ show rep ++
-          " doesn't appear to be an instance of " ++ show crep
+          problem $
+            "type "
+              ++ show rep
+              ++ " doesn't appear to be an instance of "
+              ++ show crep
   where
     problem :: forall x. String -> Either TypeCheckError x
     problem = Left . ConstraintResolutionProblem forallLoc (ClassConstraint rep crep f)
@@ -1310,19 +1314,6 @@ applyTypes (SomeTypeRep f) (SomeTypeRep x) =
             _ -> Nothing
     _ -> Nothing
 
-desugarTypeSpec :: Spec
-desugarTypeSpec = do
-  it "desugarType" $ do
-    shouldBe (try "Bool") (Right (SomeStarType $ typeRep @Bool))
-    shouldBe (try "Int") (Right (SomeStarType $ typeRep @Int))
-    shouldBe (try "Bool -> Int") (Right (SomeStarType $ typeRep @(Bool -> Int)))
-    shouldBe (try "()") (Right (SomeStarType $ typeRep @()))
-    shouldBe (try "[Int]") (Right (SomeStarType $ typeRep @[Int]))
-  where
-    try e = case fmap (desugarStarType mempty) $ HSE.parseType e of
-      HSE.ParseOk r -> r
-      _ -> error "Parse failed."
-
 --------------------------------------------------------------------------------
 -- Desugar all bindings
 
@@ -1378,26 +1369,25 @@ data InferError
 -- determinate types.
 inferExp ::
   StatsEnabled ->
-  Map String (UTerm SomeTypeRep) ->
   UTerm () ->
   IO (Either InferError (UTerm SomeTypeRep))
-inferExp stats _ uterm = do
+inferExp stats uterm = do
   t0 <- getTime
   case elaborate uterm of
     Left elabError -> pure $ Left $ ElabError elabError
     Right (iterm, equalities) -> do
       t1 <- getTime
-      emitStat stats "elaborate" (t1-t0)
+      emitStat stats "elaborate" (t1 - t0)
       case unify equalities of
         Left unifyError -> pure $ Left $ UnifyError unifyError
         Right subs -> do
           t2 <- getTime
-          emitStat stats "unify" (t2-t1)
+          emitStat stats "unify" (t2 - t1)
           case traverse (zonkToStarType subs) iterm of
             Left zonkError -> pure $ Left $ ZonkError $ zonkError
             Right !sterm -> do
               t3 <- getTime
-              emitStat stats "zonk" (t3-t2)
+              emitStat stats "zonk" (t3 - t2)
               pure $ Right sterm
 
 -- | Zonk a type and then convert it to a type: t :: *
@@ -1423,19 +1413,6 @@ stronglyConnected =
   Graph.stronglyConnComp
     . map \thing@(name, e) -> (thing, name, freeVariables e)
 
-anyCyclesSpec :: Spec
-anyCyclesSpec = do
-  it "anyCycles" do
-    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.bar * Z.y")]) True
-    shouldBe (try [("foo", "\\z -> Main.bar * Z.y"), ("bar", "\\z -> Main.foo * Z.y")]) True
-    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.mu * Z.y")]) False
-    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.foo * Z.y")]) False
-  where
-    try named =
-      case traverse (\(n, e) -> (n,) <$> HSE.parseExp e) named of
-        HSE.ParseOk decls -> anyCycles decls
-        _ -> error "Parse failed."
-
 --------------------------------------------------------------------------------
 -- Get free variables of an HSE expression
 
@@ -1447,14 +1424,6 @@ freeVariables =
     unpack = \case
       HSE.Qual _ (HSE.ModuleName _ "Main") (HSE.Ident _ name) -> pure name
       _ -> Nothing
-
-freeVariablesSpec :: Spec
-freeVariablesSpec = do
-  it "freeVariables" $ shouldBe (try "\\z -> Main.x * Z.y / Main.P") ["x", "P"]
-  where
-    try e = case fmap freeVariables $ HSE.parseExp e of
-      HSE.ParseOk names -> names
-      _ -> error "Parse failed."
 
 --------------------------------------------------------------------------------
 -- Supported type constructors
@@ -2543,6 +2512,7 @@ data File = File
   { terms :: [(String, HSE.Exp HSE.SrcSpanInfo)],
     types :: [(String, HSE.Type HSE.SrcSpanInfo)]
   }
+  deriving (Eq, Show)
 
 -- Parse a file into a list of decls, but strip shebangs.
 parseFile :: StatsEnabled -> String -> IO (Either String File)
@@ -2550,18 +2520,35 @@ parseFile stats filePath = do
   t0 <- getTime
   string <- ByteString.readFile filePath
   t1 <- getTime
-  emitStat stats "read_file" (t1-t0)
-  case HSE.parseModuleWithMode HSE.defaultParseMode {HSE.parseFilename = filePath, HSE.extensions = HSE.extensions HSE.defaultParseMode ++ [HSE.EnableExtension HSE.PatternSignatures, HSE.EnableExtension HSE.DataKinds, HSE.EnableExtension HSE.BlockArguments, HSE.EnableExtension HSE.TypeApplications, HSE.EnableExtension HSE.NamedFieldPuns]} (Text.unpack (dropShebang (Text.decodeUtf8 string))) of
+  emitStat stats "read_file" (t1 - t0)
+  parseText stats filePath $ Text.decodeUtf8 string
+
+parseText :: StatsEnabled -> FilePath -> Text -> IO (Either String File)
+parseText stats filePath text = do
+  t1 <- getTime
+  case HSE.parseModuleWithMode
+    HSE.defaultParseMode
+      { HSE.parseFilename = filePath,
+        HSE.extensions =
+          HSE.extensions HSE.defaultParseMode
+            ++ [ HSE.EnableExtension HSE.PatternSignatures,
+                 HSE.EnableExtension HSE.DataKinds,
+                 HSE.EnableExtension HSE.BlockArguments,
+                 HSE.EnableExtension HSE.TypeApplications,
+                 HSE.EnableExtension HSE.NamedFieldPuns
+               ]
+      }
+    (Text.unpack (dropShebang text)) of
     HSE.ParseFailed l e -> pure $ Left $ "Parse error: " <> HSE.prettyPrint l <> ": " <> e
     HSE.ParseOk !file -> do
       t2 <- getTime
-      emitStat stats "parse_module_with_mode" (t2-t1)
+      emitStat stats "parse_module_with_mode" (t2 - t1)
       case parseModule file of
         HSE.ParseFailed l e ->
           pure $ Left $ "Parse error: " <> HSE.prettyPrint l <> ": " <> e
         HSE.ParseOk !file' -> do
           t3 <- getTime
-          emitStat stats "resolve_module" (t3-t2)
+          emitStat stats "resolve_module" (t3 - t2)
           pure $ Right file'
 
 -- This should be quite efficient because it's essentially a pointer
@@ -2570,15 +2557,6 @@ dropShebang :: Text -> Text
 dropShebang t = Maybe.fromMaybe t do
   rest <- Text.stripPrefix "#!" t
   pure $ Text.dropWhile (/= '\n') rest
-
---------------------------------------------------------------------------------
--- Spec
-
-_spec :: Spec
-_spec = do
-  freeVariablesSpec
-  anyCyclesSpec
-  desugarTypeSpec
 
 --------------------------------------------------------------------------------
 -- Records
@@ -2932,3 +2910,75 @@ cleanUpTHType = SYB.everywhere unqualify
         Nothing -> a
         Just Type.HRefl ->
           TH.mkName $ TH.nameBase a
+
+--------------------------------------------------------------------------------
+-- Test suite
+
+specMain :: IO ()
+specMain = hspec spec
+
+spec :: Spec
+spec = do
+  parseSpec
+  freeVariablesSpec
+  anyCyclesSpec
+  desugarTypeSpec
+
+parseSpec :: Spec
+parseSpec = do
+  describe "parse" do
+    it "dropShebang" do
+      r <- parseText NoStats "x.hell" "#!/bin/env hell\nx = z X {a,b}"
+      shouldSatisfy r Either.isRight
+    it "empty file parses" do
+      r <- parseText NoStats "x.hell" ""
+      shouldSatisfy r Either.isRight
+    it "PatternSignatures" do
+      r <- parseText NoStats "x.hell" "x = \\(z :: Int) -> z"
+      shouldSatisfy r Either.isRight
+    it "TypeApplications" do
+      r <- parseText NoStats "x.hell" "x = z @T"
+      shouldSatisfy r Either.isRight
+    it "DataKinds" do
+      r <- parseText NoStats "x.hell" "x = z @\"foo\""
+      shouldSatisfy r Either.isRight
+    it "BlockArguments" do
+      r <- parseText NoStats "x.hell" "x = z do y"
+      shouldSatisfy r Either.isRight
+    it "NamedFieldPuns" do
+      r <- parseText NoStats "x.hell" "x = z X {a,b}"
+      shouldSatisfy r Either.isRight
+
+anyCyclesSpec :: Spec
+anyCyclesSpec = do
+  it "anyCycles" do
+    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.bar * Z.y")]) True
+    shouldBe (try [("foo", "\\z -> Main.bar * Z.y"), ("bar", "\\z -> Main.foo * Z.y")]) True
+    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.mu * Z.y")]) False
+    shouldBe (try [("foo", "\\z -> x * Z.y"), ("bar", "\\z -> Main.foo * Z.y")]) False
+  where
+    try named =
+      case traverse (\(n, e) -> (n,) <$> HSE.parseExp e) named of
+        HSE.ParseOk decls -> anyCycles decls
+        _ -> error "Parse failed."
+
+freeVariablesSpec :: Spec
+freeVariablesSpec = do
+  it "freeVariables" $ shouldBe (try "\\z -> Main.x * Z.y / Main.P") ["x", "P"]
+  where
+    try e = case fmap freeVariables $ HSE.parseExp e of
+      HSE.ParseOk names -> names
+      _ -> error "Parse failed."
+
+desugarTypeSpec :: Spec
+desugarTypeSpec = do
+  it "desugarType" $ do
+    shouldBe (try "Bool") (Right (SomeStarType $ typeRep @Bool))
+    shouldBe (try "Int") (Right (SomeStarType $ typeRep @Int))
+    shouldBe (try "Bool -> Int") (Right (SomeStarType $ typeRep @(Bool -> Int)))
+    shouldBe (try "()") (Right (SomeStarType $ typeRep @()))
+    shouldBe (try "[Int]") (Right (SomeStarType $ typeRep @[Int]))
+  where
+    try e = case fmap (desugarStarType mempty) $ HSE.parseType e of
+      HSE.ParseOk r -> r
+      _ -> error "Parse failed."
