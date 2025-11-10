@@ -1142,7 +1142,7 @@ desugarCase l scrutinee xs = do
               [HSE.PVar _ (HSE.Ident _ x)]
             )
           (HSE.UnGuardedRhs _ e)
-          _
+          Nothing
         ) =
         -- Variant.cons @name (\x -> e)
         pure $
@@ -1168,7 +1168,7 @@ desugarCase l scrutinee xs = do
               []
             )
           (HSE.UnGuardedRhs _ e)
-          _
+          Nothing
         ) =
         -- Variant.cons @name (\_ -> e)
         pure $
