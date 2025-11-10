@@ -2076,12 +2076,16 @@ polyLits =
                "Options.flag'" Options.flag' :: forall a. a -> Options.Mod Options.FlagFields a -> Parser a
                "Option.long" option_long :: forall a. Text -> Options.Mod Options.OptionFields a
                "Option.help" options_help :: forall a. Text -> Options.Mod Options.OptionFields a
+               "Options.hsubparser" Options.hsubparser :: forall a. Options.Mod Options.CommandFields a -> Parser a
+               "Options.command" options_command :: forall a. Text -> Options.ParserInfo a -> Options.Mod Options.CommandFields a
                "Flag.help" options_help :: forall a. Text -> Options.Mod Options.FlagFields a
                "Flag.long" flag_long :: forall a. Text -> Options.Mod Options.FlagFields a
                "Option.value" option_value :: forall a. a -> Options.Mod Options.OptionFields a
                "Argument.value" argument_value :: forall a. a -> Options.Mod Options.ArgumentFields a
                "Argument.metavar" argument_metavar :: forall a. Text -> Options.Mod Options.ArgumentFields a
                "Argument.help" options_help :: forall a. Text -> Options.Mod Options.ArgumentFields a
+               "Options.progDesc" options_progDesc :: forall a. Text -> Options.InfoMod a
+               "Options.header" options_header :: forall a. Text -> Options.InfoMod a
              |]
       in toplevel
    )
@@ -2095,11 +2099,20 @@ argument_metavar = Options.metavar . Text.unpack
 option_value :: forall a. a -> Options.Mod Options.OptionFields a
 option_value = Options.value
 
+options_progDesc :: forall a. Text -> Options.InfoMod a
+options_progDesc = Options.progDesc . Text.unpack
+
+options_header :: forall a. Text -> Options.InfoMod a
+options_header = Options.header . Text.unpack
+
 argument_value :: forall a. a -> Options.Mod Options.ArgumentFields a
 argument_value = Options.value
 
 options_help :: forall f a. Text -> Options.Mod f a
 options_help = Options.help . Text.unpack
+
+options_command :: forall a. Text -> Options.ParserInfo a -> Options.Mod Options.CommandFields a
+options_command = Options.command . Text.unpack
 
 option_long :: forall a. Text -> Options.Mod Options.OptionFields a
 option_long = Options.long . Text.unpack

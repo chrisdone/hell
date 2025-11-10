@@ -1,0 +1,37 @@
+-- --help:
+--
+-- Usage: <interactive> COMMAND
+--
+-- Available options:
+--   -h,--help                Show this help text
+--
+-- Available commands:
+--   add                      Add the thing
+--   remove
+--   list
+
+data Command
+  = Add Text
+  | Remove Text
+  | List
+
+parseAdd = Main.Add <$> Options.strArgument (Argument.metavar "FILE" <> Argument.help "File to add")
+
+parseRemove = Main.Remove <$> Options.strArgument (Argument.metavar "FILE" <> Argument.help "File to remove")
+
+parseList = Applicative.pure Main.List
+
+cmdParser =
+  Options.hsubparser
+    ( Options.command "add"    (Options.info Main.parseAdd    (Options.progDesc "Add the thing"))
+   <> Options.command "remove" (Options.info Main.parseRemove Options.fullDesc)
+   <> Options.command "list"   (Options.info Main.parseList   Options.fullDesc)
+    )
+
+main = do
+  let opts = Options.info (Main.cmdParser <**> Options.helper) Options.fullDesc
+  cmd <- Options.execParser opts
+  case cmd of
+    Add f    -> Text.putStrLn $ "Adding " <> f
+    Remove f -> Text.putStrLn $ "Removing " <> f
+    List     -> Text.putStrLn "Listing files"
