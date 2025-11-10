@@ -2091,6 +2091,31 @@ polyLits =
    )
 
 --------------------------------------------------------------------------------
+-- Primitive sum types (for case support)
+
+-- Easy access lookup for case alt desugaring.
+primitiveConstructors :: Map String (String, Int)
+--                           ^ cons ^ type   ^ arity
+primitiveConstructors = Map.fromList [
+  (cons, (typ, arity))
+  | (typ,_cases,conses) <- primitiveSumTypes
+  , (cons,arity) <- conses
+  ]
+
+-- | Easier-to-maintain list for me, the author.
+primitiveSumTypes :: [ (String, Int,      [(String,     Int)]) ]
+--                     ^ type   ^ cases   ^ cons   ^ arity
+primitiveSumTypes =
+  [ ("Maybe.maybe",2,[("Maybe.Nothing",0),("Maybe.Just",1)]),
+    ("Either.either", 2, [("Either.Left", 1),("Either.Right", 1)]),
+    ("Exit.exitCode", 2, [("Exit.ExitSuccess", 0),("Exit.ExitFailure", 1)]),
+    ("Bool.bool", 2, [("Bool.False", 0),("Bool.True", 0)]),
+    ("These.these", 3, [("These.This", 1),("These.That", 1),("These.These",2)]),
+    ("Json.value", 3, [("Json.Null",0),("Json.Bool",1),("Json.String",1),("Json.Number",1),("Json.Array", 1),("Json.Object", 1)])
+  ]
+
+
+--------------------------------------------------------------------------------
 -- Internal-use only, used by the desugarer
 
 argument_metavar :: forall a. Text -> Options.Mod Options.ArgumentFields a
