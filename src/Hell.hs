@@ -1105,6 +1105,34 @@ desugarExp userDefinedTypeAliases globals = go mempty
       HSE.RecConstr _ qname fields -> go scope $ makeConstructRecord qname fields
       e -> Left $ UnsupportedSyntax $ show e
 
+-- | Handles both user-defined case and primitive type case (Maybe, Either, etc.)
+desugarCase
+  :: HSE.SrcSpanInfo
+  -> HSE.Exp HSE.SrcSpanInfo
+  -> [HSE.Alt HSE.SrcSpanInfo]
+  -> Either DesugarError (HSE.Exp HSE.SrcSpanInfo)
+desugarCase _ _ [] = Left $ UnsupportedSyntax "empty case"
+-- Generates this:
+--
+-- Either.either (\a -> e1 a) (\b -> e2 b) scrutinee
+-- Maybe.maybe e1 (\b -> e2 b) scrutinee
+-- etc
+desugarCase l scrutinee alts | any isPrimCons alts = do
+  conses <- traverse desugarPrimCons alts
+  let names = map (.accessor) conses
+  let consNames = map (.constructor) conses
+  if
+    | Set.toList (Set.fromList consNames) /= List.sort consNames ->
+       Left $ UnsupportedSyntax $ "duplicate constructors in case: " <>
+         show consNames
+         <> show consNames
+     -- | All constructors below to the same type.
+    | Set.size (Set.fromList names) == 1 ->
+      HSE.App l <$> desugarPrimAlts l (List.concat (take 1 names)) conses
+                <*> pure scrutinee
+    | otherwise ->
+      Left $ UnsupportedSyntax $ "mismatching types for constructors in case: "
+         <> show consNames
 -- Generates this:
 --
 -- Variant.run
@@ -1112,8 +1140,6 @@ desugarExp userDefinedTypeAliases globals = go mempty
 --           $ Variant.cons @"Main.Number" (\i -> Show.show i) $
 --              Variant.cons @"Main.Text" (\t -> t) $
 --                Variant.nil
-desugarCase :: HSE.SrcSpanInfo -> HSE.Exp HSE.SrcSpanInfo -> [HSE.Alt HSE.SrcSpanInfo] -> Either DesugarError (HSE.Exp HSE.SrcSpanInfo)
-desugarCase _ _ [] = Left $ UnsupportedSyntax "empty case"
 desugarCase l scrutinee xs = do
   alts <- fmap (List.sortBy (Ord.comparing fst)) $ traverse desugarAlt xs
   pure $
@@ -1185,6 +1211,67 @@ desugarCase l scrutinee xs = do
               )
               (HSE.Lambda l' [HSE.PVar l' (HSE.Ident l' "_")] e)
     desugarAlt _ = Left $ UnsupportedSyntax "case alternative syntax"
+
+data PrimCons = PrimCons {
+  l :: HSE.SrcSpanInfo,
+  accessor :: String,
+  constructor :: String,
+  bindings :: [String],
+  rhs :: HSE.Exp HSE.SrcSpanInfo
+  } deriving (Show)
+
+desugarPrimCons
+  :: HSE.Alt HSE.SrcSpanInfo
+  -> Either DesugarError PrimCons
+desugarPrimCons (HSE.Alt l (HSE.PApp _ qname slots) (HSE.UnGuardedRhs _ rhs) Nothing)
+  | HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string) <- qname,
+    let constructor = (prefix ++ "." ++ string),
+    Just (accessor,arity) <- Map.lookup constructor primitiveConstructors =
+  if length slots /= arity
+      then Left $ UnsupportedSyntax $ "wrong number of arguments to constructor in case alt: " ++ string
+      else do bindings <- traverse desugarPVarIdent slots
+              pure PrimCons{l, accessor, constructor, bindings, rhs}
+  where
+    desugarPVarIdent (HSE.PVar _ (HSE.Ident _ i)) = pure i
+    desugarPVarIdent _ =
+      Left $
+        UnsupportedSyntax "only var patterns are allowed in a primitive case (for now)"
+desugarPrimCons (HSE.Alt _ p _ _) =
+  Left $ UnsupportedSyntax $
+    "unknown primitive constructor in pat: " <> HSE.prettyPrint p
+
+isPrimCons :: HSE.Alt HSE.SrcSpanInfo -> Bool
+isPrimCons (HSE.Alt _ (HSE.PApp _ qname _) _ _)
+  | HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string) <- qname =
+  Map.member (prefix ++ "." ++ string) primitiveConstructors
+isPrimCons _ = False
+
+desugarPrimAlts
+  :: HSE.SrcSpanInfo
+  -> String -- ^ Accessor e.g. Maybe.maybe
+  -> [PrimCons] -- ^ (cons, bindings, rhs)
+  -> Either DesugarError (HSE.Exp HSE.SrcSpanInfo)
+desugarPrimAlts l accessor consesFound =
+  case lookup accessor primitiveSumTypes of
+    Nothing -> Left $ UnsupportedSyntax $ "invalid primitive accessor " <> accessor
+    Just cases -> do
+      alts <- traverse makeAlt cases
+      pure $ foldl' (HSE.App l) accessorE alts
+  where
+    accessorE =
+      HSE.Var l (HSE.Qual l (HSE.ModuleName l prefix) (HSE.Ident l string))
+    (prefix,drop 1 -> string) = List.break (=='.') accessor
+    makeAlt (cons,_arity {- invariant: already checked -}) =
+      case find ((==cons) . (.constructor)) consesFound of
+        Nothing ->
+          Left $ UnsupportedSyntax $ "missing constructor in case: " <> cons
+        Just primCons ->
+          pure $ HSE.Lambda
+            primCons.l
+            pats
+            primCons.rhs
+          where pats = [ HSE.PVar primCons.l (HSE.Ident primCons.l b)
+                       | b <- primCons.bindings ]
 
 bindingStrings :: Binding -> [String]
 bindingStrings (Singleton string) = [string]
@@ -2098,20 +2185,20 @@ primitiveConstructors :: Map String (String, Int)
 --                           ^ cons ^ type   ^ arity
 primitiveConstructors = Map.fromList [
   (cons, (typ, arity))
-  | (typ,_cases,conses) <- primitiveSumTypes
+  | (typ,conses) <- primitiveSumTypes
   , (cons,arity) <- conses
   ]
 
 -- | Easier-to-maintain list for me, the author.
-primitiveSumTypes :: [ (String, Int,      [(String,     Int)]) ]
---                     ^ type   ^ cases   ^ cons   ^ arity
+primitiveSumTypes :: [ (String, [(String,     Int)]) ]
+--                     ^ type    ^ cons   ^ arity
 primitiveSumTypes =
-  [ ("Maybe.maybe",2,[("Maybe.Nothing",0),("Maybe.Just",1)]),
-    ("Either.either", 2, [("Either.Left", 1),("Either.Right", 1)]),
-    ("Exit.exitCode", 2, [("Exit.ExitSuccess", 0),("Exit.ExitFailure", 1)]),
-    ("Bool.bool", 2, [("Bool.False", 0),("Bool.True", 0)]),
-    ("These.these", 3, [("These.This", 1),("These.That", 1),("These.These",2)]),
-    ("Json.value", 3, [("Json.Null",0),("Json.Bool",1),("Json.String",1),("Json.Number",1),("Json.Array", 1),("Json.Object", 1)])
+  [ ("Maybe.maybe",[("Maybe.Nothing",0),("Maybe.Just",1)]),
+    ("Either.either", [("Either.Left", 1),("Either.Right", 1)]),
+    ("Exit.exitCode", [("Exit.ExitSuccess", 0),("Exit.ExitFailure", 1)]),
+    ("Bool.bool", [("Bool.False", 0),("Bool.True", 0)]),
+    ("These.these", [("These.This", 1),("These.That", 1),("These.These",2)]),
+    ("Json.value", [("Json.Null",0),("Json.Bool",1),("Json.String",1),("Json.Number",1),("Json.Array", 1),("Json.Object", 1)])
   ]
 
 
