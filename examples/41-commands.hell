@@ -1,12 +1,12 @@
 -- --help:
 --
--- COMMAND
+-- Usage: <interactive> COMMAND
 --
 -- Available options:
 --   -h,--help                Show this help text
 --
 -- Available commands:
---   add
+--   add                      Add the thing
 --   remove
 --   list
 
@@ -23,7 +23,7 @@ parseList = Applicative.pure Main.List
 
 cmdParser =
   Options.hsubparser
-    ( Options.command "add"    (Options.info Main.parseAdd    Options.fullDesc)
+    ( Options.command "add"    (Options.info Main.parseAdd    (Options.progDesc "Add the thing"))
    <> Options.command "remove" (Options.info Main.parseRemove Options.fullDesc)
    <> Options.command "list"   (Options.info Main.parseList   Options.fullDesc)
     )

@@ -2084,6 +2084,8 @@ polyLits =
                "Argument.value" argument_value :: forall a. a -> Options.Mod Options.ArgumentFields a
                "Argument.metavar" argument_metavar :: forall a. Text -> Options.Mod Options.ArgumentFields a
                "Argument.help" options_help :: forall a. Text -> Options.Mod Options.ArgumentFields a
+               "Options.progDesc" options_progDesc :: forall a. Text -> Options.InfoMod a
+               "Options.header" options_header :: forall a. Text -> Options.InfoMod a
              |]
       in toplevel
    )
@@ -2096,6 +2098,12 @@ argument_metavar = Options.metavar . Text.unpack
 
 option_value :: forall a. a -> Options.Mod Options.OptionFields a
 option_value = Options.value
+
+options_progDesc :: forall a. Text -> Options.InfoMod a
+options_progDesc = Options.progDesc . Text.unpack
+
+options_header :: forall a. Text -> Options.InfoMod a
+options_header = Options.header . Text.unpack
 
 argument_value :: forall a. a -> Options.Mod Options.ArgumentFields a
 argument_value = Options.value
