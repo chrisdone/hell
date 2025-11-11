@@ -1155,7 +1155,10 @@ desugarCase l scrutinee xs = do
     then
       Left $ UnsupportedSyntax $
            "at most one catch-all (var/wildcard) in a case is permitted"
-    else do
+    else if null alts then
+       Left $ UnsupportedSyntax $
+           "at least one non-wildcard case alternative is required"
+     else do
       let wild = Maybe.listToMaybe wild0
       pure $
         HSE.App l (HSE.App l run scrutinee) $
