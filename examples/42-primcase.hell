@@ -1,0 +1,56 @@
+main = do
+  let maybe = \i -> case i of
+        Maybe.Just x -> IO.print x
+        Maybe.Nothing -> Text.putStrLn "nope"
+  maybe Maybe.Nothing
+  maybe $ Maybe.Just 1
+
+  let either = \i -> case i of
+        Either.Left x -> IO.print x
+        Either.Right y -> Text.putStrLn y
+  either $ Either.Left 1
+  either $ Either.Right "abc"
+
+  let exitCode = \i -> case i of
+        Exit.ExitSuccess -> Text.putStrLn "Success!"
+        Exit.ExitFailure y -> IO.print y
+  exitCode $ Exit.ExitSuccess
+  exitCode $ Exit.ExitFailure 1
+
+  let bool = \i -> case i of
+        Bool.True -> Text.putStrLn "True!"
+        Bool.False -> Text.putStrLn "False!"
+  bool $ Bool.True
+  bool $ Bool.False
+
+  let these = \i -> case i of
+        These.This x -> IO.print x
+        These.That y -> Text.putStrLn y
+        These.These x y -> do IO.print x; Text.putStrLn y
+  these $ These.This 1
+  these $ These.That "abc"
+  these $ These.These 1 "abc"
+
+  let value = Function.fix \value i -> case i of
+        Json.Null -> Text.putStrLn "null!"
+        Json.Bool y -> IO.print (y :: Bool)
+        Json.String x  -> IO.print (x :: Text)
+        Json.Number n -> IO.print (n :: Double)
+        Json.Array a -> IO.forM_ (Vector.toList a) value
+        Json.Object m -> IO.forM_ (Map.toList m) \(k,v) -> do
+          Text.putStrLn $ "key: " <> k
+          value v
+  value $ Json.Null
+  value $ Json.Bool Bool.True
+  value $ Json.String "abc"
+  value $ Json.Number 123.0
+  value $ Json.Array $ Vector.fromList [Json.String "vec string"]
+  value $ Json.Object $ Map.fromList [("k",Json.String "v")]
+
+  let bool = Function.fix \bool i ->
+        case i of
+          Json.Bool y -> IO.print (y :: Bool)
+          _ -> Text.putStrLn "Something else."
+  bool $ Json.Null
+  bool $ Json.Number 123.0
+  bool $ Json.Bool Bool.True

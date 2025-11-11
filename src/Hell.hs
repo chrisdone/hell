@@ -6,7 +6,7 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ExistentialQuantification, DuplicateRecordFields, NoFieldSelectors #-}
 {-# LANGUAGE ExtendedDefaultRules #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -1105,21 +1105,61 @@ desugarExp userDefinedTypeAliases globals = go mempty
       HSE.RecConstr _ qname fields -> go scope $ makeConstructRecord qname fields
       e -> Left $ UnsupportedSyntax $ show e
 
+-- | Handles both user-defined case and primitive type case (Maybe, Either, etc.)
+desugarCase
+  :: HSE.SrcSpanInfo
+  -> HSE.Exp HSE.SrcSpanInfo
+  -> [HSE.Alt HSE.SrcSpanInfo]
+  -> Either DesugarError (HSE.Exp HSE.SrcSpanInfo)
+desugarCase _ _ [] = Left $ UnsupportedSyntax "empty case"
+-- Generates this:
+--
+-- Either.either (\a -> e1 a) (\b -> e2 b) scrutinee
+-- Maybe.maybe e1 (\b -> e2 b) scrutinee
+-- etc
+desugarCase l scrutinee alts0 | any isPrimCons alts0 = do
+  let (wilds, alts) =
+        Either.partitionEithers $
+          map (\x -> maybe (Right x) Left $ desugarWildPat x) alts0
+  conses <- traverse desugarPrimCons alts
+  let names = map (.accessor) conses
+  let consNames = map (.constructor) conses
+  let mwildpat = Maybe.listToMaybe wilds
+  if
+    | length wilds > 1 ->
+       Left $ UnsupportedSyntax $
+         "at most one catch-all (var/wildcard) in a case is permitted"
+    | Set.toList (Set.fromList consNames) /= List.sort consNames ->
+       Left $ UnsupportedSyntax $ "duplicate constructors in case: " <>
+         show consNames
+         <> show consNames
+     -- | All constructors below to the same type.
+    | Set.size (Set.fromList names) == 1 ->
+      HSE.App l <$> desugarPrimAlts l (List.concat (take 1 names)) conses mwildpat
+                <*> pure scrutinee
+    | otherwise ->
+      Left $ UnsupportedSyntax $ "mismatching types for constructors in case: "
+         <> show consNames
 -- Generates this:
 --
 -- Variant.run
 --           x
 --           $ Variant.cons @"Main.Number" (\i -> Show.show i) $
 --              Variant.cons @"Main.Text" (\t -> t) $
---                Variant.nil
-desugarCase :: HSE.SrcSpanInfo -> HSE.Exp HSE.SrcSpanInfo -> [HSE.Alt HSE.SrcSpanInfo] -> Either DesugarError (HSE.Exp HSE.SrcSpanInfo)
-desugarCase _ _ [] = Left $ UnsupportedSyntax "empty case"
+--                Variant.nil (or `WildP x' for `_ -> x')
 desugarCase l scrutinee xs = do
-  alts <- fmap (List.sortBy (Ord.comparing fst)) $ traverse desugarAlt xs
-  pure $
-    HSE.App l (HSE.App l run scrutinee) $
-      foldr (HSE.App l) nil $
-        map snd alts
+  alts0 <- fmap (List.sortBy (Ord.comparing fst)) $ traverse desugarAlt xs
+  let (alts,wild0) = Either.partitionEithers $
+        map (\(x,y) -> bimap (const y) (const y) x) alts0
+  if length wild0 > 1
+    then
+      Left $ UnsupportedSyntax $
+           "at most one catch-all (var/wildcard) in a case is permitted"
+    else do
+      let wild = Maybe.listToMaybe wild0
+      pure $
+        HSE.App l (HSE.App l run scrutinee) $
+          foldr (HSE.App l) (Maybe.fromMaybe nil wild) alts
   where
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
     nil =
@@ -1142,11 +1182,11 @@ desugarCase l scrutinee xs = do
               [HSE.PVar _ (HSE.Ident _ x)]
             )
           (HSE.UnGuardedRhs _ e)
-          _
+          Nothing
         ) =
         -- Variant.cons @name (\x -> e)
         pure $
-          (name,) $
+          (Left name,) $
             HSE.App
               l'
               ( HSE.App
@@ -1168,11 +1208,11 @@ desugarCase l scrutinee xs = do
               []
             )
           (HSE.UnGuardedRhs _ e)
-          _
+          Nothing
         ) =
         -- Variant.cons @name (\_ -> e)
         pure $
-          (name,) $
+          (Left name,) $
             HSE.App
               l'
               ( HSE.App
@@ -1184,7 +1224,98 @@ desugarCase l scrutinee xs = do
                   (HSE.TypeApp l' (tySym name))
               )
               (HSE.Lambda l' [HSE.PVar l' (HSE.Ident l' "_")] e)
+    desugarAlt (HSE.Alt l' (HSE.PWildCard l1) (HSE.UnGuardedRhs _ e) Nothing) =
+      pure $ (Right (), HSE.App
+         l'
+         ( HSE.Var
+             l1
+             (hellQName l' "WildA")
+         )
+         e)
     desugarAlt _ = Left $ UnsupportedSyntax "case alternative syntax"
+
+data PrimCons = PrimCons {
+  l :: HSE.SrcSpanInfo,
+  accessor :: String,
+  constructor :: String,
+  bindings :: [String],
+  rhs :: HSE.Exp HSE.SrcSpanInfo
+  } deriving (Show)
+
+data WildPat = WildPat {
+  l :: HSE.SrcSpanInfo,
+  rhs :: HSE.Exp HSE.SrcSpanInfo
+  } deriving (Show)
+
+desugarPrimCons
+  :: HSE.Alt HSE.SrcSpanInfo
+  -> Either DesugarError PrimCons
+desugarPrimCons (HSE.Alt l (HSE.PApp _ qname slots) (HSE.UnGuardedRhs _ rhs) Nothing)
+  | HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string) <- qname,
+    let constructor = (prefix ++ "." ++ string),
+    Just (accessor,arity) <- Map.lookup constructor primitiveConstructors =
+  if length slots /= arity
+      then Left $ UnsupportedSyntax $ "wrong number of arguments to constructor in case alt: " ++ string
+      else do bindings <- traverse desugarPVarIdent slots
+              pure PrimCons{l, accessor, constructor, bindings, rhs}
+  where
+    desugarPVarIdent (HSE.PVar _ (HSE.Ident _ i)) = pure i
+    desugarPVarIdent _ =
+      Left $
+        UnsupportedSyntax "only var patterns are allowed in a primitive case (for now)"
+desugarPrimCons (HSE.Alt _ p _ _) =
+  Left $ UnsupportedSyntax $
+    "unknown primitive constructor in pat: " <> HSE.prettyPrint p
+
+desugarWildPat
+  :: HSE.Alt HSE.SrcSpanInfo
+  -> Maybe WildPat
+desugarWildPat (HSE.Alt _ (HSE.PWildCard l) (HSE.UnGuardedRhs _ rhs) Nothing) =
+  Just WildPat { l, rhs }
+desugarWildPat _ = Nothing
+
+isPrimCons :: HSE.Alt HSE.SrcSpanInfo -> Bool
+isPrimCons (HSE.Alt _ (HSE.PApp _ qname _) _ _)
+  | HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string) <- qname =
+  Map.member (prefix ++ "." ++ string) primitiveConstructors
+isPrimCons _ = False
+
+desugarPrimAlts
+  :: HSE.SrcSpanInfo
+  -> String -- ^ Accessor e.g. Maybe.maybe
+  -> [PrimCons] -- ^ (cons, bindings, rhs)
+  -> Maybe WildPat
+  -> Either DesugarError (HSE.Exp HSE.SrcSpanInfo)
+desugarPrimAlts l accessor consesFound mwildpat =
+  case lookup accessor primitiveSumTypes of
+    Nothing -> Left $ UnsupportedSyntax $ "invalid primitive accessor " <> accessor
+    Just cases -> do
+      alts <- traverse makeAlt cases
+      pure $  foldl' (HSE.App l) accessorE alts
+  where
+    accessorE =
+      HSE.Var l (HSE.Qual l (HSE.ModuleName l prefix) (HSE.Ident l string))
+    (prefix,drop 1 -> string) = List.break (=='.') accessor
+    makeAlt (cons, arity) =
+      case find ((==cons) . (.constructor)) consesFound of
+        Nothing ->
+          case mwildpat of
+            Nothing ->
+              Left $ UnsupportedSyntax $ "missing constructor in case: " <> cons
+            Just wildpat ->
+              pure $ HSE.Lambda
+                wildpat.l
+                pats
+                wildpat.rhs
+              where pats = [ HSE.PWildCard wildpat.l
+                           | _ <- [1.. arity] ]
+        Just primCons ->
+          pure $ HSE.Lambda
+            primCons.l
+            pats
+            primCons.rhs
+          where pats = [ HSE.PVar primCons.l (HSE.Ident primCons.l b)
+                       | b <- primCons.bindings ]
 
 bindingStrings :: Binding -> [String]
 bindingStrings (Singleton string) = [string]
@@ -1233,6 +1364,10 @@ desugarArg _ (HSE.PTuple _ HSE.Boxed idents)
   | Just idents' <- traverse desugarIdent idents =
       pure (Tuple idents', Nothing)
 desugarArg userDefinedTypeAliases (HSE.PParen _ p) = desugarArg userDefinedTypeAliases p
+desugarArg _ (HSE.PWildCard l) =
+  pure $ (Singleton $
+    "$wildcard_" <> show (HSE.startLine l) <> "_" <> show (HSE.startColumn l),
+    Nothing)
 desugarArg _ p = Left $ BadParameterSyntax $ HSE.prettyPrint p
 
 desugarIdent :: HSE.Pat HSE.SrcSpanInfo -> Maybe String
@@ -1848,6 +1983,7 @@ polyLits =
                "hell:Hell.LeftV" LeftV :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Variant (ConsL k a xs)
                "hell:Hell.RightV" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
                "hell:Hell.NilA" NilA :: forall r. Accessor 'NilL r
+               "hell:Hell.WildA" WildA :: forall r (xs :: List). r -> Accessor xs r
                "hell:Hell.ConsA" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
                "hell:Hell.runAccessor" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
 
@@ -2089,6 +2225,31 @@ polyLits =
              |]
       in toplevel
    )
+
+--------------------------------------------------------------------------------
+-- Primitive sum types (for case support)
+
+-- Easy access lookup for case alt desugaring.
+primitiveConstructors :: Map String (String, Int)
+--                           ^ cons ^ type   ^ arity
+primitiveConstructors = Map.fromList [
+  (cons, (typ, arity))
+  | (typ,conses) <- primitiveSumTypes
+  , (cons,arity) <- conses
+  ]
+
+-- | Easier-to-maintain list for me, the author.
+primitiveSumTypes :: [ (String, [(String,     Int)]) ]
+--                     ^ type    ^ cons   ^ arity
+primitiveSumTypes =
+  [ ("Maybe.maybe",[("Maybe.Nothing",0),("Maybe.Just",1)]),
+    ("Either.either", [("Either.Left", 1),("Either.Right", 1)]),
+    ("Exit.exitCode", [("Exit.ExitSuccess", 0),("Exit.ExitFailure", 1)]),
+    ("Bool.bool", [("Bool.False", 0),("Bool.True", 0)]),
+    ("These.these", [("These.This", 1),("These.That", 1),("These.These",2)]),
+    ("Json.value", [("Json.Null",0),("Json.Bool",1),("Json.String",1),("Json.Number",1),("Json.Array", 1),("Json.Object", 1)])
+  ]
+
 
 --------------------------------------------------------------------------------
 -- Internal-use only, used by the desugarer
@@ -2438,7 +2599,7 @@ bindingVars l tupleVar (Tuple names) = do
       _ -> lift $ Left $ UnsupportedTupleSize
 
 equal :: (MonadState Elaborate m) => HSE.SrcSpanInfo -> IRep IMetaVar -> IRep IMetaVar -> m ()
-equal l x y = modify \elaborate' -> elaborate' {equalities = equalities elaborate' <> Set.singleton (Equality l x y)}
+equal l x y = modify \elaborate' -> elaborate' {equalities = elaborate'.equalities <> Set.singleton (Equality l x y)}
 
 freshIMetaVar :: (MonadState Elaborate m) => HSE.SrcSpanInfo -> m IMetaVar
 freshIMetaVar srcSpanInfo = do
@@ -2670,12 +2831,14 @@ data Variant (xs :: List) where
 data Accessor (xs :: List) r where
   NilA :: Accessor 'NilL r
   ConsA :: forall k a r xs. (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
+  WildA :: forall r xs. r -> Accessor xs r
 
 -- | Run a total case-analysis against a variant, given an accessor
 -- record.
 runAccessor :: Tagged s (Variant xs) -> Accessor xs r -> r
 runAccessor (Tagged _ (LeftV _k a)) (ConsA f _) = f a
 runAccessor (Tagged t (RightV xs)) (ConsA _ ys) = runAccessor (Tagged t xs) ys
+runAccessor _ (WildA r) = r
 
 --------------------------------------------------------------------------------
 -- Pretty printing
