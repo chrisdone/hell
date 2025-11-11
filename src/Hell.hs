@@ -6,7 +6,7 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ExistentialQuantification, DuplicateRecordFields, NoFieldSelectors #-}
 {-# LANGUAGE ExtendedDefaultRules #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -1117,18 +1117,25 @@ desugarCase _ _ [] = Left $ UnsupportedSyntax "empty case"
 -- Either.either (\a -> e1 a) (\b -> e2 b) scrutinee
 -- Maybe.maybe e1 (\b -> e2 b) scrutinee
 -- etc
-desugarCase l scrutinee alts | any isPrimCons alts = do
+desugarCase l scrutinee alts0 | any isPrimCons alts0 = do
+  let (wilds, alts) =
+        Either.partitionEithers $
+          map (\x -> maybe (Right x) Left $ desugarWildPat x) alts0
   conses <- traverse desugarPrimCons alts
   let names = map (.accessor) conses
   let consNames = map (.constructor) conses
+  let mwildpat = Maybe.listToMaybe wilds
   if
+    | length wilds > 1 ->
+       Left $ UnsupportedSyntax $
+         "at most one catch-all (var/wildcard) in a case is permitted"
     | Set.toList (Set.fromList consNames) /= List.sort consNames ->
        Left $ UnsupportedSyntax $ "duplicate constructors in case: " <>
          show consNames
          <> show consNames
      -- | All constructors below to the same type.
     | Set.size (Set.fromList names) == 1 ->
-      HSE.App l <$> desugarPrimAlts l (List.concat (take 1 names)) conses
+      HSE.App l <$> desugarPrimAlts l (List.concat (take 1 names)) conses mwildpat
                 <*> pure scrutinee
     | otherwise ->
       Left $ UnsupportedSyntax $ "mismatching types for constructors in case: "
@@ -1220,6 +1227,11 @@ data PrimCons = PrimCons {
   rhs :: HSE.Exp HSE.SrcSpanInfo
   } deriving (Show)
 
+data WildPat = WildPat {
+  l :: HSE.SrcSpanInfo,
+  rhs :: HSE.Exp HSE.SrcSpanInfo
+  } deriving (Show)
+
 desugarPrimCons
   :: HSE.Alt HSE.SrcSpanInfo
   -> Either DesugarError PrimCons
@@ -1240,6 +1252,13 @@ desugarPrimCons (HSE.Alt _ p _ _) =
   Left $ UnsupportedSyntax $
     "unknown primitive constructor in pat: " <> HSE.prettyPrint p
 
+desugarWildPat
+  :: HSE.Alt HSE.SrcSpanInfo
+  -> Maybe WildPat
+desugarWildPat (HSE.Alt _ (HSE.PWildCard l) (HSE.UnGuardedRhs _ rhs) Nothing) =
+  Just WildPat { l, rhs }
+desugarWildPat _ = Nothing
+
 isPrimCons :: HSE.Alt HSE.SrcSpanInfo -> Bool
 isPrimCons (HSE.Alt _ (HSE.PApp _ qname _) _ _)
   | HSE.Qual _ (HSE.ModuleName _ prefix) (HSE.Ident _ string) <- qname =
@@ -1250,21 +1269,31 @@ desugarPrimAlts
   :: HSE.SrcSpanInfo
   -> String -- ^ Accessor e.g. Maybe.maybe
   -> [PrimCons] -- ^ (cons, bindings, rhs)
+  -> Maybe WildPat
   -> Either DesugarError (HSE.Exp HSE.SrcSpanInfo)
-desugarPrimAlts l accessor consesFound =
+desugarPrimAlts l accessor consesFound mwildpat =
   case lookup accessor primitiveSumTypes of
     Nothing -> Left $ UnsupportedSyntax $ "invalid primitive accessor " <> accessor
     Just cases -> do
       alts <- traverse makeAlt cases
-      pure $ foldl' (HSE.App l) accessorE alts
+      pure $  foldl' (HSE.App l) accessorE alts
   where
     accessorE =
       HSE.Var l (HSE.Qual l (HSE.ModuleName l prefix) (HSE.Ident l string))
     (prefix,drop 1 -> string) = List.break (=='.') accessor
-    makeAlt (cons,_arity {- invariant: already checked -}) =
+    makeAlt (cons, arity) =
       case find ((==cons) . (.constructor)) consesFound of
         Nothing ->
-          Left $ UnsupportedSyntax $ "missing constructor in case: " <> cons
+          case mwildpat of
+            Nothing ->
+              Left $ UnsupportedSyntax $ "missing constructor in case: " <> cons
+            Just wildpat ->
+              pure $ HSE.Lambda
+                wildpat.l
+                pats
+                wildpat.rhs
+              where pats = [ HSE.PWildCard wildpat.l
+                           | _ <- [1.. arity] ]
         Just primCons ->
           pure $ HSE.Lambda
             primCons.l
@@ -1320,6 +1349,10 @@ desugarArg _ (HSE.PTuple _ HSE.Boxed idents)
   | Just idents' <- traverse desugarIdent idents =
       pure (Tuple idents', Nothing)
 desugarArg userDefinedTypeAliases (HSE.PParen _ p) = desugarArg userDefinedTypeAliases p
+desugarArg _ (HSE.PWildCard l) =
+  pure $ (Singleton $
+    "$wildcard_" <> show (HSE.startLine l) <> "_" <> show (HSE.startColumn l),
+    Nothing)
 desugarArg _ p = Left $ BadParameterSyntax $ HSE.prettyPrint p
 
 desugarIdent :: HSE.Pat HSE.SrcSpanInfo -> Maybe String
@@ -2550,7 +2583,7 @@ bindingVars l tupleVar (Tuple names) = do
       _ -> lift $ Left $ UnsupportedTupleSize
 
 equal :: (MonadState Elaborate m) => HSE.SrcSpanInfo -> IRep IMetaVar -> IRep IMetaVar -> m ()
-equal l x y = modify \elaborate' -> elaborate' {equalities = equalities elaborate' <> Set.singleton (Equality l x y)}
+equal l x y = modify \elaborate' -> elaborate' {equalities = elaborate'.equalities <> Set.singleton (Equality l x y)}
 
 freshIMetaVar :: (MonadState Elaborate m) => HSE.SrcSpanInfo -> m IMetaVar
 freshIMetaVar srcSpanInfo = do

@@ -46,3 +46,11 @@ main = do
   value $ Json.Number 123.0
   value $ Json.Array $ Vector.fromList [Json.String "vec string"]
   value $ Json.Object $ Map.fromList [("k",Json.String "v")]
+
+  let bool = Function.fix \bool i ->
+        case i of
+          Json.Bool y -> IO.print (y :: Bool)
+          _ -> Text.putStrLn "Something else."
+  bool $ Json.Null
+  bool $ Json.Number 123.0
+  bool $ Json.Bool Bool.True
