@@ -1146,13 +1146,20 @@ desugarCase l scrutinee alts0 | any isPrimCons alts0 = do
 --           x
 --           $ Variant.cons @"Main.Number" (\i -> Show.show i) $
 --              Variant.cons @"Main.Text" (\t -> t) $
---                Variant.nil
+--                Variant.nil (or `WildP x' for `_ -> x')
 desugarCase l scrutinee xs = do
-  alts <- fmap (List.sortBy (Ord.comparing fst)) $ traverse desugarAlt xs
-  pure $
-    HSE.App l (HSE.App l run scrutinee) $
-      foldr (HSE.App l) nil $
-        map snd alts
+  alts0 <- fmap (List.sortBy (Ord.comparing fst)) $ traverse desugarAlt xs
+  let (alts,wild0) = Either.partitionEithers $
+        map (\(x,y) -> bimap (const y) (const y) x) alts0
+  if length wild0 > 1
+    then
+      Left $ UnsupportedSyntax $
+           "at most one catch-all (var/wildcard) in a case is permitted"
+    else do
+      let wild = Maybe.listToMaybe wild0
+      pure $
+        HSE.App l (HSE.App l run scrutinee) $
+          foldr (HSE.App l) (Maybe.fromMaybe nil wild) alts
   where
     tySym s = HSE.TyPromoted l (HSE.PromotedString l s s)
     nil =
@@ -1179,7 +1186,7 @@ desugarCase l scrutinee xs = do
         ) =
         -- Variant.cons @name (\x -> e)
         pure $
-          (name,) $
+          (Left name,) $
             HSE.App
               l'
               ( HSE.App
@@ -1205,7 +1212,7 @@ desugarCase l scrutinee xs = do
         ) =
         -- Variant.cons @name (\_ -> e)
         pure $
-          (name,) $
+          (Left name,) $
             HSE.App
               l'
               ( HSE.App
@@ -1217,6 +1224,14 @@ desugarCase l scrutinee xs = do
                   (HSE.TypeApp l' (tySym name))
               )
               (HSE.Lambda l' [HSE.PVar l' (HSE.Ident l' "_")] e)
+    desugarAlt (HSE.Alt l' (HSE.PWildCard l1) (HSE.UnGuardedRhs _ e) Nothing) =
+      pure $ (Right (), HSE.App
+         l'
+         ( HSE.Var
+             l1
+             (hellQName l' "WildA")
+         )
+         e)
     desugarAlt _ = Left $ UnsupportedSyntax "case alternative syntax"
 
 data PrimCons = PrimCons {
@@ -1968,6 +1983,7 @@ polyLits =
                "hell:Hell.LeftV" LeftV :: forall (k :: Symbol) a (xs :: List). SSymbol k -> a -> Variant (ConsL k a xs)
                "hell:Hell.RightV" RightV :: forall (k :: Symbol) a (xs :: List) (k'' :: Symbol) a''. Variant (ConsL k'' a'' xs) -> Variant (ConsL k a (ConsL k'' a'' xs))
                "hell:Hell.NilA" NilA :: forall r. Accessor 'NilL r
+               "hell:Hell.WildA" WildA :: forall r (xs :: List). r -> Accessor xs r
                "hell:Hell.ConsA" ConsA :: forall (k :: Symbol) a r (xs :: List). (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
                "hell:Hell.runAccessor" runAccessor :: forall (t :: Symbol) r (xs :: List). Tagged t (Variant xs) -> Accessor xs r -> r
 
@@ -2815,12 +2831,14 @@ data Variant (xs :: List) where
 data Accessor (xs :: List) r where
   NilA :: Accessor 'NilL r
   ConsA :: forall k a r xs. (a -> r) -> Accessor xs r -> Accessor (ConsL k a xs) r
+  WildA :: forall r xs. r -> Accessor xs r
 
 -- | Run a total case-analysis against a variant, given an accessor
 -- record.
 runAccessor :: Tagged s (Variant xs) -> Accessor xs r -> r
 runAccessor (Tagged _ (LeftV _k a)) (ConsA f _) = f a
 runAccessor (Tagged t (RightV xs)) (ConsA _ ys) = runAccessor (Tagged t xs) ys
+runAccessor _ (WildA r) = r
 
 --------------------------------------------------------------------------------
 -- Pretty printing

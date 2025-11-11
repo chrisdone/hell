@@ -14,3 +14,12 @@ main = do
     Good -> "Good!"
     Bad -> "Bad!"
     Ugly -> "Ugly!"
+  Text.putStrLn $ case Main.Bad of
+    Good -> "Good!"
+    Bad -> "Bad!"
+    _ -> "Ugly!"
+  -- Wildcard
+  Text.putStrLn $ case Main.Ugly of
+    Good -> "Good!"
+    Bad -> "Bad!"
+    _ -> "Ugly!"
