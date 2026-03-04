@@ -1,11 +1,11 @@
 name: hell
-version: 666.20250113
+version: 666.20251111
 license: BSD3
 author: "Chris Done"
 copyright: "2023 Chris Done"
 synopsis: "Haskell-based shell scripting language"
 dependencies:
-- base
+- base >=4.17.2.1 && <4.22
 - haskell-src-exts
 - ghc-prim
 - containers
