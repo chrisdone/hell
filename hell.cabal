@@ -5,7 +5,7 @@ cabal-version: 1.12
 -- see: https://github.com/sol/hpack
 
 name:           hell
-version:        666.20250113
+version:        666.20251111
 synopsis:       Haskell-based shell scripting language
 author:         Chris Done
 maintainer:     Chris Done
@@ -22,7 +22,7 @@ executable hell
       QuickCheck
     , aeson
     , async
-    , base
+    , base >=4.17.2.1 && <4.22
     , bytestring
     , constraints
     , containers
@@ -58,7 +58,7 @@ test-suite hell-test
       QuickCheck
     , aeson
     , async
-    , base
+    , base >=4.17.2.1 && <4.22
     , bytestring
     , constraints
     , containers
