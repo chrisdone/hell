@@ -12,6 +12,8 @@ dependencies:
 - text
 - bytestring
 - async
+- unification-fd
+- data-fix
 - criterion-measurement
 - criterion
 - mtl

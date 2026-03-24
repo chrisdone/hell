@@ -1,6 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE BlockArguments, DeriveGeneric #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFoldable #-}
@@ -43,6 +43,7 @@
 module Main (main, specMain) where
 
 #if __GLASGOW_HASKELL__ >= 906
+import Data.Fix
 import Control.Monad
 #endif
 
@@ -50,6 +51,8 @@ import Control.Monad
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+import GHC.Generics (Generic1)
+import qualified Control.Unification as Unify
 import Control.Applicative (Alternative (..), optional)
 import qualified Control.Concurrent as Concurrent
 import Control.Exception (evaluate)
@@ -2453,6 +2456,52 @@ process_setWorkingDir :: forall a b c. Text -> ProcessConfig a b c -> ProcessCon
 process_setWorkingDir filepath = Process.setWorkingDir (Text.unpack filepath)
 
 --------------------------------------------------------------------------------
+-- Unification-fd-based unification
+
+data IRepF v
+  = IApp' v v
+  | IFun' v v
+  | ICon' SomeTypeRep
+  deriving (Functor, Traversable, Foldable, Eq, Ord, Show, Generic1)
+instance Unify.Unifiable IRepF
+
+-- | A complete implementation of conversion from the inferer's type
+-- rep to some star type, ready for the type checker.
+toSomeTypeRep' :: Fix IRepF -> Either ZonkError SomeTypeRep
+toSomeTypeRep' t = do
+  go t
+  where
+    go :: Fix IRepF -> Either ZonkError SomeTypeRep
+    go = \case
+      Fix (ICon' someTypeRep) -> pure someTypeRep
+      Fix (IFun' a b) -> do
+        a' <- go a
+        b' <- go b
+        case (a', b') of
+          (StarTypeRep aRep, StarTypeRep bRep) ->
+            pure $ StarTypeRep (Type.Fun aRep bRep)
+          _ -> Left ZonkKindError
+      Fix (IApp' f a) -> do
+        f' <- go f
+        a' <- go a
+        case applyTypes f' a' of
+          Just someTypeRep -> pure someTypeRep
+          _ -> Left ZonkKindError
+
+-- | Convert from a type-indexed type to an untyped type.
+fromSomeStarType' :: forall void. SomeStarType -> Fix IRepF
+fromSomeStarType' (SomeStarType r) = fromSomeType' (SomeTypeRep r)
+
+fromSomeType' :: SomeTypeRep -> Fix IRepF
+fromSomeType' (SomeTypeRep r) = go r
+  where
+    go :: forall a. TypeRep a -> Fix IRepF
+    go = \case
+      Type.Fun a b -> Fix $ IFun' (go a) (go b)
+      Type.App a b -> Fix $ IApp' (go a) (go b)
+      rep@Type.Con {} -> Fix $ ICon' (SomeTypeRep rep)
+
+--------------------------------------------------------------------------------
 -- Inference type representation
 
 data IRep v
@@ -2507,12 +2556,16 @@ fromSomeType (SomeTypeRep r) = go r
 --------------------------------------------------------------------------------
 -- Inference elaboration phase
 
-data IMetaVar = IMetaVar0 {index :: Int, srcSpanInfo :: HSE.SrcSpanInfo}
+data IMetaVar = IMetaVar0 {index :: !Int, srcSpanInfo :: HSE.SrcSpanInfo}
   deriving (Ord, Eq, Show)
+
+instance Unify.Variable IMetaVar where
+  getVarID = (.index)
 
 data Elaborate = Elaborate
   { counter :: Int,
-    equalities :: Set (Equality (IRep IMetaVar))
+    equalities :: Set (Equality (IRep IMetaVar)),
+    equalities' :: [Equality (Unify.UTerm IRepF IMetaVar)]
   }
 
 data Equality a = Equality HSE.SrcSpanInfo a a
@@ -2538,7 +2591,7 @@ data ElaborateError = UnsupportedTupleSize | BadInstantiationBug | VariableNotIn
 elaborate :: UTerm () -> Either ElaborateError (UTerm (IRep IMetaVar), Set (Equality (IRep IMetaVar)))
 elaborate = fmap getEqualities . flip runStateT empty' . flip runReaderT mempty . go
   where
-    empty' = Elaborate {counter = 0, equalities = mempty}
+    empty' = Elaborate {counter = 0, equalities = mempty, equalities' = mempty}
     getEqualities (term, Elaborate {equalities}) = (term, equalities)
     go :: UTerm () -> ReaderT (Map String (IRep IMetaVar)) (StateT Elaborate (Either ElaborateError)) (UTerm (IRep IMetaVar))
     go = \case
@@ -2598,8 +2651,33 @@ bindingVars l tupleVar (Tuple names) = do
       4 -> pure $ SomeTypeRep (typeRep @(,,,))
       _ -> lift $ Left $ UnsupportedTupleSize
 
+bindingVars' :: HSE.SrcSpanInfo -> Unify.UTerm IRepF IMetaVar -> Binding -> StateT Elaborate (Either ElaborateError) (Map String (Unify.UTerm IRepF IMetaVar))
+bindingVars' _ irep (Singleton name) = pure $ Map.singleton name irep
+bindingVars' l tupleVar (Tuple names) = do
+  varsTypes <- for names \name -> fmap (name,) (fmap Unify.UVar (freshIMetaVar l))
+  -- it's a left-fold:
+  -- IApp (IApp (ICon (,)) x) y
+  cons <- makeCons
+  equal' l tupleVar $ foldl (\x y -> Unify.UTerm (IApp' x y)) (Unify.UTerm (ICon' cons)) (map snd varsTypes)
+  pure $ Map.fromList varsTypes
+  where
+    makeCons = case length names of
+      2 -> pure $ SomeTypeRep (typeRep @(,))
+      3 -> pure $ SomeTypeRep (typeRep @(,,))
+      4 -> pure $ SomeTypeRep (typeRep @(,,,))
+      _ -> lift $ Left $ UnsupportedTupleSize
+
 equal :: (MonadState Elaborate m) => HSE.SrcSpanInfo -> IRep IMetaVar -> IRep IMetaVar -> m ()
-equal l x y = modify \elaborate' -> elaborate' {equalities = elaborate'.equalities <> Set.singleton (Equality l x y)}
+equal l x y = modify \elaborate' ->
+  elaborate' {
+    equalities = elaborate'.equalities <> Set.singleton (Equality l x y)
+    }
+
+equal' :: (MonadState Elaborate m) => HSE.SrcSpanInfo -> Unify.UTerm IRepF IMetaVar -> Unify.UTerm IRepF IMetaVar -> m ()
+equal' l x y = modify \elaborate' ->
+  elaborate' {
+    equalities' = Equality l x y : elaborate'.equalities'
+    }
 
 freshIMetaVar :: (MonadState Elaborate m) => HSE.SrcSpanInfo -> m IMetaVar
 freshIMetaVar srcSpanInfo = do
