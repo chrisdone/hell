@@ -43,6 +43,9 @@
 module Main (main, specMain) where
 
 #if __GLASGOW_HASKELL__ >= 906
+import Control.Unification.STVar
+import Data.Functor.Identity
+import Control.Monad.Trans.Except
 import Data.Fix
 import Control.Monad
 #endif
@@ -2517,7 +2520,7 @@ process_setWorkingDir :: forall a b c. Text -> ProcessConfig a b c -> ProcessCon
 process_setWorkingDir filepath = Process.setWorkingDir (Text.unpack filepath)
 
 --------------------------------------------------------------------------------
--- Unification-fd-based unification
+-- Unificatiog-fd-based elaboration
 
 data IRepF v
   = IApp' v v
@@ -2571,6 +2574,10 @@ data IRep v
   | IFun (IRep v) (IRep v)
   | ICon SomeTypeRep
   deriving (Functor, Traversable, Foldable, Eq, Ord, Show)
+
+instance Unify.Fallible IRepF s UnifyError where
+  occursFailure _ _ = UnifyProblem
+  mismatchFailure _ _ = UnifyProblem
 
 fromIRep :: IRep v -> Unify.UTerm IRepF v
 fromIRep = \case
@@ -2816,11 +2823,18 @@ freshIMetaVar srcSpanInfo = do
   pure $ IMetaVar0 counter srcSpanInfo
 
 --------------------------------------------------------------------------------
+-- Unification with unification-fd
+
+unify' :: [Equality (Unify.UTerm IRepF (STVar s IRepF))] -> ExceptT UnifyError (STBinding s) ()
+unify' = traverse_ (\(Equality l x y) -> Unify.unify x y)
+
+--------------------------------------------------------------------------------
 -- Unification
 
 data UnifyError
   = OccursCheck
   | TypeMismatch HSE.SrcSpanInfo (IRep IMetaVar) (IRep IMetaVar)
+  | UnifyProblem
   deriving (Show)
 
 -- | Unification of equality constraints, a ~ b, to substitutions.
