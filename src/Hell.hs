@@ -2489,17 +2489,17 @@ toSomeTypeRep' t = do
           _ -> Left ZonkKindError
 
 -- | Convert from a type-indexed type to an untyped type.
-fromSomeStarType' :: forall void. SomeStarType -> Fix IRepF
+fromSomeStarType' :: forall i. SomeStarType -> Unify.UTerm IRepF i
 fromSomeStarType' (SomeStarType r) = fromSomeType' (SomeTypeRep r)
 
-fromSomeType' :: SomeTypeRep -> Fix IRepF
+fromSomeType' :: forall i. SomeTypeRep -> Unify.UTerm IRepF i
 fromSomeType' (SomeTypeRep r) = go r
   where
-    go :: forall a. TypeRep a -> Fix IRepF
+    go :: forall a. TypeRep a -> Unify.UTerm IRepF i
     go = \case
-      Type.Fun a b -> Fix $ IFun' (go a) (go b)
-      Type.App a b -> Fix $ IApp' (go a) (go b)
-      rep@Type.Con {} -> Fix $ ICon' (SomeTypeRep rep)
+      Type.Fun a b -> Unify.UTerm $ IFun' (go a) (go b)
+      Type.App a b -> Unify.UTerm $ IApp' (go a) (go b)
+      rep@Type.Con {} -> Unify.UTerm $ ICon' (SomeTypeRep rep)
 
 --------------------------------------------------------------------------------
 -- Inference type representation
@@ -2634,6 +2634,61 @@ elaborate = fmap getEqualities . flip runStateT empty' . flip runReaderT mempty 
           equal l (fromSomeType someTypeRep) (IVar var)
         -- Done!
         pure $ UForall prim l monoType types forall' uniqs polyRep (map (IVar . snd) vars)
+
+
+-- | Elaboration phase.
+--
+-- Note: The input term contains no metavars. There are just some
+-- UForalls, which have poly types, and those are instantiated into
+-- metavars.
+--
+-- Output type /does/ contain meta vars.
+elaborate' :: UTerm () -> Either ElaborateError (UTerm (Unify.UTerm IRepF IMetaVar), [Equality (Unify.UTerm IRepF IMetaVar)])
+elaborate' = fmap getEqualities . flip runStateT empty' . flip runReaderT mempty . go
+  where
+    empty' = Elaborate {counter = 0, equalities = mempty, equalities' = mempty}
+    getEqualities (term, Elaborate {equalities'}) = (term, equalities')
+    go :: UTerm () -> ReaderT (Map String (Unify.UTerm IRepF IMetaVar)) (StateT Elaborate (Either ElaborateError)) (UTerm (Unify.UTerm IRepF IMetaVar))
+    go = \case
+      USig l () e ty -> do
+        e' <- go e
+        equal' l (typeOf e') (fromSomeStarType' ty)
+        pure $ e'
+      UVar l () string -> do
+        env <- ask
+        ty <- case Map.lookup string env of
+          Just typ -> pure typ
+          Nothing -> lift $ lift $ Left $ VariableNotInScope string
+        pure $ UVar l ty string
+      UApp l () f x -> do
+        f' <- go f
+        x' <- go x
+        b <- fmap Unify.UVar $ freshIMetaVar l
+        equal' l (typeOf f') (Unify.UTerm $ IFun' (typeOf x') b)
+        pure $ UApp l b f' x'
+      ULam l () binding mstarType body -> do
+        a <- case mstarType of
+          Just ty -> pure $ fromSomeStarType' ty
+          Nothing -> fmap Unify.UVar $ freshIMetaVar l
+        vars <- lift $ bindingVars' l a binding
+        body' <- local (Map.union vars) $ go body
+        let ty = Unify.UTerm $ IFun' a (typeOf body')
+        pure $ ULam l ty binding mstarType body'
+      UForall prim l () types forall' uniqs polyRep _ -> do
+        -- Generate variables for each unique.
+        vars <- for uniqs \uniq -> do
+          v <- freshIMetaVar l
+          pure (uniq, v)
+        -- Fill in the polyRep with the metavars.
+        monoType <- for polyRep \uniq ->
+          case List.lookup uniq vars of
+            Nothing -> lift $ lift $ Left $ BadInstantiationBug
+            Just var -> pure var
+        -- Order of types is position-dependent, apply the ones we have.
+        for_ (zip vars types) \((_uniq, var), someTypeRep) ->
+          equal' l (fromSomeType' someTypeRep) (Unify.UVar var)
+        -- Done!
+        pure $ UForall prim l (undefined monoType) types forall' uniqs polyRep (map (Unify.UVar . snd) vars)
 
 bindingVars :: HSE.SrcSpanInfo -> IRep IMetaVar -> Binding -> StateT Elaborate (Either ElaborateError) (Map String (IRep IMetaVar))
 bindingVars _ irep (Singleton name) = pure $ Map.singleton name irep
