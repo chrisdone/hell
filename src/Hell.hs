@@ -2511,6 +2511,20 @@ data IRep v
   | ICon SomeTypeRep
   deriving (Functor, Traversable, Foldable, Eq, Ord, Show)
 
+fromIRep :: IRep v -> Unify.UTerm IRepF v
+fromIRep = \case
+  IVar v -> Unify.UVar v
+  IApp a b -> Unify.UTerm $ IApp' (fromIRep a) (fromIRep b)
+  IFun a b -> Unify.UTerm $ IFun' (fromIRep a) (fromIRep b)
+  ICon c -> Unify.UTerm $ ICon' c
+
+toIRep :: Unify.UTerm IRepF v -> IRep v
+toIRep = \case
+  Unify.UVar v -> IVar v
+  Unify.UTerm (IApp' a b) -> IApp (toIRep a) (toIRep b)
+  Unify.UTerm (IFun' a b) -> IFun (toIRep a) (toIRep b)
+  Unify.UTerm (ICon' c) -> ICon c
+
 data ZonkError
   = ZonkKindError
   | AmbiguousMetavar IMetaVar
@@ -2688,7 +2702,7 @@ elaborate' = fmap getEqualities . flip runStateT empty' . flip runReaderT mempty
         for_ (zip vars types) \((_uniq, var), someTypeRep) ->
           equal' l (fromSomeType' someTypeRep) (Unify.UVar var)
         -- Done!
-        pure $ UForall prim l (undefined monoType) types forall' uniqs polyRep (map (Unify.UVar . snd) vars)
+        pure $ UForall prim l (fromIRep monoType) types forall' uniqs polyRep (map (Unify.UVar . snd) vars)
 
 bindingVars :: HSE.SrcSpanInfo -> IRep IMetaVar -> Binding -> StateT Elaborate (Either ElaborateError) (Map String (IRep IMetaVar))
 bindingVars _ irep (Singleton name) = pure $ Map.singleton name irep
