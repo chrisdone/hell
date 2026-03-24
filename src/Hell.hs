@@ -176,7 +176,7 @@ dispatch (Run filePath) = do
   action <- compileFile NoStats filePath
   eval () action
 dispatch (Check filePath stats) = do
-  compileFile stats filePath >>= void . evaluate
+  compileFile' stats filePath >>= void . evaluate
 
 --------------------------------------------------------------------------------
 -- Compiler
@@ -223,6 +223,50 @@ compileFile stats filePath = do
                                 Just Type.HRefl ->
                                   pure ex
                                 Nothing -> error $ "Type isn't IO (), but: " ++ show t
+
+-- | Parses the file with HSE, desugars it, infers it, checks it,
+-- returns it. Or throws an error.
+compileFile' :: StatsEnabled -> FilePath -> IO (Term () (IO ()))
+compileFile' stats filePath = do
+  t0 <- getTime
+  !result <- parseFile (nestStat stats) filePath
+  t1 <- getTime
+  emitStat stats "parse" (t1 - t0)
+  case result of
+    Left e -> error $ e
+    Right File {terms, types}
+      | anyCycles terms -> error "Cyclic bindings are not supported!"
+      | anyCycles types -> error "Cyclic types are not supported!"
+      | otherwise -> do
+          t2 <- getTime
+          emitStat stats "cycle_detect" (t2 - t1)
+          case desugarAll types terms of
+            Left err -> error $ prettyString err
+            Right !dterms -> do
+              t3 <- getTime
+              emitStat stats "desugar" (t3 - t2)
+              case lookup "main" dterms of
+                Nothing -> error "No main declaration!"
+                Just main' -> do
+                  inferred <- inferExp' (nestStat stats) main'
+                  case inferred of
+                    Left err -> error $ prettyString err
+                    Right uterm -> do
+                      t4 <- getTime
+                      emitStat stats "infer" (t4 - t3)
+                      case check uterm Nil of
+                        Left err -> error $ prettyString err
+                        Right (Typed t ex) -> do
+                          t5 <- getTime
+                          emitStat stats "check" (t5 - t4)
+                          case Type.eqTypeRep (typeRepKind t) (typeRep @Type) of
+                            Nothing -> error $ "Kind error, that's nowhere near an IO ()!"
+                            Just Type.HRefl ->
+                              case Type.eqTypeRep t (typeRep @(IO ())) of
+                                Just Type.HRefl ->
+                                  pure ex
+                                Nothing -> error $ "Type isn't IO (), but: " ++ show t
+
 
 emitStat :: StatsEnabled -> Text -> Double -> IO ()
 emitStat NoStats _ _ = pure ()
@@ -1527,6 +1571,23 @@ inferExp stats uterm = do
               t3 <- getTime
               emitStat stats "zonk" (t3 - t2)
               pure $ Right sterm
+
+-- | Note: All types in the input are free of metavars. There is an
+-- intermediate phase in which there are metavars, but then they're
+-- all eliminated. By the type system, the output contains only
+-- determinate types.
+inferExp' ::
+  StatsEnabled ->
+  UTerm () ->
+  IO (Either InferError (UTerm SomeTypeRep))
+inferExp' stats uterm = do
+  t0 <- getTime
+  case elaborate uterm of
+    Left elabError -> pure $ Left $ ElabError elabError
+    Right (iterm, equalities) -> do
+      t1 <- getTime
+      emitStat stats "elaborate" (t1 - t0)
+      error "done!"
 
 -- | Zonk a type and then convert it to a type: t :: *
 zonkToStarType :: Map IMetaVar (IRep IMetaVar) -> IRep IMetaVar -> Either ZonkError SomeTypeRep
