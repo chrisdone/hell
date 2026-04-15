@@ -726,7 +726,6 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
     go [] (Term typed') = pure typed'
     go (SomeTypeRep rep : reps) (Forall sym f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) sym = go reps (f rep)
-    -- Cases that look like: Monad (Either (a :: Type) :: Type -> Type)
     go reps (ClassConstraint rep crep f) =
       withClassConstraint forallLoc reps rep crep f go
     go reps fa@(GetOf k0 a0 t0 r0 f) =
