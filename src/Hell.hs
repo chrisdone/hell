@@ -901,6 +901,30 @@ instance1 =
     toDyn $ D1 @c @t Dict
   )
 
+-- A very restricted kind of entailment: C a => C (t a)
+-- This serves:
+-- Eq a => Eq [a], Ord a => Ord (Maybe [a]), etc.
+--
+-- Lookup process:
+--   class = Ord
+--   type  = Maybe [Int]
+--   find (Ord,Maybe)
+--     recurse
+--       find (Ord,[])
+--       recurse
+--          find (Ord,Int)
+--          ==> Ord Int
+--       ==> Ord [Int]
+--   ==> Ord (Maybe [Int])
+entail1 ::
+  forall {k1} (c :: k1 -> Constraint) (t :: k1 -> k1).
+  ((forall a. c a => c (t a)), Typeable c, Typeable t,  Typeable k1) =>
+  ((SomeTypeRep, SomeTypeRep), Dynamic)
+entail1 =
+  ( (SomeTypeRep $ typeRep @c, SomeTypeRep $ typeRep @t),
+    toDyn $ ED1 @c @t (Sub Dict)
+  )
+
 instance2 ::
   forall {k0} {k1} {k2} (c :: k2 -> Constraint) (t :: k0 -> k1 -> k2).
   ((forall a b. c (t a b)), Typeable c, Typeable t, Typeable k0, Typeable k1, Typeable k2) =>
