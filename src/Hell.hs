@@ -767,30 +767,9 @@ withClassConstraint ::
   ([SomeTypeRep] -> Forall -> Either TypeCheckError (Typed (Term g))) ->
   Either TypeCheckError (Typed (Term g))
 withClassConstraint forallLoc reps rep crep f go =
-  if
-      -- Cases that look like: Semigroup (Vector (e :: *))
-      -- Note: the kinds are limited to this exact specification in the signature above.
-      | Type.App t _ <- rep,
-        Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type)),
-        Just dict <- resolve1 (Type.App crep rep) crep t instances ->
-          go reps (withDict dict f)
-      -- Cases that look like: Monad (Either (e :: *) (a :: *))
-      -- Note: the kinds are limited to this exact specification in the signature above.
-      | Type.App t _ <- rep,
-        Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)),
-        Just dict <- resolve1 (Type.App crep rep) crep t instances ->
-          go reps (withDict dict f)
-      -- Cases that look like: Semigroup (Mod (f :: * -> *) (a :: *))
-      -- Note: the kinds are limited to this exact specification in the signature above.
-      | Type.App (Type.App t _a) _b <- rep,
-        Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @((Type -> Type) -> Type -> Type)),
-        Just dict <- resolve2 (Type.App crep rep) crep t instances ->
-          go reps (withDict dict f)
-      -- Simple cases: Eq (a :: k)
-      | Just dict <- resolve crep rep instances ->
-          go reps (withDict dict f)
-      | otherwise ->
-          problem $
+  case lookupDict rep crep of
+    Just dict -> go reps (withDict dict f)
+    Nothing -> problem $
             "type "
               ++ show rep
               ++ " doesn't appear to be an instance of "
@@ -798,6 +777,33 @@ withClassConstraint forallLoc reps rep crep f go =
   where
     problem :: forall x. String -> Either TypeCheckError x
     problem = Left . ConstraintResolutionProblem forallLoc (ClassConstraint rep crep f)
+
+-- The workhorse behind withClassConstraint. See documentation there.
+lookupDict ::
+  forall g k (c :: k -> Constraint) (a :: k).
+  TypeRep a ->
+  TypeRep c ->
+  Maybe (Dict (c a))
+lookupDict rep crep =
+  if
+   -- Cases that look like: Semigroup (Vector (e :: *))
+   -- Note: the kinds are limited to this exact specification in the signature above.
+   | Type.App t _ <- rep,
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type)) ->
+       resolve1 (Type.App crep rep) crep t instances
+   -- Cases that look like: Monad (Either (e :: *) (a :: *))
+   -- Note: the kinds are limited to this exact specification in the signature above.
+   | Type.App t _ <- rep,
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)) ->
+       resolve1 (Type.App crep rep) crep t instances
+   -- Cases that look like: Semigroup (Mod (f :: * -> *) (a :: *))
+   -- Note: the kinds are limited to this exact specification in the signature above.
+   | Type.App (Type.App t _a) _b <- rep,
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @((Type -> Type) -> Type -> Type)) ->
+       resolve2 (Type.App crep rep) crep t instances
+   -- Simple cases: Eq (a :: k)
+   | otherwise ->
+       resolve crep rep instances
 
 --------------------------------------------------------------------------------
 -- Instances
