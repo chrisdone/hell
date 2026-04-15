@@ -803,8 +803,10 @@ withClassConstraint forallLoc reps rep crep f go =
 --------------------------------------------------------------------------------
 -- Instances
 
+-- Dict but for (t :: * -> *), like Monad []
 newtype D1 c t = D1 (forall e. Dict (c (t e)))
 
+-- Dict but for (t :: * -> * -> *), like Monad (Either e)
 newtype D2 c t = D2 (forall f a. Dict (c (t f a)))
 
 newtype Instances = Instances (Map (SomeTypeRep, SomeTypeRep) Dynamic)
