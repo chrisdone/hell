@@ -1,6 +1,8 @@
 main = do
   Text.putStrLn (Show.show 123)
   Text.putStrLn (Show.show Bool.True)
+  Text.putStrLn $ Show.show $ Eq.eq 1 1
+  Text.putStrLn $ Show.show $ Eq.eq [1] [1,2]
 
   env <- Environment.getEnvironment
   Maybe.maybe

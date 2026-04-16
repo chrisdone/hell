@@ -966,11 +966,21 @@ resolve1 ::
   TypeRep t ->
   Instances ->
   Maybe (Dict (c (t a)))
-resolve1 _ c t (Instances m) = do
+resolve1 cta c t (Instances m) = do
   Dynamic rep dict <- Map.lookup (SomeTypeRep c, SomeTypeRep t) m
-  Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @D1) c) t
-  let D1 d = dict
-  pure d
+  (do Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @D1) c) t
+      let D1 d = dict
+      pure d) <|>
+    -- When we see e.g. C (T A), where T A and A have the same kind,
+    -- we can lookup C A, for the entailment C A :- C (T A).
+    (do case cta of
+          Type.App _c a@(Type.App f a') -> do
+            Type.HRefl <- Type.eqTypeRep (typeRepKind a') (typeRepKind a)
+            Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @ED1) c) f
+            let ED1 entailment = dict
+            dictA <- lookupDict a' c
+            pure $ mapDict entailment dictA
+          _ -> Nothing)
 
 -- Resolve an instance of the form: Monoid (Mod f a)
 resolve2 ::
