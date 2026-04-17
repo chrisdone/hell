@@ -1,6 +1,10 @@
 main = do
   Text.putStrLn (Show.show 123)
   Text.putStrLn (Show.show Bool.True)
+  Text.putStrLn $ Show.show $ Eq.eq 1 1
+  Text.putStrLn $ Show.show $ Eq.eq [Maybe.Just 1] [Maybe.Just 2]
+  IO.print [Maybe.Just 1, Maybe.Nothing]
+  IO.print $ Maybe.Just [1] <> Maybe.Nothing
 
   env <- Environment.getEnvironment
   Maybe.maybe

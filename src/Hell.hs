@@ -726,7 +726,6 @@ tc (UForall _ forallLoc _ _ fall _ _ reps0) _env = go reps0 fall
     go [] (Term typed') = pure typed'
     go (SomeTypeRep rep : reps) (Forall sym f)
       | Just Type.HRefl <- Type.eqTypeRep (typeRepKind rep) sym = go reps (f rep)
-    -- Cases that look like: Monad (Either (a :: Type) :: Type -> Type)
     go reps (ClassConstraint rep crep f) =
       withClassConstraint forallLoc reps rep crep f go
     go reps fa@(GetOf k0 a0 t0 r0 f) =
@@ -768,30 +767,9 @@ withClassConstraint ::
   ([SomeTypeRep] -> Forall -> Either TypeCheckError (Typed (Term g))) ->
   Either TypeCheckError (Typed (Term g))
 withClassConstraint forallLoc reps rep crep f go =
-  if
-      -- Cases that look like: Semigroup (Vector (e :: *))
-      -- Note: the kinds are limited to this exact specification in the signature above.
-      | Type.App t _ <- rep,
-        Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type)),
-        Just dict <- resolve1 (Type.App crep rep) crep t instances ->
-          go reps (withDict dict f)
-      -- Cases that look like: Monad (Either (e :: *) (a :: *))
-      -- Note: the kinds are limited to this exact specification in the signature above.
-      | Type.App t _ <- rep,
-        Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)),
-        Just dict <- resolve1 (Type.App crep rep) crep t instances ->
-          go reps (withDict dict f)
-      -- Cases that look like: Semigroup (Mod (f :: * -> *) (a :: *))
-      -- Note: the kinds are limited to this exact specification in the signature above.
-      | Type.App (Type.App t _a) _b <- rep,
-        Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @((Type -> Type) -> Type -> Type)),
-        Just dict <- resolve2 (Type.App crep rep) crep t instances ->
-          go reps (withDict dict f)
-      -- Simple cases: Eq (a :: k)
-      | Just dict <- resolve crep rep instances ->
-          go reps (withDict dict f)
-      | otherwise ->
-          problem $
+  case lookupDict rep crep of
+    Just dict -> go reps (withDict dict f)
+    Nothing -> problem $
             "type "
               ++ show rep
               ++ " doesn't appear to be an instance of "
@@ -800,20 +778,60 @@ withClassConstraint forallLoc reps rep crep f go =
     problem :: forall x. String -> Either TypeCheckError x
     problem = Left . ConstraintResolutionProblem forallLoc (ClassConstraint rep crep f)
 
+-- The workhorse behind withClassConstraint. See documentation there.
+lookupDict ::
+  forall g k (c :: k -> Constraint) (a :: k).
+  TypeRep a ->
+  TypeRep c ->
+  Maybe (Dict (c a))
+lookupDict rep crep =
+  if
+   -- Cases that look like: Semigroup (Vector (e :: *))
+   -- Note: the kinds are limited to this exact specification in the signature above.
+   | Type.App t _ <- rep,
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type)),
+     Just dict <- resolve1 (Type.App crep rep) crep t instances ->
+       pure dict
+   -- Cases that look like: Monad (Either (e :: *) (a :: *))
+   -- Note: the kinds are limited to this exact specification in the signature above.
+   | Type.App t _ <- rep,
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)),
+     Just dict <- resolve1 (Type.App crep rep) crep t instances ->
+       pure dict
+   -- Cases that look like: Semigroup (Mod (f :: * -> *) (a :: *))
+   -- Note: the kinds are limited to this exact specification in the signature above.
+   | Type.App (Type.App t _a) _b <- rep,
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @((Type -> Type) -> Type -> Type)),
+     Just dict <- resolve2 (Type.App crep rep) crep t instances ->
+       pure dict
+   -- Simple cases: Eq (a :: k)
+   | otherwise ->
+       resolve crep rep instances
+
 --------------------------------------------------------------------------------
 -- Instances
 
+-- Dict but for (t :: * -> *), like Monad []
 newtype D1 c t = D1 (forall e. Dict (c (t e)))
 
+-- Dict but for (t :: * -> * -> *), like Monad (Either e)
 newtype D2 c t = D2 (forall f a. Dict (c (t f a)))
 
-newtype Instances = Instances (Map (SomeTypeRep, SomeTypeRep) Dynamic)
+-- Entailment, c a => c (t a), E.g. Eq a :- Eq [a]
+newtype ED1 c t = ED1 (forall e. c e :- c (t e))
+
+newtype Instances = Instances {getInstances ::Map (SomeTypeRep, SomeTypeRep) Dynamic}
 
 instances :: Instances
 instances =
   Instances $
     Map.fromList
-      [ instance0 @Show @Int,
+      [ entail1 @Show @[],
+        entail1 @Show @Set,
+        entail1 @Show @Tree,
+        entail1 @Show @Maybe,
+        entail1 @Show @Vector,
+        instance0 @Show @Int,
         instance0 @Show @Integer,
         instance0 @Show @Day,
         instance0 @Show @UTCTime,
@@ -824,6 +842,12 @@ instances =
         instance0 @Show @Text,
         instance0 @Show @ByteString,
         instance0 @Show @ExitCode,
+        instance0 @Show @Value,
+        entail1 @Eq @[],
+        entail1 @Eq @Set,
+        entail1 @Eq @Maybe,
+        entail1 @Eq @Tree,
+        entail1 @Eq @Vector,
         instance0 @Eq @Int,
         instance0 @Eq @Integer,
         instance0 @Eq @Day,
@@ -835,6 +859,11 @@ instances =
         instance0 @Eq @Text,
         instance0 @Eq @ByteString,
         instance0 @Eq @ExitCode,
+        entail1 @Ord @[],
+        entail1 @Ord @Set,
+        entail1 @Ord @Maybe,
+        entail1 @Ord @Tree,
+        entail1 @Ord @Vector,
         instance0 @Ord @Int,
         instance0 @Ord @Integer,
         instance0 @Ord @Day,
@@ -865,6 +894,7 @@ instances =
         instance1 @Applicative @Either,
         instance0 @Alternative @Options.Parser,
         instance0 @Alternative @Maybe,
+        entail1 @Semigroup @Maybe,
         instance0 @Monoid @Text,
         instance1 @Monoid @Vector,
         instance2 @Monoid @Options.Mod,
@@ -896,6 +926,30 @@ instance1 =
     toDyn $ D1 @c @t Dict
   )
 
+-- A very restricted kind of entailment: C a => C (t a)
+-- This serves:
+-- Eq a => Eq [a], Ord a => Ord (Maybe [a]), etc.
+--
+-- Lookup process:
+--   class = Ord
+--   type  = Maybe [Int]
+--   find (Ord,Maybe)
+--     recurse
+--       find (Ord,[])
+--       recurse
+--          find (Ord,Int)
+--          ==> Ord Int
+--       ==> Ord [Int]
+--   ==> Ord (Maybe [Int])
+entail1 ::
+  forall {k1} (c :: k1 -> Constraint) (t :: k1 -> k1).
+  ((forall a. c a => c (t a)), Typeable c, Typeable t,  Typeable k1) =>
+  ((SomeTypeRep, SomeTypeRep), Dynamic)
+entail1 =
+  ( (SomeTypeRep $ typeRep @c, SomeTypeRep $ typeRep @t),
+    toDyn $ ED1 @c @t (Sub Dict)
+  )
+
 instance2 ::
   forall {k0} {k1} {k2} (c :: k2 -> Constraint) (t :: k0 -> k1 -> k2).
   ((forall a b. c (t a b)), Typeable c, Typeable t, Typeable k0, Typeable k1, Typeable k2) =>
@@ -924,11 +978,21 @@ resolve1 ::
   TypeRep t ->
   Instances ->
   Maybe (Dict (c (t a)))
-resolve1 _ c t (Instances m) = do
+resolve1 cta c t (Instances m) = do
   Dynamic rep dict <- Map.lookup (SomeTypeRep c, SomeTypeRep t) m
-  Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @D1) c) t
-  let D1 d = dict
-  pure d
+  (do Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @D1) c) t
+      let D1 d = dict
+      pure d) <|>
+    -- When we see e.g. C (T A), where T A and A have the same kind,
+    -- we can lookup C A, for the entailment C A :- C (T A).
+    (do case cta of
+          Type.App _c a@(Type.App f a') -> do
+            Type.HRefl <- Type.eqTypeRep (typeRepKind a') (typeRepKind a)
+            Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @ED1) c) f
+            let ED1 entailment = dict
+            dictA <- lookupDict a' c
+            pure $ mapDict entailment dictA
+          _ -> Nothing)
 
 -- Resolve an instance of the form: Monoid (Mod f a)
 resolve2 ::
@@ -2996,6 +3060,9 @@ _generateApiDocs = do
         let excludeHidden = filter (not . List.isPrefixOf "hell:Hell." . fst)
         ul_ do
           for_ (excludeHidden $ Map.toList supportedTypeConstructors) typeConsToHtml
+        h2_ "Instances"
+        ul_ do
+          for_ (Map.toList instances.getInstances) instToHtml
         h2_ "Terms"
         let groups =
               excludeHidden $
@@ -3051,6 +3118,38 @@ makeSearchIndex = Json.Array $ typeConstructorsIndex <> litsIndex <> polysIndex
 
 nameToElementId :: String -> Text
 nameToElementId = Text.pack
+
+instToHtml :: ((SomeTypeRep, SomeTypeRep), Dynamic) -> Html ()
+instToHtml ((cls', ty), dyn') =
+  li_ [id_ (nameToElementId name), class_ "searchable"] $ do
+    code_ do
+      em_ "instance "
+      when entailed do
+         strong_ do
+           "("
+           toHtml $ show cls'
+           " a) => "
+      strong_ $ toHtml $ show cls'
+      " "
+      if entailed || foralld
+         then strong_ do
+                "("
+                toHtml $ show ty
+                " a)"
+         else
+            if foralld2
+               then strong_ do
+                "("
+                toHtml $ show ty
+                " a b)"
+               else
+                 strong_ $ toHtml $ show ty
+
+  where name = show cls' ++ " " ++ show ty
+        -- TODO: Use the types rather than this hack.
+        entailed = Text.isPrefixOf "<<ED1" (Text.pack (show dyn'))
+        foralld = Text.isPrefixOf "<<D1" (Text.pack (show dyn'))
+        foralld2 = Text.isPrefixOf "<<D2" (Text.pack (show dyn'))
 
 typeConsToHtml :: (String, SomeTypeRep) -> Html ()
 typeConsToHtml (name, SomeTypeRep rep) =
