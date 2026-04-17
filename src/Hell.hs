@@ -823,7 +823,11 @@ instances :: Instances
 instances =
   Instances $
     Map.fromList
-      [ instance0 @Show @Int,
+      [ entail1 @Show @[],
+        entail1 @Show @Tree,
+        entail1 @Show @Maybe,
+        entail1 @Show @Vector,
+        instance0 @Show @Int,
         instance0 @Show @Integer,
         instance0 @Show @Day,
         instance0 @Show @UTCTime,
@@ -884,6 +888,7 @@ instances =
         instance1 @Applicative @Either,
         instance0 @Alternative @Options.Parser,
         instance0 @Alternative @Maybe,
+        entail1 @Semigroup @Maybe,
         instance0 @Monoid @Text,
         instance1 @Monoid @Vector,
         instance2 @Monoid @Options.Mod,
