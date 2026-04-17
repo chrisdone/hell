@@ -789,18 +789,21 @@ lookupDict rep crep =
    -- Cases that look like: Semigroup (Vector (e :: *))
    -- Note: the kinds are limited to this exact specification in the signature above.
    | Type.App t _ <- rep,
-     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type)) ->
-       resolve1 (Type.App crep rep) crep t instances
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type)),
+     Just dict <- resolve1 (Type.App crep rep) crep t instances ->
+       pure dict
    -- Cases that look like: Monad (Either (e :: *) (a :: *))
    -- Note: the kinds are limited to this exact specification in the signature above.
    | Type.App t _ <- rep,
-     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)) ->
-       resolve1 (Type.App crep rep) crep t instances
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)),
+     Just dict <- resolve1 (Type.App crep rep) crep t instances ->
+       pure dict
    -- Cases that look like: Semigroup (Mod (f :: * -> *) (a :: *))
    -- Note: the kinds are limited to this exact specification in the signature above.
    | Type.App (Type.App t _a) _b <- rep,
-     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @((Type -> Type) -> Type -> Type)) ->
-       resolve2 (Type.App crep rep) crep t instances
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @((Type -> Type) -> Type -> Type)),
+     Just dict <- resolve2 (Type.App crep rep) crep t instances ->
+       pure dict
    -- Simple cases: Eq (a :: k)
    | otherwise ->
        resolve crep rep instances
