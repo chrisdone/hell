@@ -824,6 +824,7 @@ instances =
   Instances $
     Map.fromList
       [ entail1 @Show @[],
+        entail1 @Show @Set,
         entail1 @Show @Tree,
         entail1 @Show @Maybe,
         entail1 @Show @Vector,
@@ -840,6 +841,7 @@ instances =
         instance0 @Show @ExitCode,
         instance0 @Show @Value,
         entail1 @Eq @[],
+        entail1 @Eq @Set,
         entail1 @Eq @Maybe,
         entail1 @Eq @Tree,
         entail1 @Eq @Vector,
@@ -855,6 +857,7 @@ instances =
         instance0 @Eq @ByteString,
         instance0 @Eq @ExitCode,
         entail1 @Ord @[],
+        entail1 @Ord @Set,
         entail1 @Ord @Maybe,
         entail1 @Ord @Tree,
         entail1 @Ord @Vector,
