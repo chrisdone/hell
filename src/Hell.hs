@@ -834,6 +834,7 @@ instances =
         instance0 @Show @Text,
         instance0 @Show @ByteString,
         instance0 @Show @ExitCode,
+        instance0 @Show @Value,
         entail1 @Eq @[],
         entail1 @Eq @Maybe,
         entail1 @Eq @Tree,
