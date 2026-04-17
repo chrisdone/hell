@@ -817,7 +817,7 @@ newtype D2 c t = D2 (forall f a. Dict (c (t f a)))
 -- Entailment, c a => c (t a), E.g. Eq a :- Eq [a]
 newtype ED1 c t = ED1 (forall e. c e :- c (t e))
 
-newtype Instances = Instances (Map (SomeTypeRep, SomeTypeRep) Dynamic)
+newtype Instances = Instances {getInstances ::Map (SomeTypeRep, SomeTypeRep) Dynamic}
 
 instances :: Instances
 instances =
@@ -3054,6 +3054,9 @@ _generateApiDocs = do
         let excludeHidden = filter (not . List.isPrefixOf "hell:Hell." . fst)
         ul_ do
           for_ (excludeHidden $ Map.toList supportedTypeConstructors) typeConsToHtml
+        h2_ "Instances"
+        ul_ do
+          for_ (Map.toList instances.getInstances) instToHtml
         h2_ "Terms"
         let groups =
               excludeHidden $
@@ -3109,6 +3112,38 @@ makeSearchIndex = Json.Array $ typeConstructorsIndex <> litsIndex <> polysIndex
 
 nameToElementId :: String -> Text
 nameToElementId = Text.pack
+
+instToHtml :: ((SomeTypeRep, SomeTypeRep), Dynamic) -> Html ()
+instToHtml ((cls', ty), dyn') =
+  li_ [id_ (nameToElementId name), class_ "searchable"] $ do
+    code_ do
+      em_ "instance "
+      when entailed do
+         strong_ do
+           "("
+           toHtml $ show cls'
+           " a) => "
+      strong_ $ toHtml $ show cls'
+      " "
+      if entailed || foralld
+         then strong_ do
+                "("
+                toHtml $ show ty
+                " a)"
+         else
+            if foralld2
+               then strong_ do
+                "("
+                toHtml $ show ty
+                " a b)"
+               else
+                 strong_ $ toHtml $ show ty
+
+  where name = show cls' ++ " " ++ show ty
+        -- TODO: Use the types rather than this hack.
+        entailed = Text.isPrefixOf "<<ED1" (Text.pack (show dyn'))
+        foralld = Text.isPrefixOf "<<D1" (Text.pack (show dyn'))
+        foralld2 = Text.isPrefixOf "<<D2" (Text.pack (show dyn'))
 
 typeConsToHtml :: (String, SomeTypeRep) -> Html ()
 typeConsToHtml (name, SomeTypeRep rep) =
