@@ -1,7 +1,27 @@
+data Opts = Opts {
+  arch :: Text,
+  filename :: Text,
+  ghc :: Text,
+  container :: Text
+ }
+options =
+  (\arch filename ghc container -> Main.Opts { arch, filename, ghc, container })
+       <$> Options.strOption (Option.long "stack-arch" <> Option.help "x86_64-linux or aarch64-linux")
+       <*> Options.strOption (Option.long "filename" <> Option.help "e.g. hell-linux-amd64 or hell-linux-arm64")
+       <*> Options.strOption (Option.long "ghc-version" <> Option.help "e.g. ghc-9.8.2")
+       <*> Options.strOption (Option.long "docker-container" <> Option.help "e.g. hell or hell-amd64")
+
 main = do
-  Process.runProcess_ (Process.proc "docker" ["exec", "hell", "stack", "build","--ghc-options", "-static -optl-static -fforce-recomp", "--force-dirty"])
-  Directory.copyFile ".stack-work/dist/x86_64-linux/ghc-9.8.2/build/hell/hell" "hell-linux-x86-64bit"
-  Process.runProcess_ (Process.proc "strip" ["hell-linux-x86-64bit"])
+  opts <- Options.execParser (Options.info (Main.options <**> Options.helper) Options.fullDesc)
+  let arch = Record.get @"arch" opts
+  let filename = Record.get @"filename" opts
+  let ghc = Record.get @"ghc" opts
+  let container = Record.get @"container" opts
+  let distPath = ".stack-work/dist/" <> arch <> "/" <> ghc <> "/build/hell/"
+
+  Process.runProcess_ (Process.proc "docker" ["exec", container, "stack", "build","--ghc-options", "-static -optl-static -fforce-recomp", "--force-dirty"])
+  Directory.copyFile (distPath <> "/hell") filename
+  Process.runProcess_ (Process.proc "strip" [filename])
   pwd <- Directory.getCurrentDirectory
   env <- Environment.getEnvironment
   path <- Environment.getEnv "PATH"
@@ -11,8 +31,7 @@ main = do
         ("PATH",
           Text.concat
             [pwd,
-             "/.stack-work/dist/x86_64-linux/ghc-9.8.2/build/hell/",
-             ":",
+             "/" <> distPath, ":",
              path])
         env) $
     Process.proc "hell" ["scripts/check.hell"]
