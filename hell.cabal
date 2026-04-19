@@ -11,6 +11,7 @@ author:         Chris Done
 maintainer:     Chris Done
 copyright:      2023 Chris Done
 license:        BSD3
+license-file:   LICENSE
 build-type:     Simple
 
 executable hell
