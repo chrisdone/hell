@@ -21,7 +21,7 @@ main = do
 
   Process.runProcess_ (Process.proc "docker" ["exec", container, "stack", "build","--ghc-options", "-static -optl-static -fforce-recomp", "--force-dirty"])
   Directory.copyFile (distPath <> "/hell") filename
-  Process.runProcess_ (Process.proc "strip" [filename])
+  Process.runProcess_ (Process.proc "docker" ["exec", container, "strip", filename])
   pwd <- Directory.getCurrentDirectory
   env <- Environment.getEnvironment
   path <- Environment.getEnv "PATH"
