@@ -820,6 +820,9 @@ newtype D2 c t = D2 (forall f a. Dict (c (t f a)))
 -- Entailment, c a => c (t a), E.g. Eq a :- Eq [a]
 newtype ED1 c t = ED1 (forall e. c e :- c (t e))
 
+-- Entailment, (c a, c b) => c (t a b), E.g. (Eq a, Eq b) :- Eq (Either a b)
+newtype ED2 c t = ED2 (forall e f. (c e, c f) :- c (t e f))
+
 newtype Instances = Instances {getInstances ::Map (SomeTypeRep, SomeTypeRep) Dynamic}
 
 instances :: Instances
