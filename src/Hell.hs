@@ -964,6 +964,16 @@ instance2 =
     toDyn $ D2 @c @t Dict
   )
 
+-- Same as entail1, but for 2-ary types like Either.
+entail2 ::
+  forall {k1} (c :: k1 -> Constraint) (t :: k1 -> k1 -> k1).
+  ((forall a b. (c a, c b) => c (t a b)), Typeable c, Typeable t, Typeable k1) =>
+  ((SomeTypeRep, SomeTypeRep), Dynamic)
+entail2 =
+  ( (SomeTypeRep $ typeRep @c, SomeTypeRep $ typeRep @t),
+    toDyn $ ED2 @c @t (Sub Dict)
+  )
+
 --------------------------------------------------------------------------------
 -- Instance resolution
 
