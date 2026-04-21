@@ -895,6 +895,7 @@ instances =
         instance0 @Functor @Tree,
         instance0 @Functor @Options.Parser,
         instance1 @Functor @Either,
+        instance1 @Functor @(,), -- Functor (a,)
         instance0 @Applicative @IO,
         instance0 @Applicative @Maybe,
         instance0 @Applicative @[],
