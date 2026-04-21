@@ -792,7 +792,13 @@ lookupDict rep crep =
      Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type)),
      Just dict <- resolve1 (Type.App crep rep) crep t instances ->
        pure dict
-   -- Cases that look like: Monad (Either (e :: *) (a :: *))
+   -- Cases that look like: Eq (Either (e :: *) (a :: *))
+   -- Note: the kinds are limited to this exact specification in the signature above.
+   | Type.App (Type.App t _) _ <- rep,
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)),
+     Just dict <- resolve2 (Type.App crep rep) crep t instances ->
+       pure dict
+   -- Cases that look like: Monad (Either (e :: *))
    -- Note: the kinds are limited to this exact specification in the signature above.
    | Type.App t _ <- rep,
      Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)),
@@ -1025,11 +1031,23 @@ resolve2 ::
   TypeRep t ->
   Instances ->
   Maybe (Dict (c (t a b)))
-resolve2 _ c t (Instances m) = do
+resolve2 cta c t (Instances m) = do
   Dynamic rep dict <- Map.lookup (SomeTypeRep c, SomeTypeRep t) m
-  Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @D2) c) t
-  let D2 d = dict
-  pure d
+  (do Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @D2) c) t
+      let D2 d = dict
+      pure d) <|>
+    -- When we see e.g. C (T A), where T A and A have the same kind,
+    -- we can lookup C A, for the entailment C A, C B :- C (T A B).
+    (case cta of
+       Type.App _c a@(Type.App (Type.App f a') b') -> do
+         Type.HRefl <- Type.eqTypeRep (typeRepKind a') (typeRepKind a)
+         Type.HRefl <- Type.eqTypeRep (typeRepKind b') (typeRepKind a)
+         Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @ED2) c) f
+         Dict <- lookupDict a' c
+         Dict <- lookupDict b' c
+         let ED2 (Sub d) = dict
+         pure d
+       _ -> Nothing)
 
 --------------------------------------------------------------------------------
 
