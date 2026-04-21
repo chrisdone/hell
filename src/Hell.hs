@@ -900,6 +900,7 @@ instances =
         instance2 @Monoid @Options.Mod,
         instance1 @Monoid @[],
         entail1 @Semigroup @Maybe,
+        instance2 @Semigroup @Either,
         instance2 @Semigroup @Options.Mod,
         instance0 @Semigroup @Text,
         instance1 @Semigroup @Vector,
