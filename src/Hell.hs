@@ -792,7 +792,13 @@ lookupDict rep crep =
      Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type)),
      Just dict <- resolve1 (Type.App crep rep) crep t instances ->
        pure dict
-   -- Cases that look like: Monad (Either (e :: *) (a :: *))
+   -- Cases that look like: Eq (Either (e :: *) (a :: *))
+   -- Note: the kinds are limited to this exact specification in the signature above.
+   | Type.App (Type.App t _) _ <- rep,
+     Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)),
+     Just dict <- resolve2 (Type.App crep rep) crep t instances ->
+       pure dict
+   -- Cases that look like: Monad (Either (e :: *))
    -- Note: the kinds are limited to this exact specification in the signature above.
    | Type.App t _ <- rep,
      Just Type.HRefl <- Type.eqTypeRep (typeRepKind t) (TypeRep @(Type -> Type -> Type)),
@@ -820,6 +826,9 @@ newtype D2 c t = D2 (forall f a. Dict (c (t f a)))
 -- Entailment, c a => c (t a), E.g. Eq a :- Eq [a]
 newtype ED1 c t = ED1 (forall e. c e :- c (t e))
 
+-- Entailment, (c a, c b) => c (t a b), E.g. (Eq a, Eq b) :- Eq (Either a b)
+newtype ED2 c t = ED2 (forall e f. (c e, c f) :- c (t e f))
+
 newtype Instances = Instances {getInstances ::Map (SomeTypeRep, SomeTypeRep) Dynamic}
 
 instances :: Instances
@@ -831,6 +840,8 @@ instances =
         entail1 @Show @Tree,
         entail1 @Show @Maybe,
         entail1 @Show @Vector,
+        entail2 @Show @Either,
+        entail2 @Show @(,),
         instance0 @Show @Int,
         instance0 @Show @Integer,
         instance0 @Show @Day,
@@ -846,6 +857,8 @@ instances =
         entail1 @Eq @[],
         entail1 @Eq @Set,
         entail1 @Eq @Maybe,
+        entail2 @Eq @Either,
+        entail2 @Eq @(,),
         entail1 @Eq @Tree,
         entail1 @Eq @Vector,
         instance0 @Eq @Int,
@@ -862,6 +875,8 @@ instances =
         entail1 @Ord @[],
         entail1 @Ord @Set,
         entail1 @Ord @Maybe,
+        entail2 @Ord @Either,
+        entail2 @Ord @(,),
         entail1 @Ord @Tree,
         entail1 @Ord @Vector,
         instance0 @Ord @Int,
@@ -886,6 +901,7 @@ instances =
         instance0 @Functor @Tree,
         instance0 @Functor @Options.Parser,
         instance1 @Functor @Either,
+        instance1 @Functor @(,), -- Functor (a,)
         instance0 @Applicative @IO,
         instance0 @Applicative @Maybe,
         instance0 @Applicative @[],
@@ -894,11 +910,13 @@ instances =
         instance1 @Applicative @Either,
         instance0 @Alternative @Options.Parser,
         instance0 @Alternative @Maybe,
-        entail1 @Semigroup @Maybe,
+        entail1 @Monoid @Maybe,
         instance0 @Monoid @Text,
         instance1 @Monoid @Vector,
         instance2 @Monoid @Options.Mod,
         instance1 @Monoid @[],
+        entail1 @Semigroup @Maybe,
+        instance2 @Semigroup @Either,
         instance2 @Semigroup @Options.Mod,
         instance0 @Semigroup @Text,
         instance1 @Semigroup @Vector,
@@ -959,6 +977,16 @@ instance2 =
     toDyn $ D2 @c @t Dict
   )
 
+-- Same as entail1, but for 2-ary types like Either.
+entail2 ::
+  forall {k1} (c :: k1 -> Constraint) (t :: k1 -> k1 -> k1).
+  ((forall a b. (c a, c b) => c (t a b)), Typeable c, Typeable t, Typeable k1) =>
+  ((SomeTypeRep, SomeTypeRep), Dynamic)
+entail2 =
+  ( (SomeTypeRep $ typeRep @c, SomeTypeRep $ typeRep @t),
+    toDyn $ ED2 @c @t (Sub Dict)
+  )
+
 --------------------------------------------------------------------------------
 -- Instance resolution
 
@@ -1003,11 +1031,23 @@ resolve2 ::
   TypeRep t ->
   Instances ->
   Maybe (Dict (c (t a b)))
-resolve2 _ c t (Instances m) = do
+resolve2 cta c t (Instances m) = do
   Dynamic rep dict <- Map.lookup (SomeTypeRep c, SomeTypeRep t) m
-  Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @D2) c) t
-  let D2 d = dict
-  pure d
+  (do Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @D2) c) t
+      let D2 d = dict
+      pure d) <|>
+    -- When we see e.g. C (T A), where T A and A have the same kind,
+    -- we can lookup C A, for the entailment C A, C B :- C (T A B).
+    (case cta of
+       Type.App _c a@(Type.App (Type.App f a') b') -> do
+         Type.HRefl <- Type.eqTypeRep (typeRepKind a') (typeRepKind a)
+         Type.HRefl <- Type.eqTypeRep (typeRepKind b') (typeRepKind a)
+         Type.HRefl <- Type.eqTypeRep rep $ Type.App (Type.App (typeRep @ED2) c) f
+         Dict <- lookupDict a' c
+         Dict <- lookupDict b' c
+         let ED2 (Sub d) = dict
+         pure d
+       _ -> Nothing)
 
 --------------------------------------------------------------------------------
 

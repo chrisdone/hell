@@ -2,9 +2,13 @@ main = do
   Text.putStrLn (Show.show 123)
   Text.putStrLn (Show.show Bool.True)
   Text.putStrLn $ Show.show $ Eq.eq 1 1
+  Text.putStrLn $ Show.show $ Eq.eq (1,1) (1,1)
   Text.putStrLn $ Show.show $ Eq.eq [Maybe.Just 1] [Maybe.Just 2]
+  Text.putStrLn $ Show.show $ Eq.eq [Either.Left 1] [Either.Right "abc"]
   IO.print [Maybe.Just 1, Maybe.Nothing]
   IO.print $ Maybe.Just [1] <> Maybe.Nothing
+  IO.print $ [Either.Left (Maybe.Just 1), Either.Right (Maybe.Just "abc"), Either.Left Maybe.Nothing]
+  IO.print [Maybe.Just (1, 2), Maybe.Nothing]
 
   env <- Environment.getEnvironment
   Maybe.maybe
