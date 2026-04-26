@@ -50,6 +50,13 @@ import Control.Monad
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+import qualified Data.CaseInsensitive as CI
+import Data.CaseInsensitive (CI, FoldCase)
+import qualified Network.HTTP.Types as Http
+import qualified Network.Wai as Wai
+import qualified Network.Wai.Handler.Warp as Warp
+import Data.ByteString.Builder (Builder)
+import qualified Data.ByteString.Builder as Builder
 import Control.Applicative (Alternative (..), optional)
 import qualified Control.Concurrent as Concurrent
 import Control.Exception (evaluate)
@@ -837,6 +844,7 @@ instances =
     Map.fromList
       [ entail1 @Show @[],
         entail1 @Show @Set,
+        entail1 @Show @CI,
         entail1 @Show @Tree,
         entail1 @Show @Maybe,
         entail1 @Show @Vector,
@@ -852,8 +860,10 @@ instances =
         instance0 @Show @Char,
         instance0 @Show @Text,
         instance0 @Show @ByteString,
+        instance0 @Show @Builder,
         instance0 @Show @ExitCode,
         instance0 @Show @Value,
+        entail1 @Eq @CI,
         entail1 @Eq @[],
         entail1 @Eq @Set,
         entail1 @Eq @Maybe,
@@ -874,6 +884,7 @@ instances =
         instance0 @Eq @ExitCode,
         entail1 @Ord @[],
         entail1 @Ord @Set,
+        entail1 @Ord @CI,
         entail1 @Ord @Maybe,
         entail2 @Ord @Either,
         entail2 @Ord @(,),
@@ -920,7 +931,9 @@ instances =
         instance2 @Semigroup @Options.Mod,
         instance0 @Semigroup @Text,
         instance1 @Semigroup @Vector,
-        instance1 @Semigroup @[]
+        instance1 @Semigroup @[],
+        instance0 @FoldCase @Text,
+        instance0 @FoldCase @ByteString
       ]
 
 --------------------------------------------------------------------------------
@@ -1693,6 +1706,8 @@ supportedTypeConstructors =
       ("Day", SomeTypeRep $ typeRep @Day),
       ("UTCTime", SomeTypeRep $ typeRep @UTCTime),
       ("TimeOfDay", SomeTypeRep $ typeRep @TimeOfDay),
+      ("Builder", SomeTypeRep $ typeRep @Builder),
+      ("CI", SomeTypeRep $ typeRep @CI),
       -- Internal, hidden types
       ("hell:Hell.NilL", SomeTypeRep $ typeRep @('NilL)),
       ("hell:Hell.ConsL", SomeTypeRep $ typeRep @('ConsL)),
@@ -1770,10 +1785,11 @@ supportedLits =
       lit' "Text.reverse" Text.reverse,
       lit' "Text.toLower" Text.toLower,
       lit' "Text.toUpper" Text.toUpper,
-      -- Needs Char operations.
-      -- ("Text.any", lit' Text.any),
-      -- ("Text.all", lit' Text.all),
-      -- ("Text.filter", lit' Text.filter),
+      lit' "Text.any" Text.any,
+      lit' "Text.unpack" Text.unpack,
+      lit' "Text.pack" Text.pack,
+      lit' "Text.all" Text.all,
+      lit' "Text.filter" Text.filter,
       lit' "Text.take" Text.take,
       lit' "Text.splitOn" Text.splitOn,
       lit' "Text.takeEnd" Text.takeEnd,
@@ -1883,7 +1899,21 @@ supportedLits =
       -- Options
       lit' "Options.switch" Options.switch,
       lit' "Options.strOption" (Options.strOption @Text),
-      lit' "Options.strArgument" (Options.strArgument @Text)
+      lit' "Options.strArgument" (Options.strArgument @Text),
+      -- Http
+      lit' "Http.run" warp_run,
+      lit' "Http.responseBuilder" Wai.responseBuilder,
+      lit' "Http.responseStream" Wai.responseStream,
+      lit' "Http.responseFile" wai_responseFile,
+      lit' "Http.mkStatus" http_mkStatus,
+      lit' "Http.pathInfo" Wai.pathInfo,
+      lit' "Http.FilePart" Wai.FilePart,
+      lit' "Http.requestHeaders" Wai.requestHeaders,
+      lit' "Http.queryString" Wai.queryString,
+      lit' "Http.getRequestBodyChunk" Wai.getRequestBodyChunk,
+      lit' "Http.consumeRequestBodyStrict" (fmap L.toStrict . Wai.consumeRequestBodyStrict),
+      -- Builder
+      lit' "Builder.byteString" Builder.byteString
     ]
   where
     lit' :: forall a. (Type.Typeable a) => String -> a -> (String, (UTerm (), SomeTypeRep))
@@ -2149,6 +2179,10 @@ polyLits =
                "Exit.die" (Exit.die . Text.unpack) :: forall a. Text -> IO a
                "Exit.exitWith" Exit.exitWith :: forall a. ExitCode -> IO a
                "Exit.exitCode" exit_exitCode :: forall a. a -> (Int -> a) -> ExitCode -> a
+
+               -- CI
+               "CI.foldedCase" CI.foldedCase :: forall s. CI s -> s
+               "CI.mk" CI.mk :: forall s. CI.FoldCase s => s -> CI s
 
                -- Exceptions
                "Error.error" (error . Text.unpack) :: forall a. Text -> a
@@ -2499,6 +2533,18 @@ t_appendFile fp t = ByteString.appendFile (Text.unpack fp) (Text.encodeUtf8 t)
 
 t_readFile :: Text -> IO Text
 t_readFile fp = fmap Text.decodeUtf8 (ByteString.readFile (Text.unpack fp))
+
+-- Same as Warp.run, but with HTTP/2 support disabled.
+-- Stick to HTTP/1.2; simpler, fewer moving parts.
+warp_run :: Int -> Wai.Application -> IO ()
+warp_run p = Warp.runSettings (Warp.setHTTP2Disabled $ Warp.setPort p $ Warp.defaultSettings)
+
+-- No point using ByteString here.
+http_mkStatus :: Int -> Text -> Http.Status
+http_mkStatus i = Http.mkStatus i . Text.encodeUtf8
+
+wai_responseFile :: Http.Status -> Http.ResponseHeaders -> Text -> Maybe Wai.FilePart -> Wai.Response
+wai_responseFile s r f = Wai.responseFile s r (Text.unpack f)
 
 --------------------------------------------------------------------------------
 -- JSON operations
