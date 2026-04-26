@@ -1,0 +1,17 @@
+main = do
+  Http.run 8080 \request respond ->
+    if Eq.eq (Http.pathInfo request) []
+      then
+        case List.lookup (CI.mk $ Text.encodeUtf8 "Content-Type") (Http.requestHeaders request) of
+          Maybe.Just _x ->
+            respond $ Http.responseBuilder (Http.mkStatus 200 "OK") [] $
+               Builder.byteString $ Text.encodeUtf8 "Hello, World!"
+          Maybe.Nothing ->
+             respond $ Http.responseBuilder (Http.mkStatus 500 "Error") [] $
+               Builder.byteString $ Text.encodeUtf8 "Wobble"
+      else
+        respond $
+          Http.responseFile (Http.mkStatus 400 "Not Found")
+            [(CI.mk (Text.encodeUtf8 "Content-Type"), Text.encodeUtf8 "text/markdown")]
+            "docs/readme.md"
+            Maybe.Nothing

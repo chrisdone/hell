@@ -32,6 +32,10 @@ dependencies:
 - temporary
 - these
 - time
+- warp
+- wai
+- http-types
+- case-insensitive
 
 ghc-options:
   - -Wall

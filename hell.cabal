@@ -25,6 +25,7 @@ executable hell
     , async
     , base >=4.17.2.1 && <4.22
     , bytestring
+    , case-insensitive
     , constraints
     , containers
     , criterion
@@ -33,6 +34,7 @@ executable hell
     , ghc-prim
     , haskell-src-exts
     , hspec
+    , http-types
     , lucid2
     , mtl
     , optparse-applicative
@@ -47,6 +49,8 @@ executable hell
     , typed-process
     , unliftio
     , vector
+    , wai
+    , warp
   default-language: Haskell2010
 
 test-suite hell-test
@@ -61,6 +65,7 @@ test-suite hell-test
     , async
     , base >=4.17.2.1 && <4.22
     , bytestring
+    , case-insensitive
     , constraints
     , containers
     , criterion
@@ -69,6 +74,7 @@ test-suite hell-test
     , ghc-prim
     , haskell-src-exts
     , hspec
+    , http-types
     , lucid2
     , mtl
     , optparse-applicative
@@ -83,4 +89,6 @@ test-suite hell-test
     , typed-process
     , unliftio
     , vector
+    , wai
+    , warp
   default-language: Haskell2010
