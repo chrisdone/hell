@@ -1,2 +1,0 @@
-main = do
-  Directory.copyFile "hell-linux-x86-64bit" "/usr/bin/hell"

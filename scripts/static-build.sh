@@ -1,0 +1,4 @@
+nix build .#static-arm64 -o hell-linux-arm64-dir
+cp ./hell-linux-arm64-dir/bin/hell hell-linux-arm64
+nix build .#static-amd64 -o hell-linux-amd64-dir
+cp ./hell-linux-amd64-dir/bin/hell hell-linux-amd64
