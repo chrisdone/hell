@@ -931,7 +931,7 @@ instances =
         instance2 @Semigroup @Either,
         instance2 @Semigroup @Options.Mod,
         instance0 @Semigroup @Text,
-        instance0 @Monoid @Builder,
+        instance0 @Semigroup @Builder,
         instance1 @Semigroup @Vector,
         instance1 @Semigroup @[],
         instance0 @FoldCase @Text,
