@@ -3,7 +3,7 @@ main = do
   let script = Text.unlines [":l src/Hell.hs", "_generateApiDocs", ":quit"]
   _out <- ByteString.readProcess_
     (Text.setStdin script
-      (Process.proc "stack" ["ghci","--no-load"]))
+      (Process.proc "cabal" ["repl"]))
   examples <- Directory.listDirectory "examples/"
   let render = \fp -> do
         Text.putStrLn $ Text.concat ["Rendering ", fp]
