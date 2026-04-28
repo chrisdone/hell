@@ -1,31 +1,49 @@
 {
+  description = "hell";
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
-
   outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+    flake-utils.lib.eachSystem [ "aarch64-linux" "x86_64-linux" ] (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
-        overlay = final: prev: {
-          hell = prev.callCabal2nix "hell" ./. { };
-        };
-        haskellPackages = pkgs.haskell.packages.ghc910.extend overlay;
-      in
-      {
-        # nix build
-        packages.default = haskellPackages.hell;
+        pkgs = import nixpkgs { inherit system; };
 
-        # nix develop
-        devShells.default = haskellPackages.shellFor {
-          packages = p: [ p.hell ];
-          buildInputs = with haskellPackages; [
-            stack
+        pkgsStaticArm64 = import nixpkgs {
+          localSystem  = system;
+          crossSystem  = {
+            config = "aarch64-unknown-linux-musl";
+            isStatic = true;
+          };
+        };
+        pkgsStaticAmd64 = import nixpkgs {
+          localSystem  = system;
+          crossSystem  = {
+            config = "x86_64-unknown-linux-musl";
+            isStatic = true;
+          };
+        };
+
+        mkStaticApp = hp: hp.haskellPackages.callCabal2nix "hell" ./. {};
+
+        app = pkgs.haskellPackages.callCabal2nix "hell" ./. {};
+      in {
+        devShells.default = pkgs.haskellPackages.shellFor {
+          name = "hell-dev";
+          packages = _: [ app ];
+          withHoogle = true;
+          buildInputs = with pkgs.haskellPackages; [
             cabal-install
             haskell-language-server
-            pandoc-cli
+            fourmolu
+            hlint
+            pkgs.zlib
           ];
+        };
+        packages = {
+          default = app;
+          static-arm64 = mkStaticApp pkgsStaticArm64;
+          static-amd64 = mkStaticApp pkgsStaticAmd64;
         };
       }
     );

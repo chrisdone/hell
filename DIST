@@ -1,9 +1,6 @@
 Generate bindist:
 
-arm64
-
-    hell scripts/static-build.hell --stack-arch aarch64-linux --filename hell-linux-arm64 --ghc-version ghc-9.8.2 --docker-container hell
-
-amd64
-
-    hell scripts/static-build.hell --stack-arch x86_64-linux --filename hell-linux-amd64 --ghc-version ghc-9.8.2 --docker-container hell-amd64
+    nix build .#static-arm64 -o hell-linux-arm64-dir
+    cp ./hell-linux-arm64-dir/bin/hell hell-linux-arm64
+    nix build .#static-amd64 -o hell-linux-amd64-dir
+    cp ./hell-linux-amd64-dir/bin/hell hell-linux-amd64
