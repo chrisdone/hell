@@ -1,10 +1,22 @@
+data Opts = Opts {
+  compilerStats :: Bool
+  }
+
+options =
+  (\compilerStats -> Main.Opts { compilerStats })
+     <$> Options.switch (Flag.long "compiler-stats" <> Flag.help "Pass --compiler-stats in?")
+
 main = do
-  examples <- Directory.listDirectory "examples/"
-  let check = \fp -> do
-        Text.putStrLn $ Text.concat ["Checking ", fp]
-        Process.runProcess_ (Process.proc "hell" ["--check", fp])
-  Monad.forM_ examples \example -> do
-    check $ Text.concat ["examples/", example]
-  check "scripts/static-build.hell"
-  check "scripts/install-hell.hell"
+  opts <- Options.execParser (Options.info (Main.options <**> Options.helper) Options.fullDesc)
+  let extra = if Record.get @"compilerStats" opts
+                 then ["--compiler-stats"]
+                 else []
+  let list = \dir ->
+        Functor.fmap (List.filter (Text.isSuffixOf ".hell") . List.map (\x -> dir <> x))
+          $ Directory.listDirectory dir
+  examples <- list "examples/"
+  scripts <- list "scripts/"
+  Async.pooledForConcurrently (examples <> scripts) \fp -> do
+    Text.putStrLn $ Text.concat ["Checking ", fp]
+    Process.runProcess_ (Process.proc "hell" (["--check", fp] <> extra))
   Text.putStrLn "All OK."
