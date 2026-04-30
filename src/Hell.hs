@@ -2147,6 +2147,7 @@ polyLits =
 
                -- Alternative operations
                "Alternative.optional" (optional) :: forall (f :: Type -> Type) a. (Alternative f) => f a -> f (Maybe a)
+               "Alternative.many" (many) :: forall (f :: Type -> Type) a. (Alternative f) => f a -> f [a]
 
                -- Monadic operations
                "Monad.mapM_" mapM_ :: forall a (m :: Type -> Type). (Monad m) => (a -> m ()) -> [a] -> m ()
