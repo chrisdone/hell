@@ -1,46 +1,14 @@
-name: "Build"
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
+name: "Test"
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
-
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
+  push:
 jobs:
-  build:
+  tests:
     runs-on: ubuntu-latest
-    container:
-      image: "docker://ghcr.io/chrisdone/hell-build:2025-03-04@sha256:ca21e3be038cf1f10fa18306123b4d5f0e2009fe8938cea3afcef7f900bbea71"
-
-      env:
-        # For the ~/.stack root.
-        HOME: /root/
-        STACK_ROOT: /root/.stack
-
-        # This can be both of these, depending on whether it's a PR or
-        # main. GitHub Actions is weird.
-        #
-        # * "GIT_BRANCH=refs/heads/main"
-        # * "GIT_BRANCH=cd/2024-08-28-check-examples"
-        #
-        GIT_BRANCH: ${{ github.head_ref || github.ref }}
-
     steps:
-      - run: |
-          git clone https://github.com/chrisdone/hell /tmp/hell && \
-          cd /tmp/hell && \
-          git checkout $GIT_BRANCH
-      - run: |
-          cd /tmp/hell && stack build --fast
-      - run: |
-          cd /tmp/hell && stack exec hell scripts/check-examples.hell
-      - run: |
-          cd /tmp/hell && HOME=/home/chris/ stack exec hell scripts/check-docs.hell
+    - uses: actions/checkout@v5
+    - uses: cachix/install-nix-action@v31
+      with:
+        github_access_token: ${{ secrets.GITHUB_TOKEN }}
+    - run: nix build
+    - run: nix flake check

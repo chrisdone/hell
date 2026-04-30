@@ -1,22 +1,24 @@
 data Opts = Opts {
+  dirs :: [Text],
   compilerStats :: Bool
   }
 
 options =
-  (\compilerStats -> Main.Opts { compilerStats })
-     <$> Options.switch (Flag.long "compiler-stats" <> Flag.help "Pass --compiler-stats in?")
+  (\dirs compilerStats -> Main.Opts { compilerStats, dirs })
+     <$> Alternative.many (Options.strOption (Option.long "dir" <> Option.help "Directory to check"))
+     <*> Options.switch (Flag.long "compiler-stats" <> Flag.help "Pass --compiler-stats in?")
 
 main = do
   opts <- Options.execParser (Options.info (Main.options <**> Options.helper) Options.fullDesc)
   let extra = if Record.get @"compilerStats" opts
                  then ["--compiler-stats"]
                  else []
+  let dirs = Record.get @"dirs" opts
   let list = \dir ->
-        Functor.fmap (List.filter (Text.isSuffixOf ".hell") . List.map (\x -> dir <> x))
+        Functor.fmap (List.filter (Text.isSuffixOf ".hell") . List.map (\x -> dir <> "/" <> x))
           $ Directory.listDirectory dir
-  examples <- list "examples/"
-  scripts <- list "scripts/"
-  Async.pooledForConcurrently (examples <> scripts) \fp -> do
+  examples <- Functor.fmap List.concat $ Monad.mapM list dirs
+  Async.pooledForConcurrently examples \fp -> do
     Text.putStrLn $ Text.concat ["Checking ", fp]
     Process.runProcess_ (Process.proc "hell" (["--check", fp] <> extra))
   Text.putStrLn "All OK."

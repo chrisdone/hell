@@ -41,6 +41,15 @@
             pkgs.zlib
           ];
         };
+        checks = {
+          run-script-check = pkgs.runCommand "test-hell-script" {
+            buildInputs = [ app ];
+          } ''
+            hell ${./scripts/check.hell} --dir ${./examples} --dir ${./scripts}
+            touch $out
+          '';
+          build = app;
+        };
         packages = {
           default = app;
           static-arm64 = mkStaticApp pkgsStaticArm64;
