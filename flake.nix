@@ -37,6 +37,7 @@
             haskell-language-server
             fourmolu
             hlint
+            hpack
             pkgs.pandoc
             pkgs.zlib
           ];

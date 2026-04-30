@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.37.0.
+-- This file has been generated from package.yaml by hpack version 0.38.3.
 --
 -- see: https://github.com/sol/hpack
 
@@ -18,7 +18,7 @@ executable hell
   main-is: src/Hell.hs
   other-modules:
       Paths_hell
-  ghc-options: -Wall -Wno-missing-pattern-synonym-signatures -O2 -threaded -rtsopts
+  ghc-options: -Wall -Wno-missing-pattern-synonym-signatures -O2 -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       QuickCheck
     , aeson
