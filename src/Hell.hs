@@ -43,6 +43,8 @@
 module Main (main, specMain) where
 
 #if __GLASGOW_HASKELL__ >= 906
+import GHC.StaticPtr
+import Language.Haskell.TH (TExp, examineCode)
 import Control.Monad
 #endif
 
@@ -516,7 +518,36 @@ desugarRecordType = appRecord . foldr appCons nilL
     l = HSE.noSrcSpan
 
 --------------------------------------------------------------------------------
--- Typed AST support
+-- Typed TH support
+
+-- ghci> $((>>= TH.stringE . show . TH.ppr) $ TH.unTypeCode $ compile () $ AppG (LamG (GarG (ZGar [|| id ||]))) $ LitG [|| () ||])
+-- "(\\x_0 -> GHC.Internal.Base.id x_0) GHC.Tuple.()"
+
+data Germ g t where
+  GarG :: Gar g t -> Germ g t
+  LamG :: Germ (g, TH.Code Q a) b -> Germ g (a -> b)
+  AppG :: Germ g (s -> t) -> Germ g s -> Germ g t
+  LitG :: TH.Code Q a -> Germ g a
+
+data Gar g t where
+  ZGar :: TH.Code Q (t -> a) -> Gar (h, TH.Code Q t) a
+  SGar :: Gar h t -> Gar (h, s) t
+
+-- This is the compiler. Type-safe and total.
+compile :: env -> Germ env t -> TH.Code Q t
+compile env (GarG v) = lookg v env
+compile env (LamG e) = [|| \x -> $$(compile (env, [||x||]) e) ||]
+compile env (AppG e1 e2) = [|| $$(compile env e1) $$(compile env e2) ||]
+compile _env (LitG a) = a
+
+-- Type-safe, total lookup. The final @slot@ determines which slot of
+-- a given tuple to pick out.
+lookg :: Gar env t -> env -> TH.Code Q t
+lookg (ZGar slot) (_, x) = [|| $$slot $$x ||]
+lookg (SGar v) (env, _) = lookg v env
+
+--------------------------------------------------------------------------------
+-- Typed AST support for eval
 --
 -- We define a well-typed, well-indexed GADT AST which can be evaluated directly.
 
@@ -529,10 +560,6 @@ data Term g t where
 data Var g t where
   ZVar :: (t -> a) -> Var (h, t) a
   SVar :: Var h t -> Var (h, s) t
-
---------------------------------------------------------------------------------
--- Evaluator
---
 
 -- This is the entire evaluator. Type-safe and total.
 eval :: env -> Term env t -> t
