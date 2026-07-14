@@ -43,6 +43,7 @@
 module Main (main, specMain) where
 
 #if __GLASGOW_HASKELL__ >= 906
+import StaticNamed
 import GHC.StaticPtr
 import Language.Haskell.TH (TExp, examineCode)
 import Control.Monad
@@ -545,6 +546,41 @@ compile _env (LitG a) = a
 lookg :: Gar env t -> env -> TH.Code Q t
 lookg (ZGar slot) (_, x) = [|| $$slot $$x ||]
 lookg (SGar v) (env, _) = lookg v env
+
+--------------------------------------------------------------------------------
+-- StaticPtr-based TH support
+
+-- $((>>= TH.stringE . show . TH.ppr) $ TH.unTypeCode $ compl () $ AppS (LamS (SarS (ZSar [|| id ||]))) $ LitS staticTup)
+-- "(\\x_0 -> GHC.Internal.Base.id x_0) (GHC.Internal.StaticPtr.deRefStaticPtr (StaticNamed.grab GHC.Internal.Base.$ Data.Text.unpackCStringLen# \"<binary data>\" (GHC.Types.I# 42#)))"
+--
+-- ghci> $$(compl () $ AppS (LamS (SarS (ZSar [|| id ||]))) $ LitS staticTup)
+-- ()
+
+data Serm g t where
+  SarS :: Sar g t -> Serm g t
+  LamS :: Serm (g, TH.Code Q a) b -> Serm g (a -> b)
+  AppS :: Serm g (s -> t) -> Serm g s -> Serm g t
+  LitS :: StaticPtr a -> Serm g a
+
+data Sar g t where
+  ZSar :: TH.Code Q (t -> a) -> Sar (h, TH.Code Q t) a
+  SSar :: Sar h t -> Sar (h, s) t
+
+-- This is the complr. Type-safe and total.
+compl :: env -> Serm env t -> TH.Code Q t
+compl env (SarS v) = looks v env
+compl env (LamS e) = [|| \x -> $$(compl (env, [||x||]) e) ||]
+compl env (AppS e1 e2) = [|| $$(compl env e1) $$(compl env e2) ||]
+compl _env (LitS a) = [|| deRefStaticPtr a ||]
+
+-- Type-safe, total lookup. The final @slot@ determines which slot of
+-- a given tuple to pick out.
+looks :: Sar env t -> env -> TH.Code Q t
+looks (ZSar slot) (_, x) = [|| $$slot $$x ||]
+looks (SSar v) (env, _) = looks v env
+
+staticTup :: StaticPtr ()
+staticTup = static ()
 
 --------------------------------------------------------------------------------
 -- Typed AST support for eval
