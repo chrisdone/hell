@@ -1,0 +1,58 @@
+-- This encoding of brossa supports:
+--
+-- * defaulted datapoints
+-- * derived datapoints
+-- * parametrized datapoints
+-- * collectable datapoints, with defaults
+
+main = do
+
+  -- hydration:
+  let record :: Main.M = Function.fix $
+        Record.set @"x" 500 .
+        Record.set @"y" 28 .
+        Record.modify @"sov_country" (Main.add_param_values [(1234, "France")]) .
+        Main.view
+
+  -- access:
+  IO.print $ Record.get @"x" @Int record
+  IO.print $ Record.get @"y" @Int record
+  IO.print $ Record.get @"z" @Int record
+  IO.print $ (Record.get @"sov_country" @(Int -> Text) record) 5678
+  IO.print $ (Record.get @"sov_country" @(Int -> Text) record) 1234
+
+data M = M {
+ x :: Int,
+ y :: Int,
+ z :: Int,
+ sov_country :: Int -> Text
+}
+
+view :: Main.M -> Main.M = \me -> Main.M {
+  -- no default
+  -- x : Int
+  x = Error.error "x is obstructed: no value or default",
+
+  -- defaulted
+  -- y : Int = 2
+  y = 2,
+
+  -- defaulted, derived from others
+  -- z : Int = x + y
+  z = Int.plus (Record.get @"x" me)
+               (Record.get @"y" me),
+
+  -- parametrized datapoint
+  sov_country = Main.default_parametrized "sov_country: obstructed"
+                       [(5678, "Germany")]
+  }
+
+add_param_values = \m f k -> do
+  let m = Map.fromList m
+  Maybe.maybe (f k) Function.id (Map.lookup k m)
+
+default_parametrized = \msg vals k -> do
+    let def = Map.fromList vals
+    Maybe.maybe (Error.error msg)
+                Function.id
+                (Map.lookup k def)
