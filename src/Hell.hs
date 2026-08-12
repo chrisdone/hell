@@ -1232,6 +1232,15 @@ desugarExp userDefinedTypeAliases globals = go mempty
             squash _ = Left BadDoNotation
         squash stmts >>= go scope
       HSE.RecConstr _ qname fields -> go scope $ makeConstructRecord qname fields
+      -- generators sugars
+      HSE.EnumFromTo l from to -> do
+        let enumFromTo' = HSE.Var l (HSE.Qual l (HSE.ModuleName l "Enum") (HSE.Ident l "enumFromTo"))
+        go scope $
+          HSE.App l (HSE.App l enumFromTo' from) to
+      HSE.EnumFrom l from -> do
+        let enumFrom' = HSE.Var l (HSE.Qual l (HSE.ModuleName l "Enum") (HSE.Ident l "enumFrom"))
+        go scope $ HSE.App l enumFrom' from
+      -- end of generator sugars
       e -> Left $ UnsupportedSyntax $ show e
 
 -- | Handles both user-defined case and primitive type case (Maybe, Either, etc.)
