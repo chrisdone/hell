@@ -904,6 +904,12 @@ instances =
         instance0 @Ord @Text,
         instance0 @Ord @ByteString,
         instance0 @Ord @ExitCode,
+        instance0 @Enum @Int,
+        instance0 @Enum @Integer,
+        instance0 @Enum @Day,
+        instance0 @Enum @DayOfWeek,
+        instance0 @Enum @Bool,
+        instance0 @Enum @Char,
         instance0 @Monad @IO,
         instance0 @Monad @Maybe,
         instance0 @Monad @[],
@@ -1226,6 +1232,15 @@ desugarExp userDefinedTypeAliases globals = go mempty
             squash _ = Left BadDoNotation
         squash stmts >>= go scope
       HSE.RecConstr _ qname fields -> go scope $ makeConstructRecord qname fields
+      -- generators sugars
+      HSE.EnumFromTo l from to -> do
+        let enumFromTo' = HSE.Var l (HSE.Qual l (HSE.ModuleName l "Enum") (HSE.Ident l "enumFromTo"))
+        go scope $
+          HSE.App l (HSE.App l enumFromTo' from) to
+      HSE.EnumFrom l from -> do
+        let enumFrom' = HSE.Var l (HSE.Qual l (HSE.ModuleName l "Enum") (HSE.Ident l "enumFrom"))
+        go scope $ HSE.App l enumFrom' from
+      -- end of generator sugars
       e -> Left $ UnsupportedSyntax $ show e
 
 -- | Handles both user-defined case and primitive type case (Maybe, Either, etc.)
@@ -2183,6 +2198,10 @@ polyLits =
                "Eq.eq" (Eq.==) :: forall a. (Eq a) => a -> a -> Bool
                "Ord.lt" (Ord.<) :: forall a. (Ord a) => a -> a -> Bool
                "Ord.gt" (Ord.>) :: forall a. (Ord a) => a -> a -> Bool
+
+               -- Enum
+               "Enum.enumFrom" enumFrom :: forall a. Enum a => a -> [a]
+               "Enum.enumFromTo" enumFromTo :: forall a. Enum a => a -> a -> [a]
 
                -- Tuples
                "Tuple.(,)" (,) :: forall a b. a -> b -> (a, b)

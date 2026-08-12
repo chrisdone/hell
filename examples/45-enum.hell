@@ -1,0 +1,12 @@
+main = do
+  IO.print $ List.take 5 $ Enum.enumFrom 1
+  IO.print $ Enum.enumFromTo 1 10
+  IO.print $ List.take 5 $ Enum.enumFrom 'a'
+  IO.print $ List.take 5 $ Enum.enumFrom Bool.False
+  IO.print $ List.take 5 $ Enum.enumFrom (Int.toInteger 1)
+  IO.print $ List.take 5 $ Enum.enumFrom $
+     Maybe.maybe (Error.error "Bad day.") Function.id $ Day.fromGregorianValid (Int.toInteger 2020) 01 01
+
+  -- simple list generators
+  IO.print [1 .. 3]
+  IO.print $ List.take 5 ['a' ..]
