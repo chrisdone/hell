@@ -2184,6 +2184,10 @@ polyLits =
                "Ord.lt" (Ord.<) :: forall a. (Ord a) => a -> a -> Bool
                "Ord.gt" (Ord.>) :: forall a. (Ord a) => a -> a -> Bool
 
+               -- Enum
+               "Enum.enumFrom" enumFrom :: forall a. Enum a => a -> [a]
+               "Enum.enumFromTo" enumFromTo :: forall a. Enum a => a -> a -> [a]
+
                -- Tuples
                "Tuple.(,)" (,) :: forall a b. a -> b -> (a, b)
                "Tuple.(,)" (,) :: forall a b. a -> b -> (a, b)
