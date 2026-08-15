@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BlockArguments #-}
@@ -42,8 +43,14 @@
 
 module Main (main, specMain) where
 
+
 #if __GLASGOW_HASKELL__ >= 906
+import Data.Tuple
+import Data.Fix
+import qualified Control.Unification.Types as FD
+import Control.Monad.Trans.Except
 import qualified Control.Unification as FD
+import qualified Control.Unification.STVar as FD
 import GHC.Generics (Generic1)
 import Control.Monad
 #endif
@@ -52,6 +59,7 @@ import Control.Monad
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
+import Control.Monad.ST
 import qualified Data.CaseInsensitive as CI
 import Data.CaseInsensitive (CI, FoldCase)
 import qualified Network.HTTP.Types as Http
@@ -211,7 +219,7 @@ compileFile stats filePath = do
               case lookup "main" dterms of
                 Nothing -> error "No main declaration!"
                 Just main' -> do
-                  inferred <- inferExp (nestStat stats) main'
+                  inferred <- infer_exp (nestStat stats) main'
                   case inferred of
                     Left err -> error $ prettyString err
                     Right uterm -> do
@@ -1636,7 +1644,10 @@ data InferError
   = UnifyError UnifyError
   | ZonkError ZonkError
   | ElabError ElaborateError
-  deriving (Show)
+  | ST_mapping_error
+  | ST_unify_error
+  | ST_apply_bindings_error
+deriving instance Show InferError
 
 -- | Note: All types in the input are free of metavars. There is an
 -- intermediate phase in which there are metavars, but then they're
@@ -1664,6 +1675,19 @@ inferExp stats uterm = do
               t3 <- getTime
               emitStat stats "zonk" (t3 - t2)
               pure $ Right sterm
+
+infer_exp ::
+  StatsEnabled ->
+  UTerm () ->
+  IO (Either InferError (UTerm SomeTypeRep))
+infer_exp stats uterm = do
+  t0 <- getTime
+  case elaborate uterm of
+    Left elabError -> pure $ Left $ ElabError elabError
+    Right (iterm, equalities) -> do
+      t1 <- getTime
+      emitStat stats "elaborate" (t1 - t0)
+      st_unify stats equalities iterm
 
 -- | Zonk a type and then convert it to a type: t :: *
 zonkToStarType :: Map IMetaVar (IRep IMetaVar) -> IRep IMetaVar -> Either ZonkError SomeTypeRep
@@ -2646,6 +2670,103 @@ data Ty a
   | TyFun a a
   | TyCon SomeTypeRep
   deriving (Functor, Traversable, Foldable, Eq, Ord, Show, Generic1)
+-- Below: Needed for FD.freeVar (note for myself, not audience)
+deriving instance FD.Unifiable Ty
+
+-- WIP: At this point we want, preferably, a function that goes
+-- from an (IRep IMetaVar) to SomeTypeRep in one go, which inferExp can
+-- use to traverse f iterm to get UTerm SomeTypeRep. Or it receives the expr
+-- to traverse over, due to the ST monadness.
+--
+-- Some key ingredients:
+--
+-- to_sometyperep :: Fix Ty -> Either ZonkError SomeTypeRep
+-- irep_to_uterm :: IRep v -> FD.UTerm Ty v
+-- FD.applyBindings :: UTerm t v -> em m (UTerm t v)
+--
+-- I'd say we want to:
+--
+-- 1) Convert the IRep IMetaVar to UTerm t v using the (Map IMetaVar (STVar ..)) map.
+-- 2) Apply bindings to fully flesh out the type.
+-- 3) Zonk it, going directly from FD.UTerm Ty straight to SomeTypeRep
+--     (tweak to_sometyperep to work with UTerm Ty rather than Fix Ty)
+--
+-- That should be all that's needed?
+
+-- Unify all the constraints in @equalities@, zonk and update the term and return it.
+st_unify :: Traversable t
+  => StatsEnabled
+  -> Set (Equality (IRep IMetaVar))
+  -> t (IRep IMetaVar)
+  -> IO (Either InferError (t SomeTypeRep))
+st_unify stats set term = do
+  t1 <- getTime
+  let result =
+        FD.runSTBinding do
+          -- Thaw the equalities.
+          (equalities, mapping) <- run_stize $ stize_equalities $ Set.toList set
+          -- Unify the mutable equalities into the ambient environment.
+          result <- runExceptT $ st_unifier_ equalities
+          case result of
+            Left err -> pure $ Left ST_unify_error
+            Right () -> do
+              -- Apply bindings, zonk and freeze all the types across the term.
+              runExceptT $
+                for term \irepmv -> do
+                  uterm <- for (irep_to_uterm irepmv) \imv ->
+                    case Map.lookup imv mapping of
+                      Nothing -> throwE $ ST_mapping_error
+                      Just stvar -> pure stvar
+                  uterm' <- withExceptT (const ST_apply_bindings_error) $ st_apply uterm
+                  except $ first ZonkError $
+                    to_sometyperep
+                      mapping
+                      uterm'
+  case result of
+    Left err -> pure $ Left err
+    Right (!term') -> do
+      t2 <- getTime
+      emitStat stats "unify-and-zonk" (t2 - t1)
+      pure $ Right term'
+
+-- Apply bindings; this type signature avoids type inference problems.
+st_apply :: FD.UTerm Ty (FD.STVar s Ty)
+         -> ExceptT (FD.UFailure Ty (FD.STVar s Ty)) (FD.STBinding s) (FD.UTerm Ty (FD.STVar s Ty))
+st_apply = FD.applyBindings
+
+-- Unify all the equality constraints provided.
+st_unifier_ :: [Equality (FD.UTerm Ty (FD.STVar s Ty))]
+            -> ExceptT (FD.UFailure Ty (FD.STVar s Ty)) (FD.STBinding s) ()
+st_unifier_ = traverse_ \(Equality src a b) -> void $ FD.unify a b
+
+-- Run an ST-izing operation, and return the mapping from the original IMetaVars to the STVars, so that they can be recovered later.
+run_stize :: StateT (Map IMetaVar (FD.STVar s Ty)) (FD.STBinding s) x -> FD.STBinding s (x, Map IMetaVar (FD.STVar s Ty))
+run_stize = flip runStateT (mempty :: Map IMetaVar (FD.STVar s Ty))
+
+-- ST-ize the metavars in all types in the equality constraints set
+stize_equalities :: [Equality (IRep IMetaVar)] -> StateT (Map IMetaVar (FD.STVar s Ty)) (FD.STBinding s) [Equality (FD.UTerm Ty (FD.STVar s Ty))]
+stize_equalities = traverse stize_equality
+
+-- ST-ize the metavars in all types in the equality's types on both sides, it also
+-- is exactly where conversion from IRep to UTerm Ty occurs.
+stize_equality :: Equality (IRep IMetaVar) -> StateT (Map IMetaVar (FD.STVar s Ty)) (FD.STBinding s) (Equality (FD.UTerm Ty (FD.STVar s Ty)))
+stize_equality (Equality loc a b) = do
+  Equality loc <$> stize_uterm (irep_to_uterm a) <*> stize_uterm (irep_to_uterm b)
+
+-- ST-ize the metavars in a uterm
+stize_uterm :: FD.UTerm Ty IMetaVar -> StateT (Map IMetaVar (FD.STVar s Ty)) (FD.STBinding s) (FD.UTerm Ty (FD.STVar s Ty))
+stize_uterm = traverse stize_imetavar
+
+-- ST-ize this metavar and remember that it was done
+stize_imetavar :: IMetaVar -> StateT (Map IMetaVar (FD.STVar s Ty)) (FD.STBinding s) (FD.STVar s Ty)
+stize_imetavar = \v -> do
+  mexisting <- gets (Map.lookup v)
+  case mexisting of
+    Just stv -> pure stv
+    Nothing -> do
+      stv <- lift FD.freeVar
+      modify' (Map.insert v stv)
+      pure stv
 
 -- <bijection>
 irep_to_uterm :: IRep v -> FD.UTerm Ty v
@@ -2654,13 +2775,35 @@ irep_to_uterm = \case
   IApp f x -> FD.UTerm (TyApp (irep_to_uterm f) (irep_to_uterm x))
   IFun f x -> FD.UTerm (TyFun (irep_to_uterm f) (irep_to_uterm x))
   ICon t -> FD.UTerm $ TyCon t
-uterm_to_irep :: FD.UTerm Ty v -> IRep v
-uterm_to_irep = \case
-  FD.UVar v -> IVar v
-  FD.UTerm (TyApp f x) -> IApp (uterm_to_irep f) (uterm_to_irep x)
-  FD.UTerm (TyFun f x) -> IFun (uterm_to_irep f) (uterm_to_irep x)
-  FD.UTerm (TyCon t) -> ICon t
 -- </bijection>
+
+-- | (unification-fd edition)
+-- A complete implementation of conversion from the inferer's type
+-- rep to some star type, ready for the type checker.
+-- Jumps straight from UTerm Ty to SomeTypeRep in one go; handles
+-- ambiguous vars and kind errors here.
+to_sometyperep :: forall v. Eq v => (Map IMetaVar v) ->
+  FD.UTerm Ty v -> Either ZonkError SomeTypeRep
+to_sometyperep mapping t = do
+  go t
+  where
+    go :: FD.UTerm Ty v -> Either ZonkError SomeTypeRep
+    go = \case
+      FD.UVar k -> Left $ ST_ambiguous_var (List.lookup k $ map swap $ Map.toList mapping)
+      FD.UTerm (TyCon someTypeRep) -> pure someTypeRep
+      FD.UTerm (TyFun a b) -> do
+        a' <- go a
+        b' <- go b
+        case (a', b') of
+          (StarTypeRep aRep, StarTypeRep bRep) ->
+            pure $ StarTypeRep (Type.Fun aRep bRep)
+          _ -> Left ZonkKindError
+      FD.UTerm (TyApp f a) -> do
+        f' <- go f
+        a' <- go a
+        case applyTypes f' a' of
+          Just someTypeRep -> pure someTypeRep
+          _ -> Left ZonkKindError
 
 --------------------------------------------------------------------------------
 -- Inference type representation
@@ -2675,6 +2818,7 @@ data IRep v
 data ZonkError
   = ZonkKindError
   | AmbiguousMetavar IMetaVar
+  | ST_ambiguous_var (Maybe IMetaVar)
   deriving (Show)
 
 -- | A complete implementation of conversion from the inferer's type
@@ -3109,6 +3253,11 @@ instance (Pretty a) => Pretty (IRep a) where
 instance Pretty ZonkError where
   pretty = \case
     ZonkKindError -> "Kind error."
+    ST_ambiguous_var imetavar -> "(ST) Ambiguous meta variable: "
+        <> maybe "???" pretty imetavar
+        <> "\n"
+        <> "arising from "
+        <> maybe "???" (pretty . (.srcSpanInfo)) imetavar
     AmbiguousMetavar imetavar ->
       "Ambiguous meta variable: "
         <> pretty imetavar

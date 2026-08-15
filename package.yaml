@@ -35,6 +35,8 @@ dependencies:
 - warp
 - wai
 - unification-fd
+- transformers
+- data-fix
 - http-types
 - case-insensitive
 

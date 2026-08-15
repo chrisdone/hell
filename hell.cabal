@@ -30,6 +30,7 @@ executable hell
     , containers
     , criterion
     , criterion-measurement
+    , data-fix
     , directory
     , ghc-prim
     , haskell-src-exts
@@ -46,6 +47,7 @@ executable hell
     , th-orphans
     , these
     , time
+    , transformers
     , typed-process
     , unification-fd
     , unliftio
@@ -71,6 +73,7 @@ test-suite hell-test
     , containers
     , criterion
     , criterion-measurement
+    , data-fix
     , directory
     , ghc-prim
     , haskell-src-exts
@@ -87,6 +90,7 @@ test-suite hell-test
     , th-orphans
     , these
     , time
+    , transformers
     , typed-process
     , unification-fd
     , unliftio
