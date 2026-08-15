@@ -3,7 +3,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFoldable, DeriveGeneric #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE ExistentialQuantification, DuplicateRecordFields, NoFieldSelectors #-}
@@ -43,6 +43,8 @@
 module Main (main, specMain) where
 
 #if __GLASGOW_HASKELL__ >= 906
+import qualified Control.Unification as FD
+import GHC.Generics (Generic1)
 import Control.Monad
 #endif
 
@@ -2635,6 +2637,30 @@ temp_withSystemTempDirectory template action = Temp.withSystemTempDirectory (Tex
 
 process_setWorkingDir :: forall a b c. Text -> ProcessConfig a b c -> ProcessConfig a b c
 process_setWorkingDir filepath = Process.setWorkingDir (Text.unpack filepath)
+
+--------------------------------------------------------------------------------
+-- unification-fd compatibility layer
+
+data Ty a
+  = TyApp a a
+  | TyFun a a
+  | TyCon SomeTypeRep
+  deriving (Functor, Traversable, Foldable, Eq, Ord, Show, Generic1)
+
+-- <bijection>
+irep_to_uterm :: IRep v -> FD.UTerm Ty v
+irep_to_uterm = \case
+  IVar v -> FD.UVar v
+  IApp f x -> FD.UTerm (TyApp (irep_to_uterm f) (irep_to_uterm x))
+  IFun f x -> FD.UTerm (TyFun (irep_to_uterm f) (irep_to_uterm x))
+  ICon t -> FD.UTerm $ TyCon t
+uterm_to_irep :: FD.UTerm Ty v -> IRep v
+uterm_to_irep = \case
+  FD.UVar v -> IVar v
+  FD.UTerm (TyApp f x) -> IApp (uterm_to_irep f) (uterm_to_irep x)
+  FD.UTerm (TyFun f x) -> IFun (uterm_to_irep f) (uterm_to_irep x)
+  FD.UTerm (TyCon t) -> ICon t
+-- </bijection>
 
 --------------------------------------------------------------------------------
 -- Inference type representation
