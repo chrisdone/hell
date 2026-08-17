@@ -2641,26 +2641,6 @@ data Ty a
 -- Below: Needed for FD.freeVar (note for myself, not audience)
 deriving instance FD.Unifiable Ty
 
--- WIP: At this point we want, preferably, a function that goes
--- from an (IRep IMetaVar) to SomeTypeRep in one go, which inferExp can
--- use to traverse f iterm to get UTerm SomeTypeRep. Or it receives the expr
--- to traverse over, due to the ST monadness.
---
--- Some key ingredients:
---
--- to_sometyperep :: Fix Ty -> Either ZonkError SomeTypeRep
--- irep_to_uterm :: IRep v -> FD.UTerm Ty v
--- FD.applyBindings :: UTerm t v -> em m (UTerm t v)
---
--- I'd say we want to:
---
--- 1) Convert the IRep IMetaVar to UTerm t v using the (Map IMetaVar (STVar ..)) map.
--- 2) Apply bindings to fully flesh out the type.
--- 3) Zonk it, going directly from FD.UTerm Ty straight to SomeTypeRep
---     (tweak to_sometyperep to work with UTerm Ty rather than Fix Ty)
---
--- That should be all that's needed?
-
 -- Unify all the constraints in @equalities@, zonk and update the term and return it.
 st_unify :: Traversable t
   => StatsEnabled
@@ -2736,14 +2716,12 @@ stize_imetavar = \v -> do
       modify' (Map.insert v stv)
       pure stv
 
--- <bijection>
 irep_to_uterm :: IRep v -> FD.UTerm Ty v
 irep_to_uterm = \case
   IVar v -> FD.UVar v
   IApp f x -> FD.UTerm (TyApp (irep_to_uterm f) (irep_to_uterm x))
   IFun f x -> FD.UTerm (TyFun (irep_to_uterm f) (irep_to_uterm x))
   ICon t -> FD.UTerm $ TyCon t
--- </bijection>
 
 -- | (unification-fd edition)
 -- A complete implementation of conversion from the inferer's type
