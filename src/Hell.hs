@@ -45,21 +45,20 @@ module Main (main, specMain) where
 
 
 #if __GLASGOW_HASKELL__ >= 906
+import Control.Monad
+#endif
+
 import Data.Tuple
-import Data.Fix
 import qualified Control.Unification.Types as FD
 import Control.Monad.Trans.Except
 import qualified Control.Unification as FD
 import qualified Control.Unification.STVar as FD
 import GHC.Generics (Generic1)
-import Control.Monad
-#endif
 
 -- All modules tend to be imported qualified by their last component,
 -- e.g. 'Data.Graph' becomes 'Graph', and are then exposed to the Hell
 -- guest language as such.
 
-import Control.Monad.ST
 import qualified Data.CaseInsensitive as CI
 import Data.CaseInsensitive (CI, FoldCase)
 import qualified Network.HTTP.Types as Http
@@ -113,7 +112,6 @@ import Data.Tree (Tree)
 import qualified Data.Tree as Tree
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
-import Data.Void
 import GHC.TypeLits
 import GHC.Types (Type)
 import qualified Language.Haskell.Exts as HSE
@@ -1641,8 +1639,7 @@ desugarAll types0 terms0 = do
 -- Infer
 
 data InferError
-  = UnifyError UnifyError
-  | ZonkError ZonkError
+  = ZonkError ZonkError
   | ElabError ElaborateError
   | ST_mapping_error
   | ST_unify_error
@@ -1653,29 +1650,6 @@ deriving instance Show InferError
 -- intermediate phase in which there are metavars, but then they're
 -- all eliminated. By the type system, the output contains only
 -- determinate types.
-inferExp ::
-  StatsEnabled ->
-  UTerm () ->
-  IO (Either InferError (UTerm SomeTypeRep))
-inferExp stats uterm = do
-  t0 <- getTime
-  case elaborate uterm of
-    Left elabError -> pure $ Left $ ElabError elabError
-    Right (iterm, equalities) -> do
-      t1 <- getTime
-      emitStat stats "elaborate" (t1 - t0)
-      case unify equalities of
-        Left unifyError -> pure $ Left $ UnifyError unifyError
-        Right subs -> do
-          t2 <- getTime
-          emitStat stats "unify" (t2 - t1)
-          case traverse (zonkToStarType subs) iterm of
-            Left zonkError -> pure $ Left $ ZonkError $ zonkError
-            Right !sterm -> do
-              t3 <- getTime
-              emitStat stats "zonk" (t3 - t2)
-              pure $ Right sterm
-
 infer_exp ::
   StatsEnabled ->
   UTerm () ->
@@ -1688,12 +1662,6 @@ infer_exp stats uterm = do
       t1 <- getTime
       emitStat stats "elaborate" (t1 - t0)
       st_unify stats equalities iterm
-
--- | Zonk a type and then convert it to a type: t :: *
-zonkToStarType :: Map IMetaVar (IRep IMetaVar) -> IRep IMetaVar -> Either ZonkError SomeTypeRep
-zonkToStarType subs irep = do
-  zonked <- zonk (substitute subs irep)
-  toSomeTypeRep zonked
 
 --------------------------------------------------------------------------------
 -- Occurs check
@@ -2706,9 +2674,9 @@ st_unify stats set term = do
           -- Thaw the equalities.
           (equalities, mapping) <- run_stize $ stize_equalities $ Set.toList set
           -- Unify the mutable equalities into the ambient environment.
-          result <- runExceptT $ st_unifier_ equalities
-          case result of
-            Left err -> pure $ Left ST_unify_error
+          result' <- runExceptT $ st_unifier_ equalities
+          case result' of
+            Left _err -> pure $ Left ST_unify_error
             Right () -> do
               -- Apply bindings, zonk and freeze all the types across the term.
               runExceptT $
@@ -2737,7 +2705,7 @@ st_apply = FD.applyBindings
 -- Unify all the equality constraints provided.
 st_unifier_ :: [Equality (FD.UTerm Ty (FD.STVar s Ty))]
             -> ExceptT (FD.UFailure Ty (FD.STVar s Ty)) (FD.STBinding s) ()
-st_unifier_ = traverse_ \(Equality src a b) -> void $ FD.unify a b
+st_unifier_ = traverse_ \(Equality _src a b) -> void $ FD.unify a b
 
 -- Run an ST-izing operation, and return the mapping from the original IMetaVars to the STVars, so that they can be recovered later.
 run_stize :: StateT (Map IMetaVar (FD.STVar s Ty)) (FD.STBinding s) x -> FD.STBinding s (x, Map IMetaVar (FD.STVar s Ty))
@@ -2820,30 +2788,6 @@ data ZonkError
   | AmbiguousMetavar IMetaVar
   | ST_ambiguous_var (Maybe IMetaVar)
   deriving (Show)
-
--- | A complete implementation of conversion from the inferer's type
--- rep to some star type, ready for the type checker.
-toSomeTypeRep :: IRep Void -> Either ZonkError SomeTypeRep
-toSomeTypeRep t = do
-  go t
-  where
-    go :: IRep Void -> Either ZonkError SomeTypeRep
-    go = \case
-      IVar v -> pure (absurd v)
-      ICon someTypeRep -> pure someTypeRep
-      IFun a b -> do
-        a' <- go a
-        b' <- go b
-        case (a', b') of
-          (StarTypeRep aRep, StarTypeRep bRep) ->
-            pure $ StarTypeRep (Type.Fun aRep bRep)
-          _ -> Left ZonkKindError
-      IApp f a -> do
-        f' <- go f
-        a' <- go a
-        case applyTypes f' a' of
-          Just someTypeRep -> pure someTypeRep
-          _ -> Left ZonkKindError
 
 -- | Convert from a type-indexed type to an untyped type.
 fromSomeStarType :: forall void. SomeStarType -> IRep void
@@ -2960,78 +2904,6 @@ freshIMetaVar srcSpanInfo = do
   Elaborate {counter} <- get
   modify \elaborate' -> elaborate' {counter = counter + 1}
   pure $ IMetaVar0 counter srcSpanInfo
-
---------------------------------------------------------------------------------
--- Unification
-
-data UnifyError
-  = OccursCheck
-  | TypeMismatch HSE.SrcSpanInfo (IRep IMetaVar) (IRep IMetaVar)
-  deriving (Show)
-
--- | Unification of equality constraints, a ~ b, to substitutions.
-unify :: Set (Equality (IRep IMetaVar)) -> Either UnifyError (Map IMetaVar (IRep IMetaVar))
-unify = foldM update mempty
-  where
-    update existing equality =
-      fmap
-        (`extends` existing)
-        (examine (fmap (substitute existing) equality))
-    examine (Equality l a b)
-      | a == b = pure mempty
-      | IVar ivar <- a = bindMetaVar ivar b
-      | IVar ivar <- b = bindMetaVar ivar a
-      | IFun a1 b1 <- a,
-        IFun a2 b2 <- b =
-          unify (Set.fromList [Equality l a1 a2, Equality l b1 b2])
-      | IApp a1 b1 <- a,
-        IApp a2 b2 <- b =
-          unify (Set.fromList [Equality l a1 a2, Equality l b1 b2])
-      | ICon x <- a,
-        ICon y <- b =
-          if x == y
-            then pure mempty
-            else Left $ TypeMismatch l a b
-      | otherwise = Left $ TypeMismatch l a b
-
--- | Apply new substitutions to the old ones, and expand the set to old+new.
-extends :: Map IMetaVar (IRep IMetaVar) -> Map IMetaVar (IRep IMetaVar) -> Map IMetaVar (IRep IMetaVar)
-extends new old = fmap (substitute new) old <> new
-
--- | Apply any substitutions to the type, where there are metavars.
-substitute :: Map IMetaVar (IRep IMetaVar) -> IRep IMetaVar -> IRep IMetaVar
-substitute subs = go
-  where
-    go = \case
-      IVar v -> case Map.lookup v subs of
-        Nothing -> IVar v
-        Just ty -> ty
-      ICon c -> ICon c
-      IFun a b -> IFun (go a) (go b)
-      IApp a b -> IApp (go a) (go b)
-
--- | Do an occurrs check, if all good, return a binding.
-bindMetaVar ::
-  IMetaVar ->
-  IRep IMetaVar ->
-  Either UnifyError (Map IMetaVar (IRep IMetaVar))
-bindMetaVar var typ
-  | occurs var typ = Left OccursCheck
-  | otherwise = pure $ Map.singleton var typ
-
--- | Occurs check.
-occurs :: IMetaVar -> IRep IMetaVar -> Bool
-occurs ivar = any (== ivar)
-
--- | Remove any metavars from the type.
---
--- <https://stackoverflow.com/questions/31889048/what-does-the-ghc-source-mean-by-zonk>
-zonk :: IRep IMetaVar -> Either ZonkError (IRep Void)
-zonk = \case
-  IVar var -> Left $ AmbiguousMetavar var
-  ICon c -> pure $ ICon c
-  IFun a b -> IFun <$> zonk a <*> zonk b
-  IApp a b -> IApp <$> zonk a <*> zonk b
 
 --------------------------------------------------------------------------------
 -- Parse with #!/shebangs
@@ -3271,20 +3143,6 @@ instance Pretty ElaborateError where
     BadInstantiationBug -> "BUG: BadInstantiationBug. Please report."
     VariableNotInScope s -> "Variable not in scope: " <> pretty s
 
-instance Pretty UnifyError where
-  pretty = \case
-    OccursCheck -> "Occurs check failed: Infinite type."
-    TypeMismatch l a b ->
-      mconcat $
-        List.intersperse
-          "\n\n"
-          [ "Couldn't match type",
-            "  " <> pretty a,
-            "against type",
-            "  " <> pretty b,
-            "arising from " <> pretty l
-          ]
-
 instance Pretty HSE.SrcSpanInfo where
   pretty l =
     mconcat
@@ -3330,9 +3188,11 @@ instance Pretty DesugarError where
 
 instance Pretty InferError where
   pretty = \case
-    UnifyError e -> "Unification error: " <> pretty e
     ZonkError e -> "Zonk error: " <> pretty e
     ElabError e -> "Elaboration error: " <> pretty e
+    ST_mapping_error -> "BUG: Unification meta mapping error."
+    ST_unify_error -> "Unification error!"
+    ST_apply_bindings_error -> "Unification apply bindings error."
 
 --------------------------------------------------------------------------------
 -- Generate docs
