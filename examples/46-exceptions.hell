@@ -1,0 +1,23 @@
+main = do
+  let noSuchFile :: Text = "no/such/file.txt"
+  let printException = \e -> do Text.hPutStr IO.stderr (Show.show e <> "\n")
+                                IO.pure ""
+  let catchAndPrintException = \action -> SomeException.catch action printException
+
+  catchAndPrintException (Text.readFile noSuchFile)
+
+  let file = "file.txt"
+  catchAndPrintException $
+    Exception.bracket
+      (IO.openFile file IO.ReadWriteMode)
+      (\fileHandle -> do
+          IO.hClose fileHandle
+          Directory.removeFile file
+      )
+      (\fileHandle -> do
+          IO.hSetBuffering fileHandle IO.NoBuffering
+          Text.hPutStr fileHandle "don't buffer me"
+          Text.decodeUtf8 <$> ByteString.hGet fileHandle 10
+      )
+
+  IO.pure ()

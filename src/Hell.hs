@@ -59,7 +59,8 @@ import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as Builder
 import Control.Applicative (Alternative (..), optional)
 import qualified Control.Concurrent as Concurrent
-import Control.Exception (evaluate)
+import Control.Exception (evaluate, SomeException)
+import qualified Control.Exception as Exception
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Criterion.Measurement
@@ -864,6 +865,7 @@ instances =
         instance0 @Show @Builder,
         instance0 @Show @ExitCode,
         instance0 @Show @Value,
+        instance0 @Show @SomeException,
         entail1 @Eq @CI,
         entail1 @Eq @[],
         entail1 @Eq @Set,
@@ -1730,6 +1732,7 @@ supportedTypeConstructors =
       ("TimeOfDay", SomeTypeRep $ typeRep @TimeOfDay),
       ("Builder", SomeTypeRep $ typeRep @Builder),
       ("CI", SomeTypeRep $ typeRep @CI),
+      ("SomeException", SomeTypeRep $ typeRep @SomeException),
       -- Internal, hidden types
       ("hell:Hell.NilL", SomeTypeRep $ typeRep @('NilL)),
       ("hell:Hell.ConsL", SomeTypeRep $ typeRep @('ConsL)),
@@ -2394,6 +2397,12 @@ polyLits =
                "Argument.help" options_help :: forall a. Text -> Options.Mod Options.ArgumentFields a
                "Options.progDesc" options_progDesc :: forall a. Text -> Options.InfoMod a
                "Options.header" options_header :: forall a. Text -> Options.InfoMod a
+
+               -- Exceptions
+               "Exception.finally" Exception.finally :: forall a b. IO a -> IO b -> IO a
+               "Exception.onException" Exception.onException :: forall a b. IO a -> IO b -> IO a
+               "Exception.bracket" Exception.bracket :: forall a b c. IO a -> (a -> IO b) -> (a -> IO c) -> IO c
+               "SomeException.catch" Exception.catch :: forall a. IO a -> (SomeException -> IO a) -> IO a
              |]
       in toplevel
    )
