@@ -59,7 +59,8 @@ import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as Builder
 import Control.Applicative (Alternative (..), optional)
 import qualified Control.Concurrent as Concurrent
-import Control.Exception (evaluate)
+import Control.Exception (evaluate, SomeException)
+import qualified Control.Exception as Exception
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Criterion.Measurement
@@ -2394,6 +2395,12 @@ polyLits =
                "Argument.help" options_help :: forall a. Text -> Options.Mod Options.ArgumentFields a
                "Options.progDesc" options_progDesc :: forall a. Text -> Options.InfoMod a
                "Options.header" options_header :: forall a. Text -> Options.InfoMod a
+
+               -- Exceptions
+               "Exception.finally" Exception.finally :: forall a b. IO a -> IO b -> IO a
+               "Exception.onException" Exception.onException :: forall a b. IO a -> IO b -> IO a
+               "Exception.bracket" Exception.bracket :: forall a b c. IO a -> (a -> IO b) -> (a -> IO c) -> IO c
+               "SomeException.catch" Exception.catch :: forall a. IO a -> (SomeException -> IO a) -> IO a
              |]
       in toplevel
    )
