@@ -865,6 +865,7 @@ instances =
         instance0 @Show @Builder,
         instance0 @Show @ExitCode,
         instance0 @Show @Value,
+        instance0 @Show @SomeException,
         entail1 @Eq @CI,
         entail1 @Eq @[],
         entail1 @Eq @Set,
@@ -1731,6 +1732,7 @@ supportedTypeConstructors =
       ("TimeOfDay", SomeTypeRep $ typeRep @TimeOfDay),
       ("Builder", SomeTypeRep $ typeRep @Builder),
       ("CI", SomeTypeRep $ typeRep @CI),
+      ("SomeException", SomeTypeRep $ typeRep @SomeException),
       -- Internal, hidden types
       ("hell:Hell.NilL", SomeTypeRep $ typeRep @('NilL)),
       ("hell:Hell.ConsL", SomeTypeRep $ typeRep @('ConsL)),
